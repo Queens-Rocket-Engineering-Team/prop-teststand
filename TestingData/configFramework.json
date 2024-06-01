@@ -1,0 +1,38 @@
+{
+    "configName" : "NAME HERE",
+    "filePath" : "Path to store data in. Most likely local directory",
+    
+    "sensors" : {
+
+        "thermocouple" : {
+            "THERMOCOUPLENAME" : {
+                "pin" : "PINHERE"
+            }    
+        },
+
+        "pressureTransducer" :{
+            "TRANSDUCERNAME" : {
+                "pin" : "PINHERE",
+                "maxPressure_PSI" : PSILoadRating_int
+            }
+
+        },
+
+        "loadCell" : {
+            "LOADCELLNAME" : {
+            "oddNegPin" : "ODDPINHERE",
+            "evenPosPin" : "EVENPINHERE",
+            "loadRating_N" : NEWTONLOADRATING_int,
+            "excitation_V" : ExcitationVoltage_V,
+            "sensitivity_vV" : sensitivityIn mv/V
+            }
+        }
+    },
+
+    "valves" : {
+        "VALVENAME" : {
+            "pin" : "Valve pin number",
+            "default" : 0 for closed 1 for open
+        }
+    
+}
