@@ -134,30 +134,30 @@ while(True):
         
         
     if msvcrt.kbhit():
-            key = msvcrt.getch().decode('utf-8')
+        key = msvcrt.getch().decode('utf-8')
 
-            if key == '/':
-                print("Closing...")
-                ljm.close(handle)
-                break
+        if key == '/':
+            print("Closing...")
+            ljm.close(handle)
+            break
 
-            if key in openValveMap: # Open Select Valve
-                valveName = openValveMap[key]
-                valves[valveName].openValve()
-            
-            if key in closeValveMap: # Close Select Valve
-                valveName = closeValveMap[key]
-                valves[valveName].closeValve()
-            
-            if key in getStateMap: # Get select state
-                valveName = getStateMap[key]
-                state = valves[valveName].currentState
-                if state == 1: print(f"{valveName} is open")
-                if state == 0: print(f"{valveName} is closed")
-            
-            if key == 'c': # Close ALL valves
-                for tempValve in valves.items():
-                    tempValve[1].closeValve()
+        if key in openValveMap: # Open Select Valve
+            valveName = openValveMap[key]
+            valves[valveName].openValve()
+        
+        if key in closeValveMap: # Close Select Valve
+            valveName = closeValveMap[key]
+            valves[valveName].closeValve()
+        
+        if key in getStateMap: # Get select state
+            valveName = getStateMap[key]
+            state = valves[valveName].currentState
+            if state == 1: print(f"{valveName} is open")
+            if state == 0: print(f"{valveName} is closed")
+        
+        if key == 'c': # Close ALL valves
+            for tempValve in valves.items():
+                tempValve[1].closeValve()
 
 print("Data collected.")
 
