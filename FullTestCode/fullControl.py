@@ -22,7 +22,8 @@ def jsonDefineIO(handle, configFilename):
         for sensorName, sensorInfo in sensors.items():
             if sensorType == "thermocouple":
                 pin = sensorInfo["pin"]
-                sensorsObjects[sensorName] = thermocouple(handle, pin)
+                offset = sensorInfo["offset"]
+                sensorsObjects[sensorName] = thermocouple(handle, pin, offset)
             
             elif sensorType == "pressureTransducer":
                 pin = sensorInfo["pin"]
@@ -130,7 +131,7 @@ while(True):
         times.append(currentTime - startTime)
         count += 1
         if count % 10 == 0:
-            print(f"NitrousFillKG: {sensors['LCNitrousFill'].data_kg[count-1]-0.6:3.1f}--ThrustKG: {sensors['LCThrust'].data_kg[count-1]:3.1f}--PTRunPSI: {sensors['PTRun'].data_PSI[count-1]:3.1f}-- PTPreInjectorPSI: {sensors['PTPreInjector'].data_PSI[count-1]:3.1f}-- PTN2OSupply: {sensors['PTN2OSupply'].data_PSI[count-1]:3.1f}")
+            print(f"NitrousFillKG: {sensors['LCNitrousFill'].data_kg[count-1]-0.6:3.1f}--ThrustKG: {sensors['LCThrust'].data_kg[count-1]:3.1f}--TCRun: {sensors['TCNitrousRun'].data_celsius[count-1]:3.1f}--PTRunPSI: {sensors['PTRun'].data_PSI[count-1]:3.1f}-- PTEngine: {sensors['PTPreInjector'].data_PSI[count-1]:3.1f}-- PTN2OSupply: {sensors['PTN2OSupply'].data_PSI[count-1]:3.1f}--TCSupply: {sensors['TCNitrousSupply'].data_celsius[count-1]:3.1f}")
         
         
     if msvcrt.kbhit():

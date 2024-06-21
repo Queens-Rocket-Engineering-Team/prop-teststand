@@ -1,32 +1,34 @@
 {
-    "configName" : "NAME HERE",
-    "filePath" : "Path to store data in. Most likely local directory",
+    "configName" : "PestControl-noRatsNest",
+    "filePath" : "June15ColdFlow",
     
     "sensors" : {
 
         "thermocouple" : {
             "TCNitrousSupply" : {
-                "pin" : "AIN6"
+                "pin" : "AIN10",
+                "offset" : -105
             },
 
             "TCNitrousRun" : {
-                "pin" : "AIN7"
+                "pin" : "AIN11",
+                "offset" : -105
             }
         },
 
         "pressureTransducer" :{
             "PTN2OSupply" : {
-                "pin" : "AIN0",
-                "maxPressure_PSI" : 1000
-            },
-
-            "PTRun" : {
                 "pin" : "AIN1",
                 "maxPressure_PSI" : 1000
             },
 
-            "PTPreInjector" : {
+            "PTRun" : {
                 "pin" : "AIN2",
+                "maxPressure_PSI" : 1000
+            },
+
+            "PTPreInjector" : {
+                "pin" : "AIN4",
                 "maxPressure_PSI" : 1000
             },
 
@@ -36,8 +38,8 @@
             },
 
             "PTN2Supply" : {
-                "pin" : "AIN4",
-                "maxPressure_PSI" : 1000
+                "pin" : "AIN0",
+                "maxPressure_PSI" : 200
             }
         },
 
@@ -47,26 +49,26 @@
             "evenPosPin" : "AIN8",
             "loadRating_N" : 220,
             "excitation_V" : 5,
-            "sensitivity_vV" : 2
+            "sensitivity_vV" : 20
             },
 
             "LCThrust" : {
-                "oddNegPin" : "AIN11",
-                "evenPosPin" : "AIN10",
+                "oddNegPin" : "AIN7",
+                "evenPosPin" : "AIN6",
                 "loadRating_N" : 5000,
                 "excitation_V" : 10,
-                "sensitivity_vV" : 20
+                "sensitivity_vV" : 2
                 }
         }
     },
 
     "valves" : {
         "AVFill" : {
-            "controlPin" : "FIO1",
+            "controlPin" : "FIO4",
             "defaultState" : 0
         },
         "AVRun" : {
-            "controlPin" : "FIO2",
+            "controlPin" : "FIO6",
             "defaultState" : 0
         },
         "AVDump" : {
@@ -74,7 +76,7 @@
             "defaultState" : 1
         },
         "AVN2Purge1" : {
-            "controlPin" : "FIO4",
+            "controlPin" : "FIO2",
             "defaultState" : 1
         },
         "AVN2Purge2" : {
