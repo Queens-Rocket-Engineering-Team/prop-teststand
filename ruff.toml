@@ -1,0 +1,163 @@
+
+# STARTER FILE TAKEN FROM: https://docs.astral.sh/ruff/configuration/
+
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
+
+extend-include = ["*.ipynb"]
+
+line-length = 150
+indent-width = 4
+
+# Assume Python 3.11
+target-version = "py311"
+
+[lint]
+# Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.
+# Unlike Flake8, Ruff doesn't enable pycodestyle warnings (`W`) or
+# McCabe complexity (`C901`) by default.
+select = [
+    "ALL",
+]
+
+ignore = [
+    # FIX items (to comment out temporarily while looking for real issues)...
+
+    "FIX001",  # Identify general FIXME items (uncomment this to only see "real" issues")
+    "FIX002",  # Identify general TODO items (uncomment this to only see "real" issues")
+
+    # TO CONSIDER REMOVING OVERALL...
+    #"D103",    # Missing docstring in public function
+    "D107",    # Missing docstring in __init__
+    "FIX004",  # fixme-comment  (allows using `# FIXME` comments)
+
+    # PROJECT SPECIFIC STYLE...
+    "PTH",     # Remove all `flake8-use-pathlib` suggestions (instead of using `os.path`)
+    "N801",    # invalid-class-name -- allows non-PascalCase classes (like XX_SomeClass)
+    "PGH003",  # allow generic `#type:ignore` comments (with no explicit [ignore_type])
+
+    # Allow snake_case deviations...
+    "N802",    # function name should be lowercase (allows other than snake_case)
+    "N803",    # argument name should be lowercase (allows other than snake_case)
+    "N806",    # variable in function should be lowercase (allows other than snake_case)
+    "N815",    # mixedCase variable in class scope (allows other than snake_case)
+    "N816",    # mixedCase variable in global scope (allows other than snake_case)
+    "N999",    # invalid-module-name (allows non-snake_case module names, like for SomeClass.py)
+
+    ## DEFINITE STUFF...
+
+    # Outright module removals...
+    "BLE",     # Remove checking for blind exceptions (`except Exception` has its place!)
+    "FBT",     # `flake8-boolean-trap` -- allows positional fn args  to be booleans
+
+    # `flake8-annotations` stuff
+    "ANN101",  # Missing type annotation for self in method  (will be deprecated anyway)
+    "ANN102",  # Missing type annotation for cls in classmethod  (will be deprecated anyway)
+    "ANN204",  # missing-return-type-special-method
+    "ANN401",  # any-type  (allows use of `Any`... although use sparingly!)
+
+    # `pydocstyle` stuff
+    "D100",    # Missing docstring in public module
+    "D101",    # Missing docstring in public class
+    "D102",    # Missing docstring in public method
+    "D103",    # Missing docstring in public function
+    "D104",    # Missing docstring in public package
+    "D105",    # Missing docstring in magic method
+    "D202",    # no-blank-line-after-function
+    "D204",    # 1 blank line required after class docstring
+
+    # `pycodestyle` stuff
+    "E701",    # multiple statements on one line (colon)
+
+    # `flake8-todos` stuff
+    "TD001",   # invalid todo tag -- allows FIXME
+    "TD002",   # invalid TODO author -- no need to put a person in a TODO (!!)
+    "TD003",   # missing issue link below TODO
+    "TD004",   # missing colon in TODO
+    "TD005",   # missing-todo-description
+
+    # Misc suppressions...
+    "C408",    # unnecessary-collection-call -- allows dict(a=1, b=2) instead of {"a": 1, "b": 2}
+    "DTZ005",  # Allow naive datetime objects (they have their place)
+    "EM101",   # raw-string-in-exception -- allows using raw strings in exceptions
+    "ERA001",  # commented-out-code
+    "FBT002",  # boolean-default-value-positional-argument
+    "PIE790",  # unnecessary-placeholder -- allows random `pass` statements (and ...)
+    "PLR0913", # too-many-arguments -- allows more than 5 arguments in a function
+    "PLR2004", # magic-value-comparison (PLR2004) -- allows using magic values in comparisons
+    "RET504",  # unnecessary-assign -- allows var assign preceding return (useful for debugging)
+    "S101",    # allow use of assert statements
+    "SIM108",  # if-else-block-instead-of-if-exp -- stops suggesting ternary operators
+    "T201",    # Allow use of the print function
+    "TRY003",  # raise-vanilla-args -- allows passing long strings to Exception constructor
+    "UP015",   # redundant-open-modes -- allows explicit open(fpath, "r") instead of open(fpath)
+]
+
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+pylint.max-statements = 100
+
+[lint.isort]
+known-third-party = ["PySide6"]
+
+[lint.mccabe]
+max-complexity = 15  # 10 is the default, which is nice... but annoying
+
+[format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
+
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
+
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"
+
+# Enable auto-formatting of code examples in docstrings. Markdown,
+# reStructuredText code/literal blocks and doctests are all supported.
+#
+# This is currently disabled by default, but it is planned for this
+# to be opt-out in the future.
+docstring-code-format = false
+
+# Set the line length limit used when formatting code snippets in
+# docstrings.
+#
+# This only has an effect when the `docstring-code-format` setting is
+# enabled.
+docstring-code-line-length = "dynamic"
