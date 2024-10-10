@@ -3,6 +3,8 @@
         "tamasfe.even-better-toml",
         "stkb.rewrap",
         "charliermarsh.ruff",
-        "davidanson.vscode-markdownlint"
+        "davidanson.vscode-markdownlint",
+        "streetsidesoftware.code-spell-checker",
+        "matangover.mypy"
     ]
 }
