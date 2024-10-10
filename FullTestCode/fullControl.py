@@ -1,62 +1,63 @@
 import csv
 import json
 import msvcrt
-import time
 import sys
+import time
 
 import colorama
 from labjack import ljm
+from sensors.loadCell import LoadCell
+from sensors.pressureTransducer import pressureTransducer
+from sensors.thermocouple import thermocouple
+from valves.valve import valve
 
-from QDAC_Class import *
 
+startTime_s = time.monotonic()
 
-## Define some lookup dicts for IO lines...
 openValveMap = {
-    '1': "AVFill",      # FIO0
-    '2': "AVDump",      # FIO1
-    '3': "AVRun",       # FIO2
-    '4': "AVN2Purge1",  # FIO3
-    '5': "AVN2Purge2"   # FIO4
+    "1": "AVFill",  # FIO0
+    "2": "AVDump",  # FIO1
+    "3": "AVRun",  # FIO2
+    "4": "AVN2Purge1",  # FIO3
+    "5": "AVN2Purge2",  # FIO4
 }
 
 closeValveMap = {
-    'q': "AVFill",      # FIO0
-    'w': "AVDump",      # FIO1
-    'e': "AVRun",       # FIO2
-    'r': "AVN2Purge1",  # FIO3
-    't': "AVN2Purge2"   # FIO4
+    "q": "AVFill",  # FIO0
+    "w": "AVDump",  # FIO1
+    "e": "AVRun",  # FIO2
+    "r": "AVN2Purge1",  # FIO3
+    "t": "AVN2Purge2",  # FIO4
 }
 
 getStateMap = {
-    'a': "AVFill",      # FIO0
-    's': "AVDump",      # FIO1
-    'd': "AVRun",       # FIO2
-    'f': "AVN2Purge1",  # FIO3
-    'g': "AVN2Purge2"   # FIO4
+    "a": "AVFill",  # FIO0
+    "s": "AVDump",  # FIO1
+    "d": "AVRun",  # FIO2
+    "f": "AVN2Purge1",  # FIO3
+    "g": "AVN2Purge2",  # FIO4
 }
-
-startTime_s = time.monotonic()
 
 #######
 ## FUNCTIONS
 ####
 
-def print(*args, **kwargs) -> None:
+def print(*_args: str, **_kwargs: str) -> None:  # noqa: A001 # builtin-variable-shadowing
     raise RuntimeError("STOP! DO NOT USE PRINT! USE log() INSTEAD!")
 
 def log(msg: str) -> None:
     elapsed_s = time.monotonic() - startTime_s
     sys.stdout.write(f"[{elapsed_s:<6.3f}] {msg}\n")
 
-def jsonDefineIO(handle, configFilename):
-    '''
-    This function creates the objects for the desired test setup from a JSON file following the format
-    specified in /configFramework.json.
-    '''
+def jsonDefineIO(handle: int, configFilename: str) -> tuple[dict, dict, str, str]:
+    """Create objects for the desired test setup from a JSON file.
 
-    with open(configFilename, 'r') as f:
+    The JSON file should follow the format specified in /configFramework.json.
+    """
+
+    with open(configFilename, "r") as f:
         config = json.load(f)
-    
+
     sensorsObjects = {}
     valveObjects = {}
 
@@ -66,19 +67,19 @@ def jsonDefineIO(handle, configFilename):
                 pin = sensorInfo["pin"]
                 offset = sensorInfo["offset"]
                 sensorsObjects[sensorName] = thermocouple(handle, pin, offset)
-            
+
             elif sensorType == "pressureTransducer":
                 pin = sensorInfo["pin"]
                 pressureRange = sensorInfo["maxPressure_PSI"]
                 sensorsObjects[sensorName] = pressureTransducer(handle, pin, pressureRange)
-            
+
             elif sensorType == "loadCell":
                 negPin = sensorInfo["oddNegPin"]
                 posPin = sensorInfo["evenPosPin"]
                 maxWeight = sensorInfo["loadRating_N"]
                 excitation = sensorInfo["excitation_V"]
                 sensitivity = sensorInfo["sensitivity_vV"]
-                sensorsObjects[sensorName] = loadCell(handle, posPin, negPin, maxWeight, excitation, sensitivity)
+                sensorsObjects[sensorName] = LoadCell(handle, posPin, negPin, maxWeight, excitation, sensitivity)
 
     for valveName, valveInfo in config["valves"].items():
         pin = valveInfo["controlPin"]
@@ -87,51 +88,50 @@ def jsonDefineIO(handle, configFilename):
 
     return sensorsObjects, valveObjects, config["configName"], config["filePath"]
 
-def takeAllData(sensors):
-    ''' Takes sensor dictionary'''
+def takeAllData(sensors: dict) -> None:
+    """Take data for all sensors."""
     for sensor in sensors.values(): sensor.takeData()
 
-def exportTestDataCSV(timeStamps, sensors, dataDir, configName, configPath):
-    
+def exportTestDataCSV(timeStamps: list, sensors: dict, dataDir: str, configName: str, configPath: str) -> None:
+
     # Setting CSV filename
-    localTime = time.strftime('%Y-%m-%d %H-%M-%S', time.localtime(time.time()))
-    csvFilename = configName + '---' + localTime
+    localTime = time.strftime("%Y-%m-%d %H-%M-%S", time.localtime(time.time()))
+    csvFilename = configName + "---" + localTime
 
     # Setting CSV headers
-    csvData = [['Time'] + list(sensors.keys())]
-    
+    csvData = [["Time", *list(sensors.keys())]]
+
     # Assembling CSV rows for each sensor
     for i in range(len(timeStamps)):
         row = [timeStamps[i]]
         for sensor in sensors.values():
             if type(sensor) == thermocouple:
-                row.append(sensor.data_celsius[i]) 
+                row.append(sensor.data_celsius[i])
             if type(sensor) == pressureTransducer:
-                row.append(sensor.data_PSI[i]) 
-            if type(sensor) == loadCell:
-                row.append(sensor.data_kg[i]) 
+                row.append(sensor.data_PSI[i])
+            if type(sensor) == LoadCell:
+                row.append(sensor.data_kg[i])
         csvData.append(row)
-    
+
     # Writing data to csv
-    with open(dataDir + csvFilename, 'w', newline='') as csvfile:
+    with open(dataDir + csvFilename, "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["Config File Name:", configName])
         writer.writerow(["Config File Path:", configPath])
         writer.writerow(["Test Time:", localTime])
         writer.writerows(csvData)
-    
+
     log(f"Data saved to {dataDir + csvFilename}")
 
-def errExit(msg: str, exitCode: int = 1) -> None:
+def errExit(_msg: str, exitCode: int = 1) -> None:
     sys.stderr.write(f"{colorama.Fore.RED}Labjack libraries are not installed! Install Kipling first!{colorama.Style.RESET_ALL}")
     sys.exit(exitCode)
 
 def ensureLabjackPresence() -> bool:
-    if ljm.ljm._staticLib is None:
+    if ljm.ljm._staticLib is None:  # noqa: SLF001
         errExit("Labjack libraries are not installed! Install Kipling first!")
 
-
-def main(argv: list[str]):
+def main (_argv: list[str]) -> None:
     ensureLabjackPresence()
 
     handle = ljm.openS("T7","ANY","ANY")
@@ -144,30 +144,36 @@ def main(argv: list[str]):
     sensors, valves, configName, dataDirectory = jsonDefineIO(handle, configPath)
     log("Sensors Initialized.")
 
-
-    startTime = time.time()
     sampleSpacing_s = 0.01
     times = []
     count = 0
 
-    log("Enter control keys now:")
-    lastTime = time.time()
+    print("Enter control keys now:")
+    lastTime = time.monotonic()
     while(True):
-        currentTime = time.time()
-        
+        currentTime = time.monotonic()
+
 
         if (currentTime - lastTime) > sampleSpacing_s:
             takeAllData(sensors)
-            times.append(currentTime - startTime)
+            times.append(currentTime - startTime_s)
             count += 1
             if count % 10 == 0:
-                log(f"NitrousFillKG: {sensors['LCNitrousFill'].data_kg[count-1]-0.6:3.1f}--ThrustKG: {sensors['LCThrust'].data_kg[count-1]:3.1f}--TCRun: {sensors['TCNitrousRun'].data_celsius[count-1]:3.1f}--PTRunPSI: {sensors['PTRun'].data_PSI[count-1]:3.1f}-- PTEngine: {sensors['PTPreInjector'].data_PSI[count-1]:3.1f}-- PTN2OSupply: {sensors['PTN2OSupply'].data_PSI[count-1]:3.1f}--TCSupply: {sensors['TCNitrousSupply'].data_celsius[count-1]:3.1f}")
-            
-            
-        if msvcrt.kbhit():
-            key = msvcrt.getch().decode('utf-8')
+                log(
+                    "NitrousFillKG: " + f"{sensors['LCNitrousFill'].data_kg[count-1]-0.6:3.1f}" +
+                    ", ThrustKG: " + f"{sensors['LCThrust'].data_kg[count-1]:3.1f}" +
+                    ", TCRun: " + f"{sensors['TCNitrousRun'].data_celsius[count-1]:3.1f}" +
+                    ", PTRunPSI: " + f"{sensors['PTRun'].data_PSI[count-1]:3.1f}" +
+                    ", PTEngine: " + f"{sensors['PTPreInjector'].data_PSI[count-1]:3.1f}" +
+                    ", PTN2OSupply: " + f"{sensors['PTN2OSupply'].data_PSI[count-1]:3.1f}" +
+                    ", TCSupply: " + f"{sensors['TCNitrousSupply'].data_celsius[count-1]:3.1f}",
+                )
 
-            if key == '/':
+
+        if msvcrt.kbhit():
+            key = msvcrt.getch().decode("utf-8")
+
+            if key == "/":
                 log("Closing...")
                 ljm.close(handle)
                 break
@@ -175,30 +181,29 @@ def main(argv: list[str]):
             if key in openValveMap: # Open Select Valve
                 valveName = openValveMap[key]
                 valves[valveName].openValve()
-            
+
             if key in closeValveMap: # Close Select Valve
                 valveName = closeValveMap[key]
                 valves[valveName].closeValve()
-            
+
             if key in getStateMap: # Get select state
                 valveName = getStateMap[key]
                 state = valves[valveName].currentState
-                if state == 1: log(f"{valveName} is open")
-                if state == 0: log(f"{valveName} is closed")
-            
-            if key == 'c': # Close ALL valves
+                if state == 1: print(f"{valveName} is open")
+                if state == 0: print(f"{valveName} is closed")
+
+            if key == "c": # Close ALL valves
                 for tempValve in valves.items():
                     tempValve[1].closeValve()
 
-    log("Data collected.")
+        log("Data collected.")
 
-    log("Exporting Data to CSV...")
-    exportTestDataCSV(times, sensors, dataDirectory, configName, configPath)
+        log("Exporting Data to CSV...")
+        exportTestDataCSV(times, sensors, dataDirectory, configName, configPath)
 
-    log("Closing Connection...")
-    # ljm.close(handle)
-    log("End of test.")
+        log("Closing Connection...")
+        # ljm.close(handle)
+        log("End of test.")
 
 if __name__ == "__main__":
-    import sys
     main(sys.argv[1:])

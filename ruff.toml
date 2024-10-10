@@ -131,6 +131,8 @@ pylint.max-statements = 100
 
 [lint.isort]
 known-third-party = ["PySide6"]
+lines-after-imports = 2
+no-lines-before = ["future", "standard-library"]
 
 [lint.mccabe]
 max-complexity = 15  # 10 is the default, which is nice... but annoying

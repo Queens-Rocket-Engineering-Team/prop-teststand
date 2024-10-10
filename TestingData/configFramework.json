@@ -31,7 +31,7 @@
 
     "valves" : {
         "VALVENAME" : {
-            "pin" : "Valve pin number",
+            "controlPin" : "Valve pin number",
             "default" : 0 for closed 1 for open
         }
     
