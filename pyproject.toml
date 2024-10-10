@@ -1,0 +1,26 @@
+[project]
+name = "prop_teststand"
+version = "1.0"
+authors = [
+    {name = "Noah Warren", email = "noahwarren42@gmail.com"}
+]
+requires-python = ">=3.11"
+
+dependencies = [
+    # Running requirements
+    "colorama",
+    "numpy",
+    "labjack-ljm",
+
+    # Dev stuff
+    "ruff",
+    "mypy",
+]
+
+[tool.setuptools.packages.find]
+where = [""]
+include = ["prop_teststand"]
+namespaces = false
+
+[tool.mypy-plotly]
+ignore_missing_imports = true

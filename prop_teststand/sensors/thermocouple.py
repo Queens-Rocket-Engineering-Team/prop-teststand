@@ -1,7 +1,7 @@
-from labjack import ljm
+from labjack import ljm  #type:ignore  # Labjack is not typed
 
 
-class thermocouple:
+class Thermocouple:
     """Class to define a thermocouple type sensor.
 
     The class definition should be passed a numbered analog pin (i.e. AIN0) and it will
@@ -13,6 +13,8 @@ class thermocouple:
     the specified terminal. (MAY ONLY WORK ON EVEN TERMINALS)
     """
 
+    data_C: list[float]
+
     def __init__ (self, handle: int, pin: str, offset: float):
         self.handle = handle
         self.pin = pin
@@ -20,7 +22,7 @@ class thermocouple:
         self.address = ljm.nameToAddress(pin)
 
         # Creating data storage array
-        self.data_celsius = []
+        self.data_C = []
 
         # Register Setup
         self.equationRegister = pin + "_EF_INDEX"
@@ -35,4 +37,4 @@ class thermocouple:
 
     def takeData (self) -> None:
         ljm.eReadName(self.handle, self.pin + "_EF_READ_A")  # only reading reg A triggers a new measurement..
-        self.data_celsius.append(ljm.eReadName(self.handle, self.tempOutputRegister) + self.offset)
+        self.data_C.append(ljm.eReadName(self.handle, self.tempOutputRegister) + self.offset)

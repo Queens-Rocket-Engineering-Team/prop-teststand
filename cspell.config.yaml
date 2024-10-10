@@ -1,0 +1,20 @@
+version: "0.2"
+ignorePaths: []
+dictionaryDefinitions: []
+dictionaries: []
+words:
+  - absjoin
+  - figsize
+  - getch
+  - kbhit
+  - labjack
+  - Modbus
+  - Nikhil
+  - showlegend
+  - skiprows
+  - teststand
+  - xaxes
+  - yaxes
+  - ylim
+ignoreWords: []
+import: []

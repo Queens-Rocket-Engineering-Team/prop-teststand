@@ -1,4 +1,4 @@
-from labjack import ljm
+from labjack import ljm  #type:ignore  # Labjack is not typed
 
 
 class LoadCell:
@@ -10,6 +10,9 @@ class LoadCell:
     the cell. The green (+ve) and white (-ve) wires on the load cell should be connected to even and
     odd adjacent analog pins. THIS IS VERY IMPORTANT.
     """
+
+    data_V: list[float]
+    data_kg: list[float]
 
     def __init__ (self,
                   handle: int,
@@ -43,7 +46,7 @@ class LoadCell:
         ljm.eWriteName(self.handle, self.negChannelRegister, lowPinInt) # Writing integer value of relative pin to neg channel register
 
         # Creating data storage array
-        self.data_V = []
+        self.data_V  = []
         self.data_kg = []
 
     def takeData (self) -> None:

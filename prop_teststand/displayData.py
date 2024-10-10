@@ -4,17 +4,24 @@ import os
 from math import ceil, sqrt
 
 import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import plotly.graph_objects as go  #type:ignore  # Plotly no typing
+from plotly.subplots import make_subplots  #type:ignore
 
 
-def extractData(csvPath: str):
+def extractData(csvPath: str,
+                ) -> tuple[list[float],
+                           list[str],
+                           dict[str, list[float]],
+                           str,
+                           str,
+                           str,
+                           ]:
     times = []
-    sensorData = {}
+    sensorData: dict[str, list[float]] = {}
     sensorNames = []
-    configName = None
-    configPath = None
-    testTime = None
+    configName = ""
+    configPath = ""
+    testTime = ""
 
     with open(csvPath, "r") as csvFile:
         csvReader = csv.reader(csvFile)
@@ -32,9 +39,8 @@ def extractData(csvPath: str):
             elif row[0] == "Time":
                 for col in row:
                     if col == "Time": continue # Ignoring time header for sensor list
-                    else:
-                        sensorData[col] = []
-                        sensorNames.append(col)
+                    sensorData[col] = []
+                    sensorNames.append(col)
 
                 print(f"{len(sensorNames)} sensors found: {sensorNames}")
 
@@ -43,11 +49,6 @@ def extractData(csvPath: str):
                 for i, col in enumerate(sensorNames, start=1): # Using enumerate to address sensor names list as well as index the proper column
                     # Data values are stored at specific column indices, but we want to store them to a named dictionary
                     sensorData[col].append(float(row[i]))
-
-    # Converting each data list to a numpy array for ease of operation later
-    times = np.array(times)
-    for col in sensorNames:
-        sensorData[col] = np.array(sensorData[col])
 
     return times, sensorNames, sensorData, configName, configPath, testTime
 

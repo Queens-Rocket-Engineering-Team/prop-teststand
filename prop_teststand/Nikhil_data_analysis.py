@@ -1,7 +1,13 @@
+# Disable linters on this file. Not my circus not my monkeys
+#type: ignore
+#ruff: noqa
+
+from io import StringIO
+
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from io import StringIO
+
 
 file_path = 'June15ColdFlowPestControl-noRatsNest---2024-06-20 20-28-15'
 

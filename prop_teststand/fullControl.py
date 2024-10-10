@@ -5,11 +5,12 @@ import sys
 import time
 
 import colorama
-from labjack import ljm
-from sensors.loadCell import LoadCell
-from sensors.pressureTransducer import pressureTransducer
-from sensors.thermocouple import thermocouple
-from valves.valve import valve
+from labjack import ljm  #type:ignore  # Labjack is not typed
+
+from prop_teststand.sensors.loadCell import LoadCell
+from prop_teststand.sensors.pressureTransducer import PressureTransducer
+from prop_teststand.sensors.thermocouple import Thermocouple
+from prop_teststand.valves.valve import Valve
 
 
 startTime_s = time.monotonic()
@@ -58,20 +59,20 @@ def jsonDefineIO(handle: int, configFilename: str) -> tuple[dict, dict, str, str
     with open(configFilename, "r") as f:
         config = json.load(f)
 
-    sensorsObjects = {}
-    valveObjects = {}
+    sensorsObjects: dict[str, Thermocouple | PressureTransducer | LoadCell] = {}
+    valveObjects: dict[str, Valve] = {}
 
     for sensorType, sensors in config["sensors"].items():
         for sensorName, sensorInfo in sensors.items():
             if sensorType == "thermocouple":
                 pin = sensorInfo["pin"]
                 offset = sensorInfo["offset"]
-                sensorsObjects[sensorName] = thermocouple(handle, pin, offset)
+                sensorsObjects[sensorName] = Thermocouple(handle, pin, offset)
 
             elif sensorType == "pressureTransducer":
                 pin = sensorInfo["pin"]
                 pressureRange = sensorInfo["maxPressure_PSI"]
-                sensorsObjects[sensorName] = pressureTransducer(handle, pin, pressureRange)
+                sensorsObjects[sensorName] = PressureTransducer(handle, pin, pressureRange)
 
             elif sensorType == "loadCell":
                 negPin = sensorInfo["oddNegPin"]
@@ -84,7 +85,7 @@ def jsonDefineIO(handle: int, configFilename: str) -> tuple[dict, dict, str, str
     for valveName, valveInfo in config["valves"].items():
         pin = valveInfo["controlPin"]
         default = valveInfo["defaultState"]
-        valveObjects[valveName] = valve(handle, pin, default, valveName)
+        valveObjects[valveName] = Valve(handle, pin, default, valveName)
 
     return sensorsObjects, valveObjects, config["configName"], config["filePath"]
 
@@ -105,17 +106,17 @@ def exportTestDataCSV(timeStamps: list, sensors: dict, dataDir: str, configName:
     for i in range(len(timeStamps)):
         row = [timeStamps[i]]
         for sensor in sensors.values():
-            if type(sensor) == thermocouple:
-                row.append(sensor.data_celsius[i])
-            if type(sensor) == pressureTransducer:
+            if type(sensor) == Thermocouple:
+                row.append(sensor.data_C[i])
+            if type(sensor) == PressureTransducer:
                 row.append(sensor.data_PSI[i])
             if type(sensor) == LoadCell:
                 row.append(sensor.data_kg[i])
         csvData.append(row)
 
     # Writing data to csv
-    with open(dataDir + csvFilename, "w", newline="") as csvfile:
-        writer = csv.writer(csvfile)
+    with open(dataDir + csvFilename, "w", newline="") as csvFile:
+        writer = csv.writer(csvFile)
         writer.writerow(["Config File Name:", configName])
         writer.writerow(["Config File Path:", configPath])
         writer.writerow(["Test Time:", localTime])
@@ -127,7 +128,7 @@ def errExit(_msg: str, exitCode: int = 1) -> None:
     sys.stderr.write(f"{colorama.Fore.RED}Labjack libraries are not installed! Install Kipling first!{colorama.Style.RESET_ALL}")
     sys.exit(exitCode)
 
-def ensureLabjackPresence() -> bool:
+def ensureLabjackPresence() -> None:
     if ljm.ljm._staticLib is None:  # noqa: SLF001
         errExit("Labjack libraries are not installed! Install Kipling first!")
 
@@ -140,7 +141,7 @@ def main (_argv: list[str]) -> None:
 
 
     # Initializing sensors and getting key information from config
-    log("Initalizing Sensors from config file...")
+    log("Initializing Sensors from config file...")
     sensors, valves, configName, dataDirectory = jsonDefineIO(handle, configPath)
     log("Sensors Initialized.")
 

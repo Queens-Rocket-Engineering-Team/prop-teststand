@@ -1,7 +1,7 @@
-from labjack import ljm
+from labjack import ljm  #type:ignore
 
 
-class valve:
+class Valve:
     """Class definition for a valve type object.
 
     VERY IMPORTANT THAT WHEN DEALING WITH VALVES: Open means gas is allowed to flow. Closed means no gas is allowed to flow.

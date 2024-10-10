@@ -1,7 +1,10 @@
-from labjack import ljm
+from labjack import ljm  #type:ignore  # Labjack is not typed
 
 
-class pressureTransducer:
+class PressureTransducer:
+
+    data_V: list[float]
+    data_PSI: list[float]
 
     def __init__ (self, handle: int, pin: str, pressureRange: float):
         self.handle = handle
