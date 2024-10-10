@@ -22,5 +22,8 @@ where = [""]
 include = ["prop_teststand"]
 namespaces = false
 
+[tool.mypy]
+strict = true
+
 [tool.mypy-plotly]
 ignore_missing_imports = true

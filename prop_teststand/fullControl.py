@@ -3,6 +3,7 @@ import json
 import msvcrt
 import sys
 import time
+from typing import cast
 
 import colorama
 from labjack import ljm  #type:ignore  # Labjack is not typed
@@ -50,7 +51,10 @@ def log(msg: str) -> None:
     elapsed_s = time.monotonic() - startTime_s
     sys.stdout.write(f"[{elapsed_s:<6.3f}] {msg}\n")
 
-def jsonDefineIO(handle: int, configFilename: str) -> tuple[dict, dict, str, str]:
+def jsonDefineIO(handle: int, configFilename: str) -> tuple[dict[str, Thermocouple | PressureTransducer | LoadCell],
+                                                            dict[str, Valve],
+                                                            str,
+                                                            str]:
     """Create objects for the desired test setup from a JSON file.
 
     The JSON file should follow the format specified in /configFramework.json.
@@ -89,17 +93,22 @@ def jsonDefineIO(handle: int, configFilename: str) -> tuple[dict, dict, str, str
 
     return sensorsObjects, valveObjects, config["configName"], config["filePath"]
 
-def takeAllData(sensors: dict) -> None:
+def takeAllData(sensors: dict[str, Thermocouple | PressureTransducer | LoadCell]) -> None:
     """Take data for all sensors."""
     for sensor in sensors.values(): sensor.takeData()
 
-def exportTestDataCSV(timeStamps: list, sensors: dict, dataDir: str, configName: str, configPath: str) -> None:
+def exportTestDataCSV(timeStamps: list[float],
+                      sensors: dict[str, Thermocouple | PressureTransducer | LoadCell],
+                      dataDir: str,
+                      configName: str,
+                      configPath: str) -> None:
 
     # Setting CSV filename
     localTime = time.strftime("%Y-%m-%d %H-%M-%S", time.localtime(time.time()))
     csvFilename = configName + "---" + localTime
 
     # Setting CSV headers
+    csvData: list[list[str] | list[float]] # Header row is strings, data rows are floats
     csvData = [["Time", *list(sensors.keys())]]
 
     # Assembling CSV rows for each sensor
@@ -161,13 +170,13 @@ def main (_argv: list[str]) -> None:
             count += 1
             if count % 10 == 0:
                 log(
-                    "NitrousFillKG: " + f"{sensors['LCNitrousFill'].data_kg[count-1]-0.6:3.1f}" +
-                    ", ThrustKG: " + f"{sensors['LCThrust'].data_kg[count-1]:3.1f}" +
-                    ", TCRun: " + f"{sensors['TCNitrousRun'].data_celsius[count-1]:3.1f}" +
-                    ", PTRunPSI: " + f"{sensors['PTRun'].data_PSI[count-1]:3.1f}" +
-                    ", PTEngine: " + f"{sensors['PTPreInjector'].data_PSI[count-1]:3.1f}" +
-                    ", PTN2OSupply: " + f"{sensors['PTN2OSupply'].data_PSI[count-1]:3.1f}" +
-                    ", TCSupply: " + f"{sensors['TCNitrousSupply'].data_celsius[count-1]:3.1f}",
+                    "NitrousFillKG: " + f"{cast(LoadCell, sensors['LCNitrousFill']).data_kg[count-1]-0.6:3.1f}" +
+                    ", ThrustKG: "    + f"{cast(LoadCell, sensors['LCThrust']).data_kg[count-1]:3.1f}" +
+                    ", PTRunPSI: "    + f"{cast(PressureTransducer, sensors['PTRun']).data_PSI[count-1]:3.1f}" +
+                    ", PTEngine: "    + f"{cast(PressureTransducer, sensors['PTPreInjector']).data_PSI[count-1]:3.1f}" +
+                    ", PTN2OSupply: " + f"{cast(PressureTransducer, sensors['PTN2OSupply']).data_PSI[count-1]:3.1f}" +
+                    ", TCSupply: "    + f"{cast(Thermocouple, sensors['TCNitrousSupply']).data_C[count-1]:3.1f}" +
+                    ", TCRun: "       + f"{cast(Thermocouple, sensors['TCNitrousRun']).data_C[count-1]:3.1f}",
                 )
 
 
