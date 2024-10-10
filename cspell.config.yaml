@@ -10,6 +10,8 @@ words:
   - labjack
   - Modbus
   - Nikhil
+  - pyproject
+  - QRET
   - showlegend
   - skiprows
   - teststand

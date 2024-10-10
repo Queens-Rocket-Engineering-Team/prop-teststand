@@ -1,5 +1,5 @@
 [project]
-name = "prop_teststand"
+name = "prop-teststand"
 version = "1.0"
 authors = [
     {name = "Noah Warren", email = "noahwarren42@gmail.com"}
@@ -18,8 +18,7 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-where = [""]
-include = ["prop_teststand"]
+where = ["src"]
 namespaces = false
 
 [tool.mypy]
