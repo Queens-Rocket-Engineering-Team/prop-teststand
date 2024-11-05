@@ -1,0 +1,5 @@
+[settings]
+python.analysis.ignoredAnnotations = ["_*"]
+python.analysis.ignoredModules = [
+    "matplotlib.pyplot",                       # typing is horrible
+]

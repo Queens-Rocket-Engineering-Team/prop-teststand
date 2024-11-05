@@ -1,10 +1,13 @@
 {
     "recommendations": [
-        "tamasfe.even-better-toml",
-        "stkb.rewrap",
         "charliermarsh.ruff",
         "davidanson.vscode-markdownlint",
+        "matangover.mypy",
+        "ms-python.debugpy",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "stkb.rewrap",
         "streetsidesoftware.code-spell-checker",
-        "matangover.mypy"
+        "tamasfe.even-better-toml",
     ]
 }

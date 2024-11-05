@@ -1,0 +1,19 @@
+{
+    "files.autoSave": "afterDelay",
+    "files.exclude": {
+        "**/.git": true,
+        "**/__pycache__": true,
+    },
+
+    "ruff.nativeServer": true,
+    "files.trimTrailingWhitespace": true,
+
+    // Probably Legacy settings -- throws error
+    // "python.analysis.diagnosticSeverityOverrides": {
+    //     "reportPrivateUsage": false,
+    //     "reportUnusedFunctionArgument": "none",
+    //     "reportUnusedMethodArgument": "none",
+    //     "reportUnusedVariable": "none",
+    //     "reportUnnecessaryIsInstance": false,
+    // },
+}

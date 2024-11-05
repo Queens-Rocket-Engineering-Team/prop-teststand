@@ -8,10 +8,10 @@ from typing import cast
 import colorama
 from labjack import ljm  #type:ignore  # Labjack is not typed
 
-from prop_teststand.sensors.loadCell import LoadCell
-from prop_teststand.sensors.pressureTransducer import PressureTransducer
-from prop_teststand.sensors.thermocouple import Thermocouple
-from prop_teststand.valves.valve import Valve
+from libqretprop.sensors.loadCell import LoadCell
+from libqretprop.sensors.pressureTransducer import PressureTransducer
+from libqretprop.sensors.thermocouple import Thermocouple
+from libqretprop.valves.valve import Valve
 
 
 startTime_s = time.monotonic()

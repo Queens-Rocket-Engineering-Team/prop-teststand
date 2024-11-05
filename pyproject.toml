@@ -9,16 +9,28 @@ requires-python = ">=3.11"
 dependencies = [
     # Running requirements
     "colorama",
-    "numpy",
     "labjack-ljm",
+    "numpy",
+    "pyqtgraph",
+    "PySide6",
+    "PySide6-stubs",
 
     # Dev stuff
     "ruff",
     "mypy",
 ]
 
+[project.scripts]
+# CLI TOOLS
+hello_cli = "qretproptools.cli.hello_cli.hello_cli:main"
+
+[project.gui-scripts]
+# GUI TOOLS
+hello_gui = "qretproptools.gui.hello_gui.hello_gui:main"
+
 [tool.setuptools.packages.find]
-where = ["src"]
+where = [""]
+include = ["libqretprop*", "qretproptools*"]
 namespaces = false
 
 [tool.mypy]
@@ -26,3 +38,9 @@ strict = true
 
 [tool.mypy-plotly]
 ignore_missing_imports = true
+
+[tool.pyright]
+#reportMissingTypeStubs=false   # pyqtgraph has issues
+reportPrivateUsage=false       # Leave this to ruff
+reportUnknownMemberType=false  # WAY too many problems with PySide6 and pyqtgraph to have this on
+reportMissingTypeStubs = "information"
