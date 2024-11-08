@@ -23,6 +23,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.mainWidget)
         mainLayout = QHBoxLayout(self.mainWidget)
 
+
         # Sidebar layout (for navigation buttons)
         self.sidebar = QVBoxLayout()
         self.sidebar.setAlignment(Qt.AlignTop)  # type:ignore # QT not typed
@@ -34,6 +35,7 @@ class MainWindow(QMainWindow):
         for name, button in self.dashboardButtons.items():
             button.clicked.connect(lambda _checked, name=name: self.loadDashboard(self.dashboardDict[name]))
             self.sidebar.addWidget(button)
+
 
         # Content area where dashboards will load
         self.contentArea = QWidget()

@@ -27,7 +27,7 @@ hello_cli = "qretproptools.cli.hello_cli.hello_cli:main"
 [project.gui-scripts]
 # GUI TOOLS
 hello_gui = "qretproptools.gui.hello_gui.hello_gui:main"
-full_gui =  "qretproptools.gui.full_gui.full_gui:main"
+full_gui =  "qretproptools.gui.full_Gui.full_Gui:main"
 
 [tool.setuptools.packages.find]
 where = [""]

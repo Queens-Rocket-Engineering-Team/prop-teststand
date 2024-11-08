@@ -10,6 +10,7 @@ class BasicDashboardWidget(QWidget):
                  **kwargs: Any,
                  ) -> None:
         super().__init__(*args, **kwargs)
+
         layout = QVBoxLayout()
         layout.addWidget(QLabel(f"This is the {name} dashboard"))
         self.setLayout(layout)
