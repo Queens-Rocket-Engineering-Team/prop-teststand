@@ -1,4 +1,5 @@
 from PySide6.QtCore import Qt  #type:ignore
+from PySide6.QtGui import QFont  #type:ignore
 from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QPushButton, QVBoxLayout, QWidget  #type:ignore
 
 from qretproptools.gui.full_Gui.BasicDashboardWidget import BasicDashboardWidget
@@ -34,6 +35,8 @@ class MainWindow(QMainWindow):
         # Add buttons to the sidebar layout and connect them each to loading their respective dashboard
         for name, button in self.dashboardButtons.items():
             button.clicked.connect(lambda _checked, name=name: self.loadDashboard(self.dashboardDict[name]))
+            buttonFont = QFont("Arial", 10)
+            button.setFont(buttonFont)
             self.sidebar.addWidget(button)
 
 
