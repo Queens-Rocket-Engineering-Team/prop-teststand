@@ -6,6 +6,7 @@ from qretproptools.gui.full_Gui.MainWindow import MainWindow
 
 
 def main() -> None:
+
     # Create the application
     app = QApplication(sys.argv)
 
