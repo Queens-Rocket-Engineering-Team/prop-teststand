@@ -5,8 +5,10 @@ from PySide6.QtCore import Qt  #type:ignore
 from PySide6.QtGui import QFont  #type:ignore
 from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget  #type:ignore
 
+from qretproptools.gui.full_Gui.BaseDashboard import BaseDashboard
 
-class DataVisWidget(QWidget):
+
+class DataVisWidget(BaseDashboard):
     def __init__(self,
                  *args: Any,
                  **kwargs: Any,
@@ -24,23 +26,24 @@ class DataVisWidget(QWidget):
         self.titleLabel.setFont(titleFont)
         self.mainLayout.addWidget(self.titleLabel)
 
-        # Setting up the overall widget where the file will be loaded from and file path displayed
+        # Creating file loading widget where the file will be loaded from and file path displayed
         self.fileLoadWidget = QWidget()
         self.fileLoadLayout = QHBoxLayout(self.fileLoadWidget)
 
         # Add a button to select a file to load
         self.loadFileButton = QPushButton("Choose File")
         self.loadFileButton.clicked.connect(self.openFileDialog)
-        self.fileLoadLayout.addWidget(self.loadFileButton, 1)
-        self.selectedFilePath = ""
+        self.fileLoadLayout.addWidget(self.loadFileButton, 1) # Scaling button to take up 1 part of the layout
+        self.selectedFilePath = "" # Initializing selected file path
 
         # Add a label to display the loaded file path
         self.filePathLabel = QLabel("No file loaded")
-        self.fileLoadLayout.addWidget(self.filePathLabel, 7)
+        self.fileLoadLayout.addWidget(self.filePathLabel, 7) # Scaling label to take up 7 parts of the layout
 
         # Add the file load widget to the main layout
         self.mainLayout.addWidget(self.fileLoadWidget)
 
+        # Initialize data storage variables
         self.dataTimes: list[float] = []
         self.sensorNames: list[str] = []
         self.dataVals: dict[str, list[float]] = {}
@@ -50,13 +53,18 @@ class DataVisWidget(QWidget):
 
     def openFileDialog(self) -> None:
         # Open file dialog and get selected file path
-        file_path, _ = QFileDialog.getOpenFileName(self, "Open File", "", "All Files (*)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "Open File", "", "CSV Files (*.csv)")
 
         # Update the label with the selected file path
         if file_path:
-            self.filePathLabel.setText(file_path)
-            self.selectedFilePath = file_path
-            self.dataTimes, self.sensorNames, self.dataVals, self.configName, self.configPath, self.testTime = self.extractData(self.selectedFilePath)
+            try:
+                self.dataTimes, self.sensorNames, self.dataVals, self.configName, self.configPath, self.testTime = self.extractData(file_path)
+                self.filePathLabel.setText(file_path)
+                self.selectedFilePath = file_path
+            except ValueError:
+                self.openErrorWindow("Could not load data. Check file format adheres to the template.", "File Load Error")
+            except Exception:
+                self.openErrorWindow("Unexpected Error: Check file format and try again.")
 
     def extractData(self,
                     csvPath: str,
