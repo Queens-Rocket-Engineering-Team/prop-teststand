@@ -1,6 +1,6 @@
 from PySide6.QtCore import Qt  #type:ignore
 from PySide6.QtGui import QFont  #type:ignore
-from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QPushButton, QVBoxLayout, QWidget  #type:ignore
+from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QMainWindow, QPushButton, QVBoxLayout, QWidget  #type:ignore
 
 from qretproptools.gui.full_Gui.DataVisWidget import DataVisWidget
 from qretproptools.gui.full_Gui.SimpleDashboardWidget import SimpleDashboardWidget
@@ -17,27 +17,32 @@ class MainWindow(QMainWindow):
         }
 
         # Setting initial window size
-        self.resize(1000, 700)
+        self.resize(1500, 900)
 
         # Main widget setup
         self.mainWidget = QWidget()
         self.setCentralWidget(self.mainWidget)
         mainLayout = QHBoxLayout(self.mainWidget)
 
-
         # Sidebar layout (for navigation buttons)
         self.sidebar = QVBoxLayout()
         self.sidebar.setAlignment(Qt.AlignTop)  # type:ignore # QT not typed
+
+        # Create button group for sidebar buttons
+        self.buttonGroup = QButtonGroup(self)
+        self.buttonGroup.setExclusive(True) # Only one button can be selected at a time
 
         # Create buttons for each dashboard
         self.dashboardButtons = {name: QPushButton(name) for name in self.dashboardDict}
 
         # Add buttons to the sidebar layout and connect them each to loading their respective dashboard
         for name, button in self.dashboardButtons.items():
+            button.setCheckable(True)
             button.clicked.connect(lambda _checked, name=name: self.loadDashboard(self.dashboardDict[name]))
             buttonFont = QFont("Arial", 10)
             button.setFont(buttonFont)
             self.sidebar.addWidget(button)
+            self.buttonGroup.addButton(button)
 
 
         # Content area where dashboards will load
@@ -49,7 +54,9 @@ class MainWindow(QMainWindow):
         mainLayout.addWidget(self.contentArea, 4)  # Content area takes 4 parts
 
         # Load the first dashboard by default
-        self.loadDashboard(next(iter(self.dashboardDict.values())))
+        first_dashboard_name = next(iter(self.dashboardDict))
+        self.loadDashboard(self.dashboardDict[first_dashboard_name])
+        self.dashboardButtons[first_dashboard_name].setChecked(True)
 
     def loadDashboard(self,
                        dashboardWidget: QWidget,

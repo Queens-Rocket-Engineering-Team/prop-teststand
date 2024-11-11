@@ -1,9 +1,10 @@
 import csv
 from typing import Any
 
+import pyqtgraph as pg  #type:ignore
 from PySide6.QtCore import Qt  #type:ignore
 from PySide6.QtGui import QFont  #type:ignore
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget  #type:ignore
+from PySide6.QtWidgets import QButtonGroup, QFileDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget  #type:ignore
 
 from qretproptools.gui.full_Gui.BaseDashboard import BaseDashboard
 
@@ -51,6 +52,18 @@ class DataVisWidget(BaseDashboard):
         self.configPath = ""
         self.testTime = ""
 
+        # Add a layout for the dataset buttons
+        self.buttonLayout = QHBoxLayout()
+        self.mainLayout.addLayout(self.buttonLayout)
+
+        # Create a button group for the dataset buttons
+        self.buttonGroup = QButtonGroup(self)
+        self.buttonGroup.setExclusive(True)
+
+        # Add a plot widget for displaying the graph
+        self.plotWidget = pg.PlotWidget()
+        self.mainLayout.addWidget(self.plotWidget)
+
     def openFileDialog(self) -> None:
         # Open file dialog and get selected file path
         file_path, _ = QFileDialog.getOpenFileName(self, "Open File", "", "CSV Files (*.csv)")
@@ -61,6 +74,9 @@ class DataVisWidget(BaseDashboard):
                 self.dataTimes, self.sensorNames, self.dataVals, self.configName, self.configPath, self.testTime = self.extractData(file_path)
                 self.filePathLabel.setText(file_path)
                 self.selectedFilePath = file_path
+                self.updateButtons()
+                self.updateGraph(sensorName=self.sensorNames[0])
+                self.buttonGroup.buttons()[0].setChecked(True)
             except ValueError:
                 self.openErrorWindow("Could not load data. Check file format adheres to the template.", "File Load Error")
             except Exception:
@@ -110,3 +126,20 @@ class DataVisWidget(BaseDashboard):
                         sensorData[col].append(float(row[i]))
 
         return times, sensorNames, sensorData, configName, configPath, testTime
+
+    def updateButtons(self) -> None:
+        # Clear existing buttons
+        for i in reversed(range(self.buttonLayout.count())):
+            self.buttonLayout.itemAt(i).widget().setParent(None) #type:ignore # QT not typed so doesn't like None parent
+
+        # Add a button for each sensor name
+        for sensorName in self.sensorNames:
+            button = QPushButton(sensorName)
+            button.setCheckable(True)
+            button.clicked.connect(lambda _checked, name=sensorName: self.updateGraph(name))
+            self.buttonLayout.addWidget(button)
+            self.buttonGroup.addButton(button)
+
+    def updateGraph(self, sensorName: str) -> None:
+        self.plotWidget.clear()
+        self.plotWidget.plot(self.dataTimes, self.dataVals[sensorName], pen=pg.mkPen(width=2), name=sensorName)

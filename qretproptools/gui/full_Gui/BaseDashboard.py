@@ -12,7 +12,10 @@ class BaseDashboard(QWidget):
 
 
     def openErrorWindow(self, message: str, title: str = "Error") -> None:
-        """Open an error dialog window with the given message."""
+        """Open an error dialog window.
+
+        The message and title of the window can be specified.
+        """
 
         error_dialog = QMessageBox()
         error_dialog.setIcon(QMessageBox.Icon.Critical) # The X error icon on the left of the error message
