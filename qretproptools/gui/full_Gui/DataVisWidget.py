@@ -142,4 +142,19 @@ class DataVisWidget(BaseDashboard):
 
     def updateGraph(self, sensorName: str) -> None:
         self.plotWidget.clear()
-        self.plotWidget.plot(self.dataTimes, self.dataVals[sensorName], pen=pg.mkPen(width=2), name=sensorName)
+
+        # Determine the y-axis label based on the sensor type
+        if sensorName.startswith("PT"):
+            y_label = "Pressure [PSI]"
+        elif sensorName.startswith("TC"):
+            y_label = "Temperature [C]"
+        elif sensorName.startswith("LC"):
+            y_label = "Load [KG]"
+        else:
+            y_label = "Value"
+
+        # Set the x-axis and y-axis labels
+        self.plotWidget.setLabel("bottom", "Time [t]")
+        self.plotWidget.setLabel("left", y_label)
+
+        self.plotWidget.plot(self.dataTimes, self.dataVals[sensorName], pen=pg.mkPen(width=1), name=sensorName)
