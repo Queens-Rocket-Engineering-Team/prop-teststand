@@ -28,6 +28,7 @@ hello_cli = "qretproptools.cli.hello_cli.hello_cli:main"
 # GUI TOOLS
 hello_gui = "qretproptools.gui.hello_gui.hello_gui:main"
 full_gui =  "qretproptools.gui.full_Gui.full_Gui:main"
+multi_plot = "qretproptools.gui.full_Gui.test_multi_plot:main"
 
 [tool.setuptools.packages.find]
 where = [""]

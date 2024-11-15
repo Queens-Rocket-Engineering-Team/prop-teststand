@@ -17,7 +17,7 @@ class MainWindow(QMainWindow):
         }
 
         # Setting initial window size
-        self.resize(1500, 900)
+        self.resize(1300, 700)
 
         # Main widget setup
         self.mainWidget = QWidget()
