@@ -7,9 +7,11 @@ words:
   - DUMBASS
   - figsize
   - getch
+  - isconnected
   - kbhit
   - labjack
   - libqretprop
+  - micropython
   - Modbus
   - Nikhil
   - pyproject
@@ -19,6 +21,7 @@ words:
   - showlegend
   - skiprows
   - teststand
+  - WLAN
   - xaxes
   - yaxes
   - ylim
