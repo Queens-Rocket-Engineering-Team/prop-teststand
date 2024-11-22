@@ -18,6 +18,7 @@ dependencies = [
     # Dev stuff
     "ruff",
     "mypy",
+    "mpremote",
 ]
 
 [project.scripts]

@@ -5,6 +5,7 @@ dictionaries: []
 words:
   - absjoin
   - DUMBASS
+  - essid
   - figsize
   - getch
   - isconnected
@@ -14,6 +15,7 @@ words:
   - micropython
   - Modbus
   - Nikhil
+  - osdebug
   - pyproject
   - pyqtgraph
   - QRET
@@ -21,6 +23,7 @@ words:
   - showlegend
   - skiprows
   - teststand
+  - webrepl
   - WLAN
   - xaxes
   - yaxes
