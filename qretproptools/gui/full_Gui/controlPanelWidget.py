@@ -4,7 +4,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QGraphicsView, QLabel, QVBoxLayout, QWidget
 
-class controlPanelWidget(QGraphicsView):
+
+class ControlPanelWidget(QGraphicsView):
     def __init__(self, photo_path):
         super().__init__()
 

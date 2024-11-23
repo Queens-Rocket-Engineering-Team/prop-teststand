@@ -2,7 +2,7 @@ from PySide6.QtCore import Qt  #type:ignore
 from PySide6.QtGui import QFont  #type:ignore
 from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QMainWindow, QPushButton, QVBoxLayout, QWidget  #type:ignore
 
-from qretproptools.gui.full_Gui.controlPanelWidget import controlPanelWidget
+from qretproptools.gui.full_Gui.ControlPanelWidget import ControlPanelWidget
 from qretproptools.gui.full_Gui.DataVisWidget import DataVisWidget
 from qretproptools.gui.full_Gui.SimpleDashboardWidget import SimpleDashboardWidget
 
@@ -12,7 +12,7 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.dashboardDict = {
-            "Control Panel": controlPanelWidget("qretproptools\\gui\\full_Gui\\teststand.png"),
+            "Control Panel": ControlPanelWidget("qretproptools\\gui\\full_Gui\\teststand.png"),
             "Data Visualization": DataVisWidget(),
             "Simple Dashboard 1": SimpleDashboardWidget("Simple Dashboard 1"),
             "Simple Dashboard 2": SimpleDashboardWidget("Simple Dashboard 2"),
