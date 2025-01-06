@@ -1,8 +1,8 @@
-from PySide6.QtCore import Qt  #type:ignore
-from PySide6.QtGui import QFont  #type:ignore
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QMainWindow, QPushButton, QVBoxLayout, QWidget  #type:ignore
 
-from qretproptools.gui.full_Gui.ControlPanelWidget import ControlPanelWidget
+from qretproptools.gui.full_Gui.controlPanelWidget import ControlPanelWidget
 from qretproptools.gui.full_Gui.DataVisWidget import DataVisWidget
 from qretproptools.gui.full_Gui.SimpleDashboardWidget import SimpleDashboardWidget
 

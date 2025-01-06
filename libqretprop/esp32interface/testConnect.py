@@ -1,13 +1,15 @@
 import socket
 
 
-# Configure the desktop as a UDP client
-ESP32_HOST = "192.168.2.43"  # ESP32's IP address (fixed at Noah's house)
+# Configure the desktop as a TCP client
+ESP32_HOST_HOME = "192.168.2.43"  # ESP32's IP address (fixed at Noah's house)
+ESP32_HOST_GRANDMAS = "192.168.86.223"  # ESP32's IP address (fixed at Noah's house)
+
 PORT = 8080
 
 # Create a socket
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-client_socket.connect((ESP32_HOST, PORT))
+client_socket.connect((ESP32_HOST_GRANDMAS, PORT))
 
 try:
     while True:

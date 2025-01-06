@@ -1,4 +1,5 @@
-import time  # noqa: INP001 # This is all micropython code to be executed on the esp32 system level
+import socket  # noqa: INP001  # type:ignore # This is a micropython library
+import time  # This is all micropython code to be executed on the esp32 system level
 
 import network  # type:ignore # This is a micropython library
 
@@ -45,3 +46,20 @@ def disconnectWifi(wlan: network.WLAN) -> None:
     wlan.disconnect()
     wlan.active(False)
     print("Disconnected from Wi-Fi network: ", wlan.config("essid")) # This will print the name of the network that was disconnected from
+
+def hostTCPSocket (ipAddress: str, port: int = 8080) -> socket.socket:
+    """Host a TCP socket on the specified IP address and port number.
+
+    The default port number is 8080, and this function will return the server socket object. This function handles nothing
+    but the creation of the socket object and the binding to the specified IP address and port number.
+    """
+
+
+    # Create a socket object
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # AF_INET is the address family for IPv4, SOCK_STREAM is the socket type for TCP
+    server_socket.bind((ipAddress, port))
+    server_socket.listen(1) # Allow only one connection at a time MAYBE CHANGE LATER
+
+    print(f"Server running on {ipAddress}:{port}")
+
+    return server_socket

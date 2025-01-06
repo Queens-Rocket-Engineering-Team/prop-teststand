@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
 
 
 class ControlPanelWidget(QGraphicsView):
-    def __init__(self, photo_path):
+    def __init__(self, photo_path: str) -> None:
         super().__init__()
 
         # Set up the scene
@@ -25,7 +25,7 @@ class ControlPanelWidget(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.zoom_factor = 1.0
 
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             print("Mouse click at:", event.pos())
         super().mousePressEvent(event)
