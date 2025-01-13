@@ -15,12 +15,14 @@ words:
   - libqretprop
   - micropython
   - Modbus
+  - mpremote
   - Nikhil
   - osdebug
   - pyproject
   - pyqtgraph
   - QRET
   - qretproptools
+  - REUSEADDR
   - showlegend
   - skiprows
   - teststand

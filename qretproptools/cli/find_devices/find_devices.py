@@ -13,12 +13,12 @@ def stopSearch(searcher: DeviceSearcher) -> None:
 
 def main() -> None:
     searcher = DeviceSearcher()
+    time.sleep(0.1)  # Wait for the listener to start
     try:
         searcher.searchForDevices()
         while True:
             time.sleep(0.1)  # Keep the main thread alive
             if keyboard.is_pressed("s"):
-                print("Sending another broadcast message...")
                 searcher.sendBroadcastMessage("SEARCH")
 
     except KeyboardInterrupt:

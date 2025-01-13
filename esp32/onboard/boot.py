@@ -11,53 +11,59 @@
 import socket
 
 import wifi_tools as wt
+from AsyncManager import AsyncManager
+from TCPHandler import TCPHandler
+from UDPListener import UDPListener
 
 
-def listen_for_search(UDPPort:int = 40000) -> str:
+def listen_for_search(UDPPort:int = 40000) -> None:
     """Listen for an incoming search message and respond with an ACK message.
 
     This function generates a UDP socket and then listens incoming SEARCH messages from another
     device on the network, likely the control server. The default port for broadcasting on the server
-    side is 40000.
+    side is 40000. This is meant as a troubleshooting function and should not be used in production.
     """
 
     # Create the UDP socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-    # Bind the socket to a specific port (e.g., 12345)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # Lets the socket be reused
     sock.bind(("", UDPPort))
 
     print(f"Listening for search message on port {UDPPort}")
 
-    while True:
-        # Receive a message (max 1024 bytes)
-        message, addr = sock.recvfrom(1024)
-        print("Received message:", message.decode(), "from", addr)
+    try:
+        while True:
+            # Receive a message (max 1024 bytes)
+            message, addr = sock.recvfrom(1024)
+            print("Received message:", message.decode(), "from", addr)
 
-        # Check if the message matches the search message
-        if message.decode() == "SEARCH":
-            print(f"SEARCH received from {addr}. Sending ACK.")
+            # Check if the message matches the search message
+            if message.decode() == "SEARCH":
+                print(f"SEARCH received from {addr}. Sending ACK.")
+                ack_message = "ACK"
 
-            # Get the ESP32's IP and MAC address
-            # ip_address = socket.getaddrinfo('esp32', 1)[0][-1][0]
-            # mac_address = ubinascii.hexlify(network.WLAN().config('mac'),':').decode()
-
-            # Construct the ACK message with IP and MAC address
-            ack_message = "ACK"
-
-            # Send the ACK response back to the sender
-            sock.sendto(ack_message.encode(), (addr[0], UDPPort))
-            print("Sent Message:", ack_message)
+                # Send the ACK response back to the sender
+                sock.sendto(ack_message.encode(), (addr[0], UDPPort))
+                print("Sent Message:", ack_message)
+    except KeyboardInterrupt:
+        print("Stopping listener...")
+    finally:
+        sock.close()
 
 
-TCPRequests = ("SEARCH", # Message received when server is searching for client sensors
-               "SREAD", # Reads a single value from all sensors
+UDPRequests = ("SEARCH", # Message received when server is searching for client sensors
+               )
+
+TCPRequests = ("SREAD", # Reads a single value from all sensors
                "CREAD", # Continuously reads data from all sensors until STOP received
                "STOP", # Stops continuous reading
                "STAT", # Returns number of sensors and types
                )
 
-wlan = wt.connectWifi("Nolito", "6138201079")
+wlan = wt.connectWifi("Hous-fi", "nothomeless")
 
-
-
+def main() -> None:
+    udpListener = UDPListener(port=40000)
+    tcpListener = TCPHandler(port=50000)
+    server = AsyncManager(udpListener, tcpListener)
+    server.run()

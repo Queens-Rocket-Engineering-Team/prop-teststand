@@ -10,6 +10,9 @@ class DeviceSearcher:
         self.broadcast_ip = broadcast_ip
         self.port = port
 
+        self.localIP = socket.gethostbyname(socket.gethostname())
+        print(f"Local IP: {self.localIP}")
+
     def sendBroadcastMessage(self, message: str) -> None:
         # Create a UDP socket. AF_INET is IPV4, SOCK_DGRAM is UDP
         broadcastSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -33,7 +36,9 @@ class DeviceSearcher:
         while not self.stopListening_flag:
             try:
                 data, addr = sock.recvfrom(1024)  # Buffer size is 1024 bytes
-                if data.decode() == "ACK":
+                if addr[0] == self.localIP:
+                    pass  # Ignore messages from this device
+                elif data.decode() == "ACK":
                     print(f"Received ACK from {addr[0]}")
                     self.deviceList.add(addr[0]) # Store IP address of any device that responded
                 else:
