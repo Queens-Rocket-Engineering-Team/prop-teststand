@@ -8,47 +8,77 @@
 #webrepl.start()
 #------------------------------------------------------------------------|
 
-import socket
+
+import ujson  # type:ignore # noqa: I001# ujson and machine are micropython libraries
 
 import wifi_tools as wt
 from AsyncManager import AsyncManager
 from TCPHandler import TCPHandler
 from UDPListener import UDPListener
 
+from sensors.Thermocouple import Thermocouple # type: ignore # don't need __init__ for micropython
+from sensors.PressureTransducer import PressureTransducer # type: ignore
+from sensors.LoadCell import LoadCell # type: ignore
 
-def listen_for_search(UDPPort:int = 40000) -> None:
-    """Listen for an incoming search message and respond with an ACK message.
+CONFIG_FILE = "ESPConfig.json"
 
-    This function generates a UDP socket and then listens incoming SEARCH messages from another
-    device on the network, likely the control server. The default port for broadcasting on the server
-    side is 40000. This is meant as a troubleshooting function and should not be used in production.
-    """
-
-    # Create the UDP socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # Lets the socket be reused
-    sock.bind(("", UDPPort))
-
-    print(f"Listening for search message on port {UDPPort}")
-
+def readConfig(filePath: str):  # type: ignore  # noqa: ANN201
     try:
-        while True:
-            # Receive a message (max 1024 bytes)
-            message, addr = sock.recvfrom(1024)
-            print("Received message:", message.decode(), "from", addr)
+        with open(filePath, "r") as file:
+            config = ujson.load(file)
+            return config
+    except Exception as e:
+        print(f"Failed to read config file: {e}")
+        return {}
 
-            # Check if the message matches the search message
-            if message.decode() == "SEARCH":
-                print(f"SEARCH received from {addr}. Sending ACK.")
-                ack_message = "ACK"
+def initializeFromConfig(config) -> list[Thermocouple | LoadCell | PressureTransducer]: # type: ignore  # noqa: ANN001 # Typing for the JSON object is impossible without the full Typing library
+    """Initialize all devices and sensors from the config file.
 
-                # Send the ACK response back to the sender
-                sock.sendto(ack_message.encode(), (addr[0], UDPPort))
-                print("Sent Message:", ack_message)
-    except KeyboardInterrupt:
-        print("Stopping listener...")
-    finally:
-        sock.close()
+    ADC index 0 indicates the sensor is connected directly to the ESP32. Any other index indicates
+    connection to an external ADC.
+    """
+    sensors: list[Thermocouple | LoadCell | PressureTransducer] = []
+
+    print(f"Initializing device: {config.get('deviceName', 'Unknown Device')}")
+    deviceType = config.get("deviceType", "Unknown")
+
+    if deviceType == "Sensor Monitor":
+        sensorInfo = config.get("sensorInfo", {})
+
+        for name, details in sensorInfo.get("thermocouples", {}).items():
+            sensors.append(Thermocouple(name=name,
+                                        ADCIndex=details["ADCIndex"],
+                                        highPin=details["highPin"],
+                                        lowPin=details["lowPin"],
+                                        thermoType=details["type"],
+                                        units=details["units"],
+                                        ))
+
+        for name, details in sensorInfo.get("pressureTransducers", {}).items():
+            sensors.append(PressureTransducer(name=name,
+                                              ADCIndex=details["ADCIndex"],
+                                              pinNumber=details["pin"],
+                                              maxPressure_PSI=details["maxPressure_PSI"],
+                                              units=details["units"],
+                                              ))
+
+        for name, details in sensorInfo.get("loadCells", {}).items():
+            sensors.append(LoadCell(name=name,
+                                    ADCIndex=details["ADCIndex"],
+                                    highPin=details["highPin"],
+                                    lowPin=details["lowPin"],
+                                    loadRating_N=details["loadRating_N"],
+                                    excitation_V=details["excitation_V"],
+                                    sensitivity_vV=details["sensitivity_vV"],
+                                    units=details["units"],
+                                    ))
+
+        return sensors
+
+    if deviceType == "Unknown":
+        raise ValueError("Device type not specified in config file")
+
+    return []
 
 
 UDPRequests = ("SEARCH", # Message received when server is searching for client sensors
@@ -62,7 +92,12 @@ TCPRequests = ("SREAD", # Reads a single value from all sensors
 
 wlan = wt.connectWifi("Hous-fi", "nothomeless")
 
+config = readConfig(CONFIG_FILE)
+sensors = initializeFromConfig(config)
+
 def main() -> None:
+
+
     udpListener = UDPListener(port=40000)
     tcpListener = TCPHandler(port=50000)
     server = AsyncManager(udpListener, tcpListener)

@@ -1,0 +1,35 @@
+{
+    "deviceName": "ESP32-01",
+    "deviceType": "Sensor Monitor",
+    "sensorInfo": {
+        "thermocouples": {
+            "TCNitrousRun": {
+                "ADCIndex" : 0,
+                "highPin" : 2,
+                "lowPin" : 3,
+                "type" : "K",
+                "units" : "C"
+            }
+        },
+        "pressureTransducers": {
+            "PTFill": {
+                "ADCIndex" : 0,
+                "pin" : 4,
+                "maxPressure_PSI" : 1000,
+                "units" : "psi"
+            }
+        },
+
+        "loadCells": {
+            "LCThrust": {
+                "ADCIndex" : 0,
+                "highPin" : 5,
+                "lowPin" : 6,
+                "loadRating_N" : 5000,
+                "excitation_V" : 10,
+                "sensitivity_vV" : 2,
+                "units" : "N"
+            }
+        }
+    }
+}
