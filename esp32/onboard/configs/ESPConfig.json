@@ -26,7 +26,7 @@
                 "highPin" : 5,
                 "lowPin" : 6,
                 "loadRating_N" : 5000,
-                "excitation_V" : 10,
+                "excitation_V" : 10,    
                 "sensitivity_vV" : 2,
                 "units" : "N"
             }
