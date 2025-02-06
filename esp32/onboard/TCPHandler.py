@@ -1,4 +1,5 @@
-import socket  # noqa: INP001 -- Implicit namespace doesn't matter here
+import errno # need to import errno for OSError handling
+import socket  # noqa: INP001 -- Implicit namespace doesn't matter for ESP32 filesystem
 
 
 class TCPHandler:
@@ -34,17 +35,29 @@ class TCPHandler:
         self.tcpSocket.listen(1)  # Allow only 1 connection backlog
         print(f"TCP Listener initialized on port {self.port}")
 
-    def handleMessage(self, clientSocket: socket.socket) -> None:
+    def handleMessage(self, clientSocket: socket.socket, clientAddress: str) -> bool:
+        """Handle incoming TCP messages. Return False if there is an error handling data."""
+
         try:
             data = clientSocket.recv(1024).decode("utf-8")
             if not data:
-                clientSocket.close()
-                return
+                print("Connection closed by client")
+                return False
+
             # Add TCP message handling logic here
+
             print(f"Received TCP message: {data}")
+
+        except OSError as e: # Handle any OSErrors. Micropython is different than Cpython and error codes need to be imported
+            if e.args[0] == errno.ECONNRESET:  # Handle connection reset error
+                print(f"Client {clientAddress} closed the connection: ECONNRESET")
+            else:
+                print(f"Unexpected OSError from {clientAddress}: {e}")
+            return False
+
         except Exception as e:
             print(f"Error handling TCP client: {e}")
-            clientSocket.close()
+            return False
 
-    def getSocket(self) -> socket.socket:
-        return self.tcpSocket
+        return True
+

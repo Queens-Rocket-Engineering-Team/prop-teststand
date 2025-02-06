@@ -2,7 +2,7 @@ from labjack import ljm  #type:ignore  # Labjack is not typed
 
 
 class LoadCell:
-    """Class definition for a Load Cell sensor type.
+    """Class definition for a Load Cell sensor type. Defined within the context of a LabJack T7.
 
     This load cell definition assumes a 10V excitation and a 2mV/V sensitivity. This means the
     maximum possible output from the cell is 20mV. All response is linear so to make a measurement

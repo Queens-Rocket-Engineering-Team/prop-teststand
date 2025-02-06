@@ -27,6 +27,7 @@ dependencies = [
 # CLI TOOLS
 hello_cli = "qretproptools.cli.hello_cli.hello_cli:main"
 find_devices = "qretproptools.cli.find_devices.find_devices:main"
+direct_tcp = "qretproptools.cli.direct_tcp.direct_tcp:main"
 
 [project.gui-scripts]
 # GUI TOOLS

@@ -42,7 +42,7 @@ def initializeFromConfig(config) -> list[Thermocouple | LoadCell | PressureTrans
     print(f"Initializing device: {config.get('deviceName', 'Unknown Device')}")
     deviceType = config.get("deviceType", "Unknown")
 
-    if deviceType == "Sensor Monitor":
+    if deviceType == "Sensor Monitor": # Sensor monitor is what I'm calling an ESP32 that reads sensors
         sensorInfo = config.get("sensorInfo", {})
 
         for name, details in sensorInfo.get("thermocouples", {}).items():
@@ -95,10 +95,10 @@ wlan = wt.connectWifi("Hous-fi", "nothomeless")
 config = readConfig(CONFIG_FILE)
 sensors = initializeFromConfig(config)
 
+udpListener = UDPListener(port=40000)
+tcpListener = TCPHandler(port=50000)
+server = AsyncManager(udpListener, tcpListener, config)
+
+
 def main() -> None:
-
-
-    udpListener = UDPListener(port=40000)
-    tcpListener = TCPHandler(port=50000)
-    server = AsyncManager(udpListener, tcpListener)
     server.run()
