@@ -28,6 +28,7 @@ dependencies = [
 hello_cli = "qretproptools.cli.hello_cli.hello_cli:main"
 find_devices = "qretproptools.cli.find_devices.find_devices:main"
 direct_tcp = "qretproptools.cli.direct_tcp.direct_tcp:main"
+sim_device = "qretproptools.cli.deviceSimulator.sim_device:main"
 
 [project.gui-scripts]
 # GUI TOOLS

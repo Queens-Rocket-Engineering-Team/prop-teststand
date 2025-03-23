@@ -4,11 +4,14 @@ import time
 
 
 class DeviceSearcher:
-    def __init__(self, broadcast_ip:str ="255.255.255.255", port:int=40000) -> None:
+    def __init__(self, broadcast_ip:str ="255.255.255.255") -> None:
         self.deviceList: set[str] = set()  # List to store the IP addresses of devices
         self.stopListening_flag = False  # Flag to control the listening thread
         self.broadcast_ip = broadcast_ip
-        self.port = port
+        self.port = 40000 # Use 40000 for connecting to real devices
+        self.simPort = 40001 # Use 40001 for connecting to simulated devices
+
+        self.activePort = self.port  # The port the active server is listening on.
 
         self.localIP = socket.gethostbyname(socket.gethostname())
         print(f"Local IP: {self.localIP}")
@@ -56,7 +59,15 @@ class DeviceSearcher:
     def searchForDevices(self) -> None:
         # Create a socket to listen for responses
         self.listenSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.listenSock.bind(("", self.port))  # Bind to all NICs on the specified port.
+
+        try:
+            self.listenSock.bind(("", self.port))  # Bind to all NICs on the specified port.
+            self.activePort = self.port
+        except OSError as e:
+            print(f"Error binding to port {self.port}: {e}. \nRetrying on simulator port...")
+            self.listenSock.bind(("", self.simPort))  # Bind to all NICs on the specified port.
+            self.activePort = self.simPort
+
         self.listenSock.settimeout(0.5)  # Set a timeout for the socket to prevent blocking
 
         # Start a thread to listen for responses

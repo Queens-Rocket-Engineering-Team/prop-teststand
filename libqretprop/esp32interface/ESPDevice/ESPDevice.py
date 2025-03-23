@@ -23,7 +23,7 @@ class ESPDevice:
         configJson = json.loads(configBytes.decode("utf-8"))
         deviceType = configJson["deviceType"]
 
-        if deviceType == "Sensor Monitor":
+        if deviceType in {"Sensor Monitor", "Simulated Sensor Monitor"}:
             # To avoid circular imports, import the SensorMonitor class only within the scope of this function
             from libqretprop.esp32interface.SensorMonitor.SensorMonitor import SensorMonitor
 
