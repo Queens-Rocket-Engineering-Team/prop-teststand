@@ -26,26 +26,29 @@ def main() -> None:
         print(f"Connected to {ip_address}:{port_number}")
 
         while running:
-            readable, _ , _ = select.select([sock], [], [], 0.1) # Check if the socket is readable. Select is blocking so we need a timeout to allow for Ctrl+C
+            readable, _ , _ = select.select([sock, sys.stdin], [], [], 0.1) # Check if the socket is readable. Select is blocking so we need a timeout to allow for Ctrl+C
 
-            for sock in readable:
-                data = sock.recv(1024) # Read the data from the socket
-                messageType = data.decode("utf-8")[0:4] # Get the first 4 characters of the data
-
-                print(messageType)
-
-                if not data:
-                    print("Connection closed by server")
-                    sock.close()
-                    sys.exit(1)
-
-                if messageType == "CONF":
-                    print("Received config file.")
-                    device = ESPDevice.fromConfigBytes(data[4:], ip_address) # Create an ESPDevice object from the config bytes
-                    print(f"{device.name} is a ({device.type}) type device.")
-                    if isinstance(device, ESPDevice):
-                        sensorNames = [s.name for s in device.sensors]
-                        print(f"Sensor list: {sensorNames}")
+            for src in readable:
+                if src is sock:
+                    data = sock.recv(1024)
+                    if not data:
+                        print("Server closed connection.")
+                        sys.exit(0)
+                    # handle your CONF, etc.
+                else:  # src is sys.stdin
+                    line = sys.stdin.readline().strip()
+                    if not line:
+                        continue
+                    cmd = line.upper()
+                    if cmd == "GETS":
+                        sock.sendall(b"GETS")
+                        print("→ GETS")
+                    elif cmd in ("EXIT", "QUIT"):
+                        print("Bye!")
+                        sock.close()
+                        sys.exit(0)
+                    else:
+                        print(f"Unknown op-code: {line}")
 
     except KeyboardInterrupt: # Gracefully close socket on Ctrl+C
         if running:

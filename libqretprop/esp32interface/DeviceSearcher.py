@@ -8,10 +8,8 @@ class DeviceSearcher:
         self.deviceList: set[str] = set()  # List to store the IP addresses of devices
         self.stopListening_flag = False  # Flag to control the listening thread
         self.broadcast_ip = broadcast_ip
-        self.port = 40000 # Use 40000 for connecting to real devices
-        self.simPort = 40001 # Use 40001 for connecting to simulated devices
-
-        self.activePort = self.port  # The port the active server is listening on.
+        self.port = 30000 # Local port for UDP socket to bind to
+        self.devicePort = 40000 # Port that devices listen to for UDP broadcasts
 
         self.localIP = socket.gethostbyname(socket.gethostname())
         print(f"Local IP: {self.localIP}")
@@ -25,8 +23,8 @@ class DeviceSearcher:
         broadcastSock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
         # Broadcast the message
-        print(f"Sending broadcast message to {self.broadcast_ip}:{self.port}")
-        broadcastSock.sendto(message.encode(), (self.broadcast_ip, self.port))
+        print(f"Sending broadcast message to {self.broadcast_ip}:{self.devicePort}")
+        broadcastSock.sendto(message.encode(), (self.broadcast_ip, self.devicePort))
 
         broadcastSock.close()
 
@@ -61,14 +59,11 @@ class DeviceSearcher:
         self.listenSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         try:
-            self.listenSock.bind(("", self.port))  # Bind to all NICs on the specified port.
-            self.activePort = self.port
+            self.listenSock.bind(("192.168.1.2", self.port))  # Run ipconfig in windows and grab the ip address of the interface you want. Normally ethernet
         except OSError as e:
-            print(f"Error binding to port {self.port}: {e}. \nRetrying on simulator port...")
-            self.listenSock.bind(("", self.simPort))  # Bind to all NICs on the specified port.
-            self.activePort = self.simPort
+            print(f"Error binding to port {self.port}: {e}")
 
-        self.listenSock.settimeout(0.5)  # Set a timeout for the socket to prevent blocking
+        self.listenSock.settimeout(1)  # Set a timeout on listening for a response to prevent blocking. Mainly so you can stop the program with Ctrl+C
 
         # Start a thread to listen for responses
         self.listenerThread = threading.Thread(target=self.listenForDevices, args=(self.listenSock,))

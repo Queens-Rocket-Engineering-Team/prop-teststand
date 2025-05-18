@@ -29,13 +29,13 @@ class AsyncManager:
         try:
             while self.running:
                 # Monitor sockets for if they become readable
-                readable, _, _ = select.select(self.inputs, [], [])
+                readable, _, _ = select.select(self.inputs, [], [], 0.1) # Timeout of 0.1 seconds to allow for registering of keyboard interrupts
                 for sock in readable:
                     if sock == self.udpListener.udpSocket:
                         data, address = sock.recvfrom(1024)
                         print(f"Received UDP message: {data.decode('utf-8')} from {address}")
                         # Handle all UDP messages in the UDPListener.
-                        self.udpListener.handleMessage(data, address, self.tcpListener.port) # Pass data to the listener
+                        self.udpListener.handleMessage(data, address, self.tcpListener.port) # Pass received message, as well as active TCP port to the UDP listener
 
                     elif sock == self.tcpListener.tcpSocket:
                         clientSocket, clientAddress = sock.accept() # Generate communication socket between listener and client

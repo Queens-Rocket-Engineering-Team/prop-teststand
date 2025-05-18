@@ -15,6 +15,8 @@ import wifi_tools as wt
 from AsyncManager import AsyncManager
 from TCPHandler import TCPHandler
 from UDPListener import UDPListener
+from machine import Pin  # type: ignore # machine is a micropython library
+from machine import I2C  # type: ignore # machine is a micropython library
 
 from sensors.Thermocouple import Thermocouple # type: ignore # don't need __init__ for micropython
 from sensors.PressureTransducer import PressureTransducer # type: ignore
@@ -80,6 +82,42 @@ def initializeFromConfig(config) -> list[Thermocouple | LoadCell | PressureTrans
 
     return []
 
+def readRegister(i2cBus: I2C, address: int, register: int) -> bytes:
+    """Read a 8-bit register from the ADS112C04.
+
+    There are two parts to this call. The first part is the address of the device to read from, and the second part is the register to read from.
+    The address section doesn't natively work with the I
+    Address format:
+
+
+    RREG format is as follows:
+    [7:4] Base RREG command (0b0010)
+    [3:2] Register number (0b00 for MUX_GAIN_PGA, 0b01 for DR_MODE_CM_VREF_TS, 0b10 for DRDY_DCNT_CRC_BCS_IDAC, 0b11 for IDAC1_IDAC2)
+    [1:0] Reserved bits (should be 0)
+
+    EXAMPLE for calling register 2:
+    RREG = 0b0010
+    Reg# = 0b10
+    cmd = 0b0010 << 4 | 0b0010 << 2
+    cmd = 0b00100000 | 0b1000
+    cmd = 0b00101000 - Final command to request register 2s bits
+    """
+
+
+    rregCommand = 0b0010 # Read register command as defined in datasheet.
+
+    # Shift the command to the left by 4 bits to put it in the first 4 bits of the write command
+    # Shift the register number to the left by 2 bits to put it in the register number bits for the rreg call
+    fullCmd = rregCommand << 4 | register << 2 # combine the command and register number with bw OR operator
+
+    # Now write the command to the specified device address to query the register contents
+    i2cBus.writeto(address, bytes([fullCmd]), stop=False)
+    data = i2cBus.readfrom(address, 1)
+
+    # The ADS1112 will respond with the contents of the 8 bit register so we read 1 byte.
+
+    # The data is returned as a byte object, so we need to convert it to an integer. Use big scheme because MSB is first transmitted.
+    return data
 
 UDPRequests = ("SEARCH", # Message received when server is searching for client sensors
                )
@@ -90,7 +128,7 @@ TCPRequests = ("SREAD", # Reads a single value from all sensors
                "STAT", # Returns number of sensors and types
                )
 
-wlan = wt.connectWifi("Hous-fi", "nothomeless")
+wlan = wt.connectWifi("propnet", "propteambestteam")
 
 config = readConfig(CONFIG_FILE)
 sensors = initializeFromConfig(config)
@@ -99,6 +137,18 @@ udpListener = UDPListener(port=40000)
 tcpListener = TCPHandler(port=50000)
 server = AsyncManager(udpListener, tcpListener, config)
 
+## I2C Setup
+# The Pins NEED to be set to OUT. For some reason the I2C bus doesn't automatically set this on initialization of the bus.
+sclPin = Pin(6, Pin.OUT) # SCL pin is GPIO 6 on the ESP32. This connects to pin 16 on the ADC
+sdaPin = Pin(7, Pin.OUT) # SDA pin is GPIO 7 on the ESP32. This connects to pin 15 on the ADC
 
+# I2C bus 1, SCL pin 6, SDA pin 7, frequency 100kHz
+i2cBus = I2C(1, scl=sclPin, sda=sdaPin, freq=100000)
+
+devices = i2cBus.scan() # Scan the I2C bus for devices. This will return a list of addresses of devices on the bus.
+print("I2C devices found at following addresses:", [hex(device) for device in devices]) # Print the addresses of the devices found on the bus
+
+
+# Current state is that you must enter mpremote and run the main() function to start the server.
 def main() -> None:
     server.run()
