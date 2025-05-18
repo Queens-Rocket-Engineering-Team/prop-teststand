@@ -30,13 +30,28 @@ def main() -> None:
 
             for src in readable:
                 if src is sock:
-                    data = sock.recv(1024)
+
+                    data = sock.recv(1024) # Read the data from the socket
+                    messageType = data.decode("utf-8")[0:4] # Get the first 4 characters of the data
+
+                    print(messageType)
+
                     if not data:
                         print("Server closed connection.")
-                        sys.exit(0)
+                        sock.close()
+                        sys.exit(1)
+
                     # handle your CONF, etc.
+                    if messageType == "CONF":
+                        print("Received config file.")
+                        device = ESPDevice.fromConfigBytes(data[4:], ip_address) # Create an ESPDevice object from the config bytes
+                        print(f"{device.name} is a ({device.type}) type device.")
+                        if isinstance(device, ESPDevice):
+                            sensorNames = [s.name for s in device.sensors]
+                            print(f"Sensor list: {sensorNames}")
+
                 else:  # src is sys.stdin
-                    line = sys.stdin.readline().strip()
+                    line = sys.stdin.readline().strip   ()
                     if not line:
                         continue
                     cmd = line.upper()
@@ -44,7 +59,7 @@ def main() -> None:
                         sock.sendall(b"GETS")
                         print("→ GETS")
                     elif cmd in ("EXIT", "QUIT"):
-                        print("Bye!")
+                        print("Closing Connection!")
                         sock.close()
                         sys.exit(0)
                     else:
