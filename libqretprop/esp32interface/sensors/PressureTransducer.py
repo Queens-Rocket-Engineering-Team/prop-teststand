@@ -20,5 +20,4 @@ class PressureTransducer:
         self.maxPressure_PSI = maxPressure_PSI
         self.units = units
 
-        self.data = []
-        
+        self.data : list[float] = []

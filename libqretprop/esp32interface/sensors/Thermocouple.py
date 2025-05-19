@@ -21,4 +21,4 @@ class Thermocouple:
         self.type = thermoType
         self.units = units
 
-        self.data = []
+        self.data: list[float] = []

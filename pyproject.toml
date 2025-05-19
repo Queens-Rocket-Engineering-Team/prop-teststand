@@ -21,6 +21,8 @@ dependencies = [
     "ruff",
     "mypy",
     "mpremote",
+    "matplotlib", # needed for plotting test data
+    "ipykernel", # needed for jupyterlab
 ]
 
 [project.scripts]

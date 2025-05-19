@@ -1,3 +1,5 @@
+from typing import Any
+
 from libqretprop.esp32interface.ESPDevice.ESPDevice import ESPDevice
 from libqretprop.esp32interface.sensors.LoadCell import LoadCell
 from libqretprop.esp32interface.sensors.PressureTransducer import PressureTransducer
@@ -7,17 +9,20 @@ from libqretprop.esp32interface.sensors.Thermocouple import Thermocouple
 class SensorMonitor(ESPDevice):
     """Class of device which is an ESP32 that reads sensor data.
 
-    An object will self define itself from the byte form of a file received from the device.
+    An object will self define itself from a json file structure config file
+    received from the device. Deserialization takes place at the parent class
+    level, this class works on the JSON object level.
 
     """
 
-    def __init__(self, config: dict, address: str) -> None:
+    def __init__(self, config: dict[str, Any], address: str) -> None:
         super().__init__(config, address)
 
         self.config = config
         self.sensors = self.initializeFromConfig(config)
 
-    def initializeFromConfig(self, config: dict) -> list:
+    # JSON.loads returns a dictionary where attributes are defined with string titles and can contain whatever as values.
+    def initializeFromConfig(self, config: dict[str, Any]) -> list[Thermocouple | LoadCell | PressureTransducer]:
         """Initialize all devices and sensors from the config file."""
 
         sensors: list[Thermocouple | LoadCell | PressureTransducer] = []

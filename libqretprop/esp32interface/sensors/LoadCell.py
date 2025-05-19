@@ -20,4 +20,4 @@ class LoadCell:
 
         self.fullScaleVoltage = excitation_V * (sensitivity_vV/1000) # input sensitivity in units of mv/V in the config file
 
-        self.data = []
+        self.data : list[float] = []
