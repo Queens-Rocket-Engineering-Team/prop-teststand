@@ -17,8 +17,11 @@ def storeData(device: SensorMonitor, values: list[str]) -> None:
         order of sensor instantiation.
 
     """
-    for sensor, value in zip(device.sensors, values, strict=False):
-        sensor.data.append(float(value)) # Convert the utf-8 data
+
+    device.dataTimes.append(float(values[0])) # Log the time stamp of the data points
+
+    for sensor, value in zip(device.sensors, values[1:], strict=False):
+        sensor.data.append(float(value)) # Log the actual data points
 
 def main() -> None:
 
@@ -140,8 +143,9 @@ def main() -> None:
                         print("Exporting data to CSV...")
                         device = next(iter(devices.values()))
 
-                        headers = [sensor.name for sensor in device.sensors]
-                        columns = [sensor.data for sensor in device.sensors]
+                        # *(x for y in z) unpacks the generator expression into a list
+                        headers = ["Time (ms)", *(sensor.name for sensor in device.sensors)] # Gives [Time, Sensor1, Sensor2, ...]
+                        columns = [device.dataTimes, *(sensor.data for sensor in device.sensors)] # Gives [TimeData, Sensor1Data, Sensor2Data, ...]
 
                         with open(f"{device.name}_data.csv", "w", newline="") as csvfile:
                             writer = csv.writer(csvfile)

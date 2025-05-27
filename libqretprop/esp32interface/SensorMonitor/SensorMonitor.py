@@ -19,6 +19,7 @@ class SensorMonitor(ESPDevice):
         super().__init__(config, address)
 
         self.config = config
+        self.dataTimes : list[float] = [] # list of time stamps for each data point
         self.sensors = self.initializeFromConfig(config)
 
     # JSON.loads returns a dictionary where attributes are defined with string titles and can contain whatever as values.
