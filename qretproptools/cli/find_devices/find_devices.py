@@ -1,8 +1,14 @@
-import time
+import selectors
+import sys
+from typing import TYPE_CHECKING
 
-import keyboard
+from libqretprop.ESPObjects.DeviceSearcher import DeviceSearcher
 
-from libqretprop.esp32interface.DeviceSearcher import DeviceSearcher
+
+if TYPE_CHECKING:
+    import socket
+
+    from libqretprop.ESPObjects.ESPDevice.ESPDevice import ESPDevice
 
 
 def stopSearch(searcher: DeviceSearcher) -> None:
@@ -10,19 +16,50 @@ def stopSearch(searcher: DeviceSearcher) -> None:
     searcher.stopListening()
     print(f"Found devices: {searcher.deviceList}")
 
+def handleSsdpResponses(deviceSearcher: DeviceSearcher) -> None:
+    """Check for SSDP responses and process any new device."""
+    try:
+        device: ESPDevice | None = deviceSearcher.handleDeviceCallback()
+        if device:
+            print(f"Discovered device: {device.name}")
+    except BlockingIOError:
+        # No data available
+        pass
 
 def main() -> None:
-    searcher = DeviceSearcher()
-    time.sleep(0.1)  # Wait for the listener to start
+    selector = selectors.DefaultSelector()
+
+    # Instantiate DeviceSearcher and set socket to non-blocking
+    deviceSearcher = DeviceSearcher()
+    ssdpSocket: socket.socket = deviceSearcher.SSDPSock
+    ssdpSocket.setblocking(False)
+    selector.register(ssdpSocket, selectors.EVENT_READ, data="ssdp")
+
+    # Register stdin for user input (keypress)
+    stdinFd = sys.stdin
+    selector.register(stdinFd, selectors.EVENT_READ, data="stdin")
+
+    # Send initial discovery packet
+    deviceSearcher.sendDiscovery()
+    print("Sent initial SSDP discovery. Press 's' + Enter to resend, Ctrl+C to quit.")
+
     try:
-        searcher.searchForDevices()
         while True:
-            time.sleep(0.1)  # Keep the main thread alive
-            if keyboard.is_pressed("s"):
-                searcher.sendBroadcastMessage("SEARCH")
-
+            for key, _ in selector.select(timeout=1.0):
+                if key.data == "ssdp":
+                    handleSsdpResponses(deviceSearcher)
+                elif key.data == "stdin":
+                    userInput = sys.stdin.readline().strip()
+                    if userInput.lower() == "s":
+                        deviceSearcher.sendDiscovery()
+                        print("Resent SSDP discovery.")
     except KeyboardInterrupt:
-        stopSearch(searcher)
+        print("\nStopping device search.")
+    finally:
+        selector.unregister(ssdpSocket)
+        selector.unregister(stdinFd)
+        deviceSearcher.stopListening()
 
-if __name__ == "main":
+
+if __name__ == "__main__":
     main()

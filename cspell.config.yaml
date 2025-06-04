@@ -10,6 +10,8 @@ words:
   - essid
   - figsize
   - getch
+  - gethostname
+  - IPPROTO
   - isconnected
   - kbhit
   - labjack
@@ -27,6 +29,8 @@ words:
   - REUSEADDR
   - showlegend
   - skiprows
+  - SSDP
+  - STRM
   - teststand
   - webrepl
   - WLAN

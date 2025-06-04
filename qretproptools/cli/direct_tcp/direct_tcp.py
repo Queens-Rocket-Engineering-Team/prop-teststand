@@ -3,25 +3,36 @@ import select
 import socket
 import sys
 
-from libqretprop.esp32interface.ESPDevice.ESPDevice import ESPDevice
-from libqretprop.esp32interface.SensorMonitor.SensorMonitor import SensorMonitor
+from libqretprop.ESPObjects.ESPDevice.ESPDevice import ESPDevice
+from libqretprop.ESPObjects.SensorMonitor.SensorMonitor import SensorMonitor
 
 
 def storeData(device: SensorMonitor, values: list[str]) -> None:
-    """Store the data from the ESP32 device into the appropriate sensor object.
+    """Store data values from an ESP32 device into the corresponding sensor objects.
 
-    Parameters
-    ----------
-        device (SensorMonitor): The device to store data from.
-        values (list[str]): The values to store in the sensors in list form in
-        order of sensor instantiation.
+    Appends the timestamp and sensor readings to the appropriate lists within the SensorMonitor instance.
 
+    device (SensorMonitor): The device instance containing sensor objects and data storage lists.
+    values (list[str]): List of string values where the first element is the timestamp and the remaining elements are
+                        sensor readings, ordered according to sensor instantiation.
     """
 
     device.dataTimes.append(float(values[0])) # Log the time stamp of the data points
 
     for sensor, value in zip(device.sensors, values[1:], strict=False):
         sensor.data.append(float(value)) # Log the actual data points
+
+def sendCommand(sock: socket.socket, command: str) -> None:
+    """Send a command to the ESP32 device over the TCP socket.
+
+    Parameters.
+    ----------
+        sock (socket.socket): The socket to send the command over.
+        command (str): The command to send to the ESP32 device.
+    """
+
+    sock.sendall(command.encode())
+    print("↦", command)
 
 def main() -> None:
 
@@ -116,54 +127,36 @@ def main() -> None:
                         continue
                     cmd = line.upper()
 
-                    # Commands that go out to the ESP32 device
-                    if cmd == "GETS": # Request a single reading from the device on all sensors
-                        sock.sendall(b"GETS")
-                        print("→ GETS")
-
-                    elif cmd == "STRM": # Request a continuous stream of data from the device
-                        sock.sendall(b"STRM")
-                        print("→ STRM")
-
-                    elif cmd == "STOP": # Stop the continuous stream of data from the device
-                        sock.sendall(b"STOP")
-                        print("→ STOP")
-
-                    # Prefix with _ for fommands that are used for local debugging and getting information.
-                    elif cmd == "_DEVS": # List the devices that have been discovered
-                        print(f"Currently connected devices: {devices.keys()}")
-
-                    elif cmd == "_READINGS": # Print out the data from all devices
-                        for device in devices.values():
-                            print(f"Device: {device.name}")
-                            for sensor in device.sensors:
-                                print(f"Sensor: {sensor.name}, Data: {sensor.data}")
-
-                    elif cmd == "_EXPORT": # Export the data from all devices to a CSV file
-                        print("Exporting data to CSV...")
-                        device = next(iter(devices.values()))
-
-                        # *(x for y in z) unpacks the generator expression into a list
-                        headers = ["Time (ms)", *(sensor.name for sensor in device.sensors)] # Gives [Time, Sensor1, Sensor2, ...]
-                        columns = [device.dataTimes, *(sensor.data for sensor in device.sensors)] # Gives [TimeData, Sensor1Data, Sensor2Data, ...]
-
-                        with open(f"{device.name}_data.csv", "w", newline="") as csvfile:
-                            writer = csv.writer(csvfile)
-                            writer.writerow(headers)
-
-                            # zip stops at the shortest list, but if all lists
-                            # are same-length that's fine
-                            writer.writerows(zip(*columns, strict=True))
-
-                        print(f"→ Wrote {len(columns[0])} rows to sensor_data.csv")
 
 
-                    elif cmd in ("EXIT", "QUIT"):
-                        print("Closing Connection!")
-                        sock.close()
-                        sys.exit(0)
-                    else:
-                        print(f"Unknown op-code: {line}")
+                    # Use match-case for command handling (Python 3.10+)
+                    match cmd:
+                        case "GETS": sendCommand(sock, "GETS")
+                        case "STRM": sendCommand(sock, "STRM")
+                        case "STOP": sendCommand(sock, "STOP")
+                        case "_DEVS":
+                            print(f"Currently connected devices: {devices.keys()}")
+                        case "_READINGS":
+                            for device in devices.values():
+                                print(f"Device: {device.name}")
+                                for sensor in device.sensors:
+                                    print(f"Sensor: {sensor.name}, Data: {sensor.data}")
+                        case "_EXPORT":
+                            print("Exporting data to CSV...")
+                            device = next(iter(devices.values()))
+                            headers = ["Time (ms)", *(sensor.name for sensor in device.sensors)]
+                            columns = [device.dataTimes, *(sensor.data for sensor in device.sensors)]
+                            with open(f"{device.name}_data.csv", "w", newline="") as csvfile:
+                                writer = csv.writer(csvfile)
+                                writer.writerow(headers)
+                                writer.writerows(zip(*columns, strict=True))
+                            print(f"→ Wrote {len(columns[0])} rows to sensor_data.csv")
+                        case "EXIT" | "QUIT":
+                            print("Closing Connection!")
+                            sock.close()
+                            sys.exit(0)
+                        case _:
+                            print(f"Unknown op-code: {line}")
 
     except KeyboardInterrupt: # Gracefully close socket on Ctrl+C
         if running:

@@ -1,9 +1,9 @@
 from typing import Any
 
-from libqretprop.esp32interface.ESPDevice.ESPDevice import ESPDevice
-from libqretprop.esp32interface.sensors.LoadCell import LoadCell
-from libqretprop.esp32interface.sensors.PressureTransducer import PressureTransducer
-from libqretprop.esp32interface.sensors.Thermocouple import Thermocouple
+from libqretprop.ESPObjects.ESPDevice.ESPDevice import ESPDevice
+from libqretprop.ESPObjects.sensors.LoadCell import LoadCell
+from libqretprop.ESPObjects.sensors.PressureTransducer import PressureTransducer
+from libqretprop.ESPObjects.sensors.Thermocouple import Thermocouple
 
 
 class SensorMonitor(ESPDevice):

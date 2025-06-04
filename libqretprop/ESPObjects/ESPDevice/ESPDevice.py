@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
-    from libqretprop.esp32interface.SensorMonitor.SensorMonitor import SensorMonitor
+    from libqretprop.ESPObjects.SensorMonitor.SensorMonitor import SensorMonitor
 
 class ESPDevice:
     """A top level class representing the configuration of a connected ESP32 device.
@@ -31,6 +31,18 @@ class ESPDevice:
         self.type = jsonConfig["deviceType"]
         self.address = address
 
+    def sendCommand(self, command: str) -> None:
+        """Send a command to the device.
+
+        Parameters
+        ----------
+        command : str
+            The command to send to the device.
+
+        """
+        raise NotImplementedError("This method should be implemented in subclasses.")
+
+
 
 
     @staticmethod
@@ -40,9 +52,10 @@ class ESPDevice:
 
         if deviceType in {"Sensor Monitor", "Simulated Sensor Monitor"}:
             # To avoid circular imports, import the SensorMonitor class only within the scope of this function
-            from libqretprop.esp32interface.SensorMonitor.SensorMonitor import SensorMonitor
+            from libqretprop.ESPObjects.SensorMonitor.SensorMonitor import SensorMonitor
 
             return SensorMonitor(configJson, address)
         else:
             err = f"Device type {deviceType} not recognized."
             raise ValueError(err)
+
