@@ -3,8 +3,8 @@ import select
 import socket
 import sys
 
-from libqretprop.ESPObjects.ESPDevice.ESPDevice import ESPDevice
-from libqretprop.ESPObjects.SensorMonitor.SensorMonitor import SensorMonitor
+from libqretprop.Devices.ESPDevice import ESPDevice
+from libqretprop.Devices.SensorMonitor import SensorMonitor
 
 
 def storeData(device: SensorMonitor, values: list[str]) -> None:

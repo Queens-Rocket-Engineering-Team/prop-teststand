@@ -16,6 +16,7 @@ dependencies = [
     "PySide6-stubs",
     "keyboard",
     "types-keyboard",
+    "redis",
 
     # Dev stuff
     "ruff",
@@ -27,12 +28,14 @@ dependencies = [
 
 [project.scripts]
 # CLI TOOLS
-hello_cli = "qretproptools.cli.hello_cli.hello_cli:main"
 find_devices = "qretproptools.cli.find_devices.find_devices:main"
 direct_tcp = "qretproptools.cli.direct_tcp.direct_tcp:main"
 sim_device = "qretproptools.cli.deviceSimulator.sim_device:main"
+see_logs = "qretproptools.cli.see_logs.see_logs:main"
+start_server = "qretproptools.cli.start_server.start_server:main"
 
 [project.gui-scripts]
+
 # GUI TOOLS
 hello_gui = "qretproptools.gui.hello_gui.hello_gui:main"
 full_gui =  "qretproptools.gui.full_Gui.full_Gui:main"

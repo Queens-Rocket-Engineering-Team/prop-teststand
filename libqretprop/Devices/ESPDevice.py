@@ -1,9 +1,10 @@
 import json
+import socket
 from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
-    from libqretprop.ESPObjects.SensorMonitor.SensorMonitor import SensorMonitor
+    from libqretprop.Devices.SensorMonitor import SensorMonitor
 
 class ESPDevice:
     """A top level class representing the configuration of a connected ESP32 device.
@@ -21,40 +22,26 @@ class ESPDevice:
 
     """
     def __init__(self,
+                 socket: socket.socket,
                  jsonConfig: dict[str, Any],
-                 address: str,
                  ) -> None:
 
         self.jsonConfig = jsonConfig
+        self.tcpSocket = socket
 
         self.name = jsonConfig["deviceName"]
         self.type = jsonConfig["deviceType"]
-        self.address = address
-
-    def sendCommand(self, command: str) -> None:
-        """Send a command to the device.
-
-        Parameters
-        ----------
-        command : str
-            The command to send to the device.
-
-        """
-        raise NotImplementedError("This method should be implemented in subclasses.")
-
-
-
 
     @staticmethod
-    def fromConfigBytes(configBytes: bytes, address: str) -> "SensorMonitor": # Delay evaluation of SensorMonitor to avoid circular imports
+    def fromConfigBytes(socket: socket.socket, configBytes: bytes) -> "SensorMonitor": # Delay evaluation of SensorMonitor to avoid circular imports
         configJson = json.loads(configBytes.decode("utf-8"))
         deviceType = configJson["deviceType"]
 
         if deviceType in {"Sensor Monitor", "Simulated Sensor Monitor"}:
             # To avoid circular imports, import the SensorMonitor class only within the scope of this function
-            from libqretprop.ESPObjects.SensorMonitor.SensorMonitor import SensorMonitor
+            from libqretprop.Devices.SensorMonitor import SensorMonitor
 
-            return SensorMonitor(configJson, address)
+            return SensorMonitor(socket, configJson)
         else:
             err = f"Device type {deviceType} not recognized."
             raise ValueError(err)

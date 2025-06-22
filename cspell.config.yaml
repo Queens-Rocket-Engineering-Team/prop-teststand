@@ -5,8 +5,10 @@ dictionaries: []
 words:
   - absjoin
   - DGRAM
+  - dlog
   - DUMBASS
   - ECONNRESET
+  - elog
   - essid
   - figsize
   - getch
@@ -20,6 +22,7 @@ words:
   - micropython
   - Modbus
   - mpremote
+  - mylogging
   - Nikhil
   - osdebug
   - pyproject

@@ -1,9 +1,10 @@
+import socket
 from typing import Any
 
-from libqretprop.ESPObjects.ESPDevice.ESPDevice import ESPDevice
-from libqretprop.ESPObjects.sensors.LoadCell import LoadCell
-from libqretprop.ESPObjects.sensors.PressureTransducer import PressureTransducer
-from libqretprop.ESPObjects.sensors.Thermocouple import Thermocouple
+from libqretprop.Devices.ESPDevice import ESPDevice
+from libqretprop.Devices.sensors.LoadCell import LoadCell
+from libqretprop.Devices.sensors.PressureTransducer import PressureTransducer
+from libqretprop.Devices.sensors.Thermocouple import Thermocouple
 
 
 class SensorMonitor(ESPDevice):
@@ -15,15 +16,19 @@ class SensorMonitor(ESPDevice):
 
     """
 
-    def __init__(self, config: dict[str, Any], address: str) -> None:
-        super().__init__(config, address)
+    def __init__(self, socket: socket.socket, config: dict[str, Any]) -> None:
+        super().__init__(socket, config)
 
-        self.config = config
-        self.dataTimes : list[float] = [] # list of time stamps for each data point
-        self.sensors = self.initializeFromConfig(config)
+        # Storing the default information inherited from the parent class
+        self.jsonConfig = config
+        self.name = config.get("deviceName")
+        self.type = config.get("deviceType")
+
+        self.dataTimes : list[float] = [] # GET RID OF THIS! Data is not stored on teh device level
+        self.sensors = self._initializeFromConfig(config)
 
     # JSON.loads returns a dictionary where attributes are defined with string titles and can contain whatever as values.
-    def initializeFromConfig(self, config: dict[str, Any]) -> list[Thermocouple | LoadCell | PressureTransducer]:
+    def _initializeFromConfig(self, config: dict[str, Any]) -> list[Thermocouple | LoadCell | PressureTransducer]:
         """Initialize all devices and sensors from the config file."""
 
         sensors: list[Thermocouple | LoadCell | PressureTransducer] = []
