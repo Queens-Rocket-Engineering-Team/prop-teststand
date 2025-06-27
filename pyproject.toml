@@ -20,6 +20,7 @@ dependencies = [
 
     # Dev stuff
     "ruff",
+    "uv",
     "mypy",
     "mpremote",
     "matplotlib", # needed for plotting test data

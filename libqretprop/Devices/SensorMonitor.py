@@ -16,11 +16,17 @@ class SensorMonitor(ESPDevice):
 
     """
 
-    def __init__(self, socket: socket.socket, config: dict[str, Any]) -> None:
-        super().__init__(socket, config)
+    def __init__(self,
+                 socket: socket.socket,
+                 address: str,
+                 config: dict[str, Any]) -> None:
+        super().__init__(socket, address, config)
 
         # Storing the default information inherited from the parent class
+        self.socket = socket
+        self.address = address
         self.jsonConfig = config
+
         self.name = config.get("deviceName")
         self.type = config.get("deviceType")
 

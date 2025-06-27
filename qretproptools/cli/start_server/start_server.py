@@ -1,9 +1,11 @@
+import asyncio
+
 from libqretprop import server
 
 
 def main() -> None:
     """Start the QRET server."""
-    server.main()
+    asyncio.run(server.main())
 
 if __name__ == "__main__":
 
@@ -12,3 +14,4 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\nServer stopped by user.")
+        

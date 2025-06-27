@@ -2,7 +2,7 @@ import selectors
 import sys
 from typing import TYPE_CHECKING
 
-from libqretprop.DeviceControllers.searchTools import DeviceSearcher
+from libqretprop.DeviceControllers.discoveryTools import DeviceSearcher
 
 
 if TYPE_CHECKING:

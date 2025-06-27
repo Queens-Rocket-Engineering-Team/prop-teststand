@@ -23,17 +23,19 @@ class ESPDevice:
     """
     def __init__(self,
                  socket: socket.socket,
+                 address: str,
                  jsonConfig: dict[str, Any],
                  ) -> None:
 
-        self.jsonConfig = jsonConfig
         self.tcpSocket = socket
+        self.address = address
+        self.jsonConfig = jsonConfig
 
         self.name = jsonConfig["deviceName"]
         self.type = jsonConfig["deviceType"]
 
     @staticmethod
-    def fromConfigBytes(socket: socket.socket, configBytes: bytes) -> "SensorMonitor": # Delay evaluation of SensorMonitor to avoid circular imports
+    def fromConfigBytes(socket: socket.socket, address: str, configBytes: bytes) -> "SensorMonitor": # Delay evaluation of SensorMonitor to avoid circular imports
         configJson = json.loads(configBytes.decode("utf-8"))
         deviceType = configJson["deviceType"]
 
@@ -41,7 +43,7 @@ class ESPDevice:
             # To avoid circular imports, import the SensorMonitor class only within the scope of this function
             from libqretprop.Devices.SensorMonitor import SensorMonitor
 
-            return SensorMonitor(socket, configJson)
+            return SensorMonitor(socket, address, configJson)
         else:
             err = f"Device type {deviceType} not recognized."
             raise ValueError(err)

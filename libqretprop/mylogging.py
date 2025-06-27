@@ -23,7 +23,7 @@ def _publishLog(channel: str, message: str, color: str) -> None:
 
     now = datetime.now(ZoneInfo("America/New_York"))
     # Format: YYYY-MM-DDTHH:MM:SS.s-TZ (1 decimal place for seconds)
-    timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = now.strftime("%H:%M:%S")
     timestamp_str = f"\033[90m[{timestamp}]\033[0m"  # Always dark grey
 
     # Apply color formatting to the message only
