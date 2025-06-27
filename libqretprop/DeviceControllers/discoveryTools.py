@@ -37,7 +37,16 @@ def sendMulticastDiscovery() -> None:
 
     ml.dlog("Sending SSDP multicast discovery request.")
 
-    ssdpRequest = "M-SEARCH"
+    ssdpRequest = (
+        "M-SEARCH * HTTP/1.1\r\n"
+        f"HOST: {MULTICAST_ADDRESS}:{MULTICAST_PORT}\r\n"
+        'MAN: "ssdp:discover"\r\n'
+        "MX: 2\r\n"                         # Maximum wait time in seconds
+        "ST: urn:qret-device:esp32\r\n"     # Search target - custom for your devices
+        "USER-AGENT: QRET/1.0\r\n"          # Identify your application
+        "\r\n"
+    )
+
     ssdpSearchSocket.setsockopt(socket.IPPROTO_IP,       # IP protocol level
                         socket.IP_MULTICAST_TTL, # Set the time-to-live for multicast packets
                         2)                       # Set the TTL to 2, can jump through two routers (default is 1, which is local network only)
