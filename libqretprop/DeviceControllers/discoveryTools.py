@@ -138,8 +138,6 @@ async def deviceListener() -> None:
 
                 except Exception as e:
                     ml.elog(f"Failed to establish TCP connection to {deviceIP}: {e}")
-            else:
-                ml.dlog(f"Received invalid or non-matching SSDP response from {addr[0]}")
 
         except asyncio.CancelledError:
             ml.slog("SSDP listener cancelled")
