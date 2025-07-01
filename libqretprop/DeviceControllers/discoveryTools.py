@@ -112,12 +112,13 @@ async def deviceListener() -> None:
                 "ST: urn:qretprop:espdevice:1",
             ]):
                 deviceIP = addr[0]
-                ml.slog(f"Valid ESP32 device discovered at {deviceIP}")
 
                 # Check if device is already registered
                 if deviceIP in deviceRegistry:
                     ml.slog(f"Device {deviceIP} is already registered as {deviceRegistry[deviceIP].name}.")
                     continue
+                else:
+                    ml.slog(f"New device discovered at {deviceIP}, attempting to connect...")
 
                 try:
                     # Create TCP connection to device
