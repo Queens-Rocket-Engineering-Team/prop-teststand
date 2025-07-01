@@ -13,7 +13,6 @@ TCP_PORT = 50000  # Default TCP port for direct device communication
 
 # Searching Globals #
 ssdpSearchSocket : socket.socket | None = None
-tcpSearchSocket  : socket.socket | None = None
 
 # Listening Globals #
 tcpListenerSocket: socket.socket | None = None
@@ -23,17 +22,12 @@ deviceRegistry   : dict[str, ESPDevice] = {}  # Registry to keep track of discov
 # Active Searching Tools #
 # ---------------------- #
 
-def initSearchSockets() -> None:
-    """Set the global SSDP and TCP sockets."""
-    global ssdpSearchSocket, tcpSearchSocket
-    ssdpSearchSocket = _createSSDPSocket()
-    tcpSearchSocket  = _createTCPSocket()
-
 def sendMulticastDiscovery() -> None:
     global ssdpSearchSocket
 
     if ssdpSearchSocket is None:
-        raise RuntimeError("SSDP socket is not initialized. Call setSockets() first.")
+        ml.elog("The device listener is not running. Start the listener before sending discovery requests.")
+        return
 
     ml.dlog("Sending SSDP multicast discovery request.")
 
@@ -42,14 +36,11 @@ def sendMulticastDiscovery() -> None:
         f"HOST: {MULTICAST_ADDRESS}:{MULTICAST_PORT}\r\n"
         'MAN: "ssdp:discover"\r\n'
         "MX: 2\r\n"                         # Maximum wait time in seconds
-        "ST: urn:qret-device:esp32\r\n"     # Search target - custom for your devices
+        "ST: urn:qretprop:espdevice:1\r\n"     # Search target - custom for your devices
         "USER-AGENT: QRET/1.0\r\n"          # Identify your application
         "\r\n"
     )
 
-    ssdpSearchSocket.setsockopt(socket.IPPROTO_IP,       # IP protocol level
-                        socket.IP_MULTICAST_TTL, # Set the time-to-live for multicast packets
-                        2)                       # Set the TTL to 2, can jump through two routers (default is 1, which is local network only)
     ssdpSearchSocket.sendto(ssdpRequest.encode(), (MULTICAST_ADDRESS, MULTICAST_PORT))
 
 async def continuousMulticastDiscovery() -> None:
@@ -57,23 +48,6 @@ async def continuousMulticastDiscovery() -> None:
     while True:
         sendMulticastDiscovery()
         await asyncio.sleep(5)  # Wait for 5 seconds before sending the next request
-
-def directDiscovery(address: str) -> None:
-    """Directly search for a device at the specified address over TCP."""
-    global tcpSearchSocket
-    if tcpSearchSocket is None:
-        raise RuntimeError("TCP socket is not initialized. Call setSockets() first.")
-
-    try:
-        tcpSearchSocket.connect((address, TCP_PORT))
-        ml.dlog(f"Successfully sent discovery to {address}:{TCP_PORT}")
-
-        # Close and recreate a new socket for future use. This is to ensure that the socket is fresh for the next connection.
-        tcpSearchSocket.close()
-        tcpSearchSocket = _createTCPSocket()
-
-    except OSError as e:
-        ml.elog(f"Error connecting to device at {address}:{TCP_PORT}: {e}")
 
 def _createSSDPSocket() -> socket.socket:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -98,80 +72,82 @@ def _createSSDPSocket() -> socket.socket:
                     socket.IP_ADD_MEMBERSHIP,   # Join the multicast group
                     membershipRequest)          # The packed membership request containing the multicast address and interface address
 
+    # TTL Options
+    sock.setsockopt(socket.IPPROTO_IP,       # IP protocol level
+                    socket.IP_MULTICAST_TTL, # Set the time-to-live for multicast packets
+                    2)                       # Set the TTL to 2, can jump through two routers (default is 1, which is local network only)
+
+
+    # Set the socket to non-blocking mode
+    sock.setblocking(False)
+
     ml.slog(f"SSDP Listener socket initialized on {MULTICAST_ADDRESS}:{MULTICAST_ADDRESS}")
 
     return sock
-
-def _createTCPSocket() -> socket.socket:
-    """Create a TCP socket for direct device communication."""
-    tcpSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcpSock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    tcpSock.settimeout(0.5)  # Set a short timeout for non-blocking behavior
-    return tcpSock
 
 # ---------------------- #
 # Listener Tools         #
 # ---------------------- #
 
-def initListening() -> None:
-    """Initialize the TCP listener socket."""
-    global tcpListenerSocket
+async def deviceListener() -> None:
+    """Listen for SSDP responses from devices."""
+    global ssdpSearchSocket, deviceRegistry
 
-    if tcpListenerSocket is not None:
-        raise RuntimeError("TCP listener socket is already initialized.")
+    ssdpSearchSocket = _createSSDPSocket()
 
-    tcpListenerSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcpListenerSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    tcpListenerSocket.setblocking(False)  # Set the socket to non-blocking mode for asyncio
+    ml.slog("Starting SSDP listener...")
 
-    try:
-        tcpListenerSocket.bind(("0.0.0.0", TCP_PORT))  # Bind to all interfaces on the specified port
-        tcpListenerSocket.listen(5)               # Start listening for incoming connections
-        ml.slog(f"TCP Listener socket initialized on port {TCP_PORT}")
-    except OSError as e:
-        ml.elog(f"Error binding TCP listener socket to port {TCP_PORT}: {e}")
-        tcpListenerSocket = None
+    while True:
+        try:
+            # Use asyncio to handle non-blocking socket
+            loop = asyncio.get_event_loop()
+            data, addr = await loop.sock_recvfrom(ssdpSearchSocket, 1024)
+            response = data.decode("utf-8", errors="ignore")
 
-async def listenForDevices() -> None:
-    """Daemon that accepts incoming TCP connections from ESP32 devices and registers them to the known devices list."""
-    global tcpListenerSocket
+            # Validate SSDP response
+            if all(required in response for required in [
+                "HTTP/1.1 200 OK",
+                "EXT:",
+                "SERVER: ESP32/1.0 UPnP/1.0",
+                "ST: urn:qretprop:espdevice:1",
+            ]):
+                deviceIP = addr[0]
+                ml.slog(f"Valid ESP32 device discovered at {deviceIP}")
 
-    if tcpListenerSocket is None:
-        raise RuntimeError("TCP listener socket is not initialized. Call initListenerSocket() first.")
+                # Check if device is already registered
+                if deviceIP in deviceRegistry:
+                    ml.slog(f"Device {deviceIP} is already registered as {deviceRegistry[deviceIP].name}.")
+                    continue
 
-    ml.slog("Listening for incoming TCP connections from devices...")
-    ml.slog("Starting TCP listener daemon.")
+                try:
+                    # Create TCP connection to device
+                    deviceSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    await loop.sock_connect(deviceSocket, (deviceIP, TCP_PORT))
+                    deviceSocket.setblocking(False)
 
-    loop = asyncio.get_event_loop()
+                    ml.slog(f"Established TCP connection to device at {deviceIP}:{TCP_PORT}")
 
-    try:
-        while True:
-            clientSocket, clientAddress = await loop.sock_accept(tcpListenerSocket)
-            ml.slog(f"Accepted connection from {clientAddress[0]}")
+                    # After initial connection a device should send its config file so that the server can configure
+                    # the device and add it to the registry.
+                    config = await loop.sock_recv(deviceSocket, 1024)  # Receive initial config data (if any)
 
-            try:
-                # Blocking receive call since we expect the device to send its configuration immediately after connecting
-                configBytes = clientSocket.recv(1024)
+                    # Create new ESPDevice instance and add to registry
+                    newDevice = ESPDevice.fromConfigBytes(deviceSocket, deviceIP, config)
+                    deviceRegistry[deviceIP] = newDevice
+                    ml.slog(f"Successfully connected to {deviceRegistry[deviceIP].name} at {deviceIP}")
 
-                device = ESPDevice.fromConfigBytes(clientSocket, clientAddress[0], configBytes)
+                except Exception as e:
+                    ml.elog(f"Failed to establish TCP connection to {deviceIP}: {e}")
+            else:
+                ml.dlog(f"Received invalid or non-matching SSDP response from {addr[0]}")
 
-                if device.name is not None:
-                    if device.name in deviceRegistry:
-                        ml.slog(f"Device {device.name} already registered. Overwriting existing entry.")
-                    else:
-                        ml.slog(f"Registering new device: {device.name}")
+        except asyncio.CancelledError:
+            ml.slog("SSDP listener cancelled")
+            raise
+        except Exception as e:
+            ml.elog(f"Error in SSDP listener: {e}")
+            await asyncio.sleep(1)  # Prevent tight loop on errors
 
-                    deviceRegistry[device.name] = device
-                else:
-                    ml.elog(f"Received device with no name from {clientAddress[0]}. Device not registered.")
-            finally:
-                clientSocket.close()
-
-    except asyncio.CancelledError:
-        ml.slog("listenForDevices cancelled, shutting down listener.")
-        raise  # Re-raise to ensure proper task cancellation
-    except OSError as e:
-        ml.elog(f"Error listening for devices: {e}")
 
 def getRegisteredDevices() -> dict[str, ESPDevice]:
     return deviceRegistry.copy()
@@ -183,20 +159,10 @@ def getDeviceByName(name: str) -> ESPDevice | None:
 # Socket Management      #
 # ---------------------- #
 
-def closeSearchSockets() -> None:
-    """Close the SSDP and TCP sockets."""
-    global ssdpSearchSocket, tcpSearchSocket
-    if ssdpSearchSocket:
-        ssdpSearchSocket.close()
-        ssdpSearchSocket = None
-    if tcpSearchSocket:
-        tcpSearchSocket.close()
-        tcpSearchSocket = None
-    ml.slog("Closed SSDP and TCP sockets.")
-
-def closeDeviceSockets() -> None:
+def closeDeviceConnections() -> None:
     """Close all device sockets."""
     global deviceRegistry
+
     for device in deviceRegistry.values():
         if device.tcpSocket:
             try:
@@ -204,5 +170,6 @@ def closeDeviceSockets() -> None:
                 ml.slog(f"Closed socket for device {device.name}")
             except OSError as e:
                 ml.elog(f"Error closing socket for device {device.name}: {e}")
+
     deviceRegistry.clear()
     ml.slog("Closed all device sockets and cleared registry.")

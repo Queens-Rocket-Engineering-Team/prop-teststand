@@ -9,6 +9,7 @@ words:
   - DUMBASS
   - ECONNRESET
   - elog
+  - espdevice
   - essid
   - figsize
   - getch
@@ -28,6 +29,7 @@ words:
   - pyproject
   - pyqtgraph
   - QRET
+  - qretprop
   - qretproptools
   - REUSEADDR
   - showlegend

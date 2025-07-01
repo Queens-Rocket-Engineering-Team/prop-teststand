@@ -21,25 +21,24 @@ async def main() -> None:
     redisClient = redis.Redis(host="localhost", port=6379, db=0)
     ml.initLogger(redisClient)
 
-    # Create and assign SSDP and TCP search sockets
-    discoveryTools.initSearchSockets()
-    discoveryTools.initListening()
-
     loop = asyncio.get_event_loop()
-    daemons: dict[str, asyncio.Task] = {}
+    daemons: dict[str, asyncio.Task[None]] = {}
 
     try:
         # Start daemon tasks
-        daemons["deviceListener"] = loop.create_task(discoveryTools.listenForDevices())
+        daemons["deviceListener"] = loop.create_task(discoveryTools.deviceListener())
         ml.slog("Started deviceListener daemon task.")
 
-        daemons["multicastHeartbeat"] = loop.create_task(discoveryTools.continuousMulticastDiscovery())
-        ml.slog("Started multicastHeartbeat daemon task.")
+        # daemons["multicastHeartbeat"] = loop.create_task(discoveryTools.continuousMulticastDiscovery())
+        # ml.slog("Started multicastHeartbeat daemon task.")
 
-        discoveryTools.directDiscovery("192.168.1.226")  # Directly discover a device for testing
+        # Send a multicast discovery request immediately
+        await asyncio.sleep(0.1)  # Give the listener time to start
+        discoveryTools.sendMulticastDiscovery()
 
         # Main loop using asyncio.Event for efficient waiting
         stop_event = asyncio.Event()
+
         try:
             await stop_event.wait()
         except KeyboardInterrupt:
@@ -61,11 +60,8 @@ async def main() -> None:
                 ml.slog(f"Cancelled {name} daemon task.")
         await asyncio.gather(*daemons.values(), return_exceptions=True)
 
-        # Close listener sockets
-        discoveryTools.closeSearchSockets()
-
         # Close all open device sockets
-        discoveryTools.closeDeviceSockets()
+        discoveryTools.closeDeviceConnections()
 
 if __name__ == "__main__":
     asyncio.run(main())
