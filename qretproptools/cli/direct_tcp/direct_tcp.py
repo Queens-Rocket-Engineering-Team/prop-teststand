@@ -94,12 +94,15 @@ def main() -> None:
                         # Handle the startup CONF message when the connection is first established
                         if messageType == "CONF":
                             print("Received config file.")
-                            device = ESPDevice.fromConfigBytes(data[4:], ip_address) # Create an ESPDevice object from the config bytes
+                            device = ESPDevice.fromConfigBytes(sock, ip_address, data[4:]) # Create an ESPDevice object from the config bytes
                             print(f"{device.name} is a ({device.type}) type device.") # Print the device name and type to console
 
-                            if device.name in devices: # Check if the device is already in the list of known devices
+                            if device.name is None:
+                                print("Error: Device name is None. Device will not be added to the devices list.")
+                            elif device.name in devices: # Check if the device is already in the list of known devices
                                 print(f"Device {device.name} was already discovered.")
-                            else: devices[device.name] = device # Add the device to the list of known devices
+                            else:
+                                devices[device.name] = device # Add the device to the list of known devices
 
                             if isinstance(device, ESPDevice): # Print out the active sensor names if the device is a SensorMonitor
                                 sensorNames = [s.name for s in device.sensors]

@@ -14,7 +14,7 @@ class ServerState(Enum):
     WAITING = 1
     READY = 2
 
-async def main() -> None:
+async def main(directIP: str | None, noDiscovery: bool) -> None:
     """Run the server."""
 
     # Initialize Redis client for logging
@@ -25,16 +25,20 @@ async def main() -> None:
     daemons: dict[str, asyncio.Task[None]] = {}
 
     try:
-        # Start daemon tasks
-        daemons["deviceListener"] = loop.create_task(discoveryTools.deviceListener())
-        ml.slog("Started deviceListener daemon task.")
+        if not noDiscovery:
+            # Listener daemon will run in the background to listen for SSDP responses and update the device registry
+            daemons["deviceListener"] = loop.create_task(discoveryTools.deviceListener())
+            ml.slog("Started deviceListener daemon task.")
 
-        # daemons["multicastHeartbeat"] = loop.create_task(discoveryTools.continuousMulticastDiscovery())
-        # ml.slog("Started multicastHeartbeat daemon task.")
+            # Send a multicast discovery request immediately
+            await asyncio.sleep(0.1)  # Give the listener time to start
+            discoveryTools.sendMulticastDiscovery()
 
-        # Send a multicast discovery request immediately
-        await asyncio.sleep(0.1)  # Give the listener time to start
-        discoveryTools.sendMulticastDiscovery()
+        # If a direct IP is provided, connect to the device directly
+        if directIP:
+            await discoveryTools.connectToDevice(directIP)
+            ml.slog(f"Connecting directly to device at {directIP}.")
+
 
         # Main loop using asyncio.Event for efficient waiting
         stop_event = asyncio.Event()

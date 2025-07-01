@@ -49,6 +49,29 @@ async def continuousMulticastDiscovery() -> None:
         sendMulticastDiscovery()
         await asyncio.sleep(5)  # Wait for 5 seconds before sending the next request
 
+async def connectToDevice(deviceIP: str) -> None:
+    loop = asyncio.get_event_loop()
+
+    # Create TCP connection to device
+    deviceSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    await loop.sock_connect(deviceSocket, (deviceIP, TCP_PORT))
+    deviceSocket.setblocking(False)
+
+    ml.slog(f"Established TCP connection to device at {deviceIP}:{TCP_PORT}")
+
+    # After initial connection a device should send its config file so that the server can configure
+    # the device and add it to the registry.
+    config = await loop.sock_recv(deviceSocket, 1024)  # Receive initial config data (if any)
+    if config[:4].decode("utf-8") != "CONF":
+        ml.elog("First message received from device was not a config file."
+                f"Expected 'CONF' prefix and got {config[:4].decode('utf-8', errors='ignore')}")
+
+    # Create new ESPDevice instance and add to registry
+    newDevice = ESPDevice.fromConfigBytes(deviceSocket, deviceIP, config[4:])  # Skip the "CONF" prefix
+    deviceRegistry[deviceIP] = newDevice
+    ml.slog(f"Successfully connected to {deviceRegistry[deviceIP].name} at {deviceIP}")
+
+
 def _createSSDPSocket() -> socket.socket:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 
@@ -117,30 +140,11 @@ async def deviceListener() -> None:
                 if deviceIP in deviceRegistry:
                     ml.slog(f"Device {deviceIP} is already registered as {deviceRegistry[deviceIP].name}.")
                     continue
-                else:
-                    ml.slog(f"New device discovered at {deviceIP}, attempting to connect...")
+
+                ml.slog(f"New device discovered at {deviceIP}, attempting to connect...")
 
                 try:
-                    # Create TCP connection to device
-                    deviceSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    await loop.sock_connect(deviceSocket, (deviceIP, TCP_PORT))
-                    deviceSocket.setblocking(False)
-
-                    ml.slog(f"Established TCP connection to device at {deviceIP}:{TCP_PORT}")
-
-                    # After initial connection a device should send its config file so that the server can configure
-                    # the device and add it to the registry.
-                    config = await loop.sock_recv(deviceSocket, 1024)  # Receive initial config data (if any)
-                    if config[:4].decode("utf-8") != "CONF":
-                        ml.elog("First message received from device was not a config file."
-                                f"Expected 'CONF' prefix and got {config[:4].decode('utf-8', errors='ignore')}")
-
-                    # ml.dlog(config.decode("utf-8", errors="ignore"))
-
-                    # Create new ESPDevice instance and add to registry
-                    newDevice = ESPDevice.fromConfigBytes(deviceSocket, deviceIP, config[4:])  # Skip the "CONF" prefix
-                    deviceRegistry[deviceIP] = newDevice
-                    ml.slog(f"Successfully connected to {deviceRegistry[deviceIP].name} at {deviceIP}")
+                    await connectToDevice(deviceIP)
 
                 except Exception as e:
                     ml.elog(f"Failed to establish TCP connection to {deviceIP}: {e}")
