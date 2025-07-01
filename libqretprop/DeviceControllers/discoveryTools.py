@@ -130,6 +130,7 @@ async def deviceListener() -> None:
                     # After initial connection a device should send its config file so that the server can configure
                     # the device and add it to the registry.
                     config = await loop.sock_recv(deviceSocket, 1024)  # Receive initial config data (if any)
+                    ml.dlog(config.decode("utf-8", errors="ignore"))
 
                     # Create new ESPDevice instance and add to registry
                     newDevice = ESPDevice.fromConfigBytes(deviceSocket, deviceIP, config)
@@ -138,6 +139,7 @@ async def deviceListener() -> None:
 
                 except Exception as e:
                     ml.elog(f"Failed to establish TCP connection to {deviceIP}: {e}")
+
 
         except asyncio.CancelledError:
             ml.slog("SSDP listener cancelled")
