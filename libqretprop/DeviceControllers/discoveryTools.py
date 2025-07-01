@@ -130,10 +130,14 @@ async def deviceListener() -> None:
                     # After initial connection a device should send its config file so that the server can configure
                     # the device and add it to the registry.
                     config = await loop.sock_recv(deviceSocket, 1024)  # Receive initial config data (if any)
-                    ml.dlog(config.decode("utf-8", errors="ignore"))
+                    if config[:4].decode("utf-8") != "CONF":
+                        ml.elog("First message received from device was not a config file."
+                                f"Expected 'CONF' prefix and got {config[:4].decode('utf-8', errors='ignore')}")
+
+                    # ml.dlog(config.decode("utf-8", errors="ignore"))
 
                     # Create new ESPDevice instance and add to registry
-                    newDevice = ESPDevice.fromConfigBytes(deviceSocket, deviceIP, config)
+                    newDevice = ESPDevice.fromConfigBytes(deviceSocket, deviceIP, config[4:])  # Skip the "CONF" prefix
                     deviceRegistry[deviceIP] = newDevice
                     ml.slog(f"Successfully connected to {deviceRegistry[deviceIP].name} at {deviceIP}")
 
