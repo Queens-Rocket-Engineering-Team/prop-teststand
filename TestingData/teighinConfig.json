@@ -1,0 +1,63 @@
+{
+    "configName" : "BasicControl",
+    "filePath" : "July5ColdFlow",
+    
+    "sensors" : {
+
+        "pressureTransducer" :{
+            "PTN2OSupply" : {
+                "pin" : "AIN1",
+                "maxPressure_PSI" : 1000
+            },
+
+            "PTRun" : {
+                "pin" : "AIN2",
+                "maxPressure_PSI" : 1000
+            },
+
+            "PTPreInjector" : {
+                "pin" : "AIN3",
+                "maxPressure_PSI" : 1000
+            },
+
+            "PTN2Supply" : {
+                "pin" : "AIN0",
+                "maxPressure_PSI" : 200
+            }
+        },
+
+        "loadCell" : {
+
+            "LCRun" : {
+                "oddNegPin" : "AIN7",
+                "evenPosPin" : "AIN6",
+                "loadRating_N" : 5000,
+                "excitation_V" : 10,
+                "sensitivity_vV" : 2
+                }
+        }
+    },
+
+    "valves" : {
+        "AVFill" : {
+            "controlPin" : "FIO4",
+            "defaultState" : 0
+        },
+        "AVRun" : {
+            "controlPin" : "FIO6",
+            "defaultState" : 0
+        },
+        "AVDump" : {
+            "controlPin" : "FIO3",
+            "defaultState" : 1
+        },
+        "AVN2Purge1" : {
+            "controlPin" : "FIO2",
+            "defaultState" : 1
+        },
+        "AVN2Purge2" : {
+            "controlPin" : "FIO5",
+            "defaultState" : 1
+        }
+    }
+}

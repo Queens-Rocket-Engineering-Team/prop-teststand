@@ -82,7 +82,7 @@ def exportTestDataCSV(timeStamps, sensors, dataDir, configName, configPath):
 
 
 handle = ljm.openS("T7","ANY","ANY")
-configPath = r"C:\\Users\\Nikhil\\OneDrive\\5th year\\QRET\\DAQcontrol\\firstControlTest.json"
+configPath = r"C:\\Users\\Teighin Nordholt\\Desktop\\QRET\\prop_oldtest_code\\prop-teststand\\TestingData\\teighinConfig.json"
 ljm.eWriteName(handle, "FIO_DIRECTION", 1) # Set the pin as an output
 
 
@@ -131,7 +131,7 @@ while(True):
         times.append(currentTime - startTime)
         count += 1
         if count % 10 == 0:
-            print(f"NitrousFillKG: {sensors['LCNitrousFill'].data_kg[count-1]-0.6:3.1f}--ThrustKG: {sensors['LCThrust'].data_kg[count-1]:3.1f}--TCRun: {sensors['TCNitrousRun'].data_celsius[count-1]:3.1f}--PTRunPSI: {sensors['PTRun'].data_PSI[count-1]:3.1f}-- PTEngine: {sensors['PTPreInjector'].data_PSI[count-1]:3.1f}-- PTN2OSupply: {sensors['PTN2OSupply'].data_PSI[count-1]:3.1f}--TCSupply: {sensors['TCNitrousSupply'].data_celsius[count-1]:3.1f}")
+            print(f"PTN2Supply: {sensors['PTN2Supply'].data_PSI[count-1]:3.1f} | PTN2OSupply: {sensors['PTN2OSupply'].data_PSI[count-1]:3.1f} | PTRunPSI: {sensors['PTRun'].data_PSI[count-1]:3.1f} | PTEngine: {sensors['PTPreInjector'].data_PSI[count-1]:3.1f} | RunKG: {sensors['LCRun'].data_kg[count-1]:3.1f}")
         
         
     if msvcrt.kbhit():
