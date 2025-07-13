@@ -1,9 +1,15 @@
 import asyncio
+import csv
 import socket
 import struct
+import time
 
 import libqretprop.mylogging as ml
 from libqretprop.Devices.ESPDevice import ESPDevice
+from libqretprop.Devices.SensorMonitor import SensorMonitor
+from libqretprop.Devices.sensors.LoadCell import LoadCell
+from libqretprop.Devices.sensors.PressureTransducer import PressureTransducer
+from libqretprop.Devices.sensors.Thermocouple import Thermocouple
 
 
 MULTICAST_ADDRESS = "239.255.255.250"
@@ -50,6 +56,11 @@ async def continuousMulticastDiscovery() -> None:
         await asyncio.sleep(5)  # Wait for 5 seconds before sending the next request
 
 async def connectToDevice(deviceIP: str) -> None:
+
+    if deviceIP in deviceRegistry:
+        ml.elog(f"Device {deviceIP} is already registered.")
+        return
+
     loop = asyncio.get_event_loop()
 
     # Create TCP connection to device
@@ -69,7 +80,11 @@ async def connectToDevice(deviceIP: str) -> None:
     # Create new ESPDevice instance and add to registry
     newDevice = ESPDevice.fromConfigBytes(deviceSocket, deviceIP, config[4:])  # Skip the "CONF" prefix
     deviceRegistry[deviceIP] = newDevice
-    ml.slog(f"Successfully connected to {deviceRegistry[deviceIP].name} at {deviceIP}")
+
+    # If we successfully connect to the device, start monitoring it
+    listenerTask = loop.create_task(_monitorSingleDevice(deviceRegistry[deviceIP]))
+    deviceRegistry[deviceIP].listenerTask = listenerTask
+
 
 
 def _createSSDPSocket() -> socket.socket:
@@ -109,7 +124,7 @@ def _createSSDPSocket() -> socket.socket:
     return sock
 
 # ---------------------- #
-# Listener Tools         #
+# Discovery Listener Tools
 # ---------------------- #
 
 async def deviceListener() -> None:
@@ -157,7 +172,6 @@ async def deviceListener() -> None:
             ml.elog(f"Error in SSDP listener: {e}")
             await asyncio.sleep(1)  # Prevent tight loop on errors
 
-
 def getRegisteredDevices() -> dict[str, ESPDevice]:
     return deviceRegistry.copy()
 
@@ -173,12 +187,151 @@ def closeDeviceConnections() -> None:
     global deviceRegistry
 
     for device in deviceRegistry.values():
-        if device.tcpSocket:
+        if device.socket:
             try:
-                device.tcpSocket.close()
+                device.listenerTask.cancel()  # Cancel the listener task if it exists
+                device.socket.close()
                 ml.slog(f"Closed socket for device {device.name}")
             except OSError as e:
                 ml.elog(f"Error closing socket for device {device.name}: {e}")
 
     deviceRegistry.clear()
     ml.slog("Closed all device sockets and cleared registry.")
+
+# ---------------------- #
+# Device Monitoring Tools
+# ---------------------- #
+
+async def _monitorSingleDevice(device: ESPDevice) -> None:
+    """Monitor a single device for responses.
+
+    This is called after a device is connected to continuously monitor the data it sends out.
+    """
+    loop = asyncio.get_event_loop()
+
+    buffer = ""
+
+    try:
+        while True:
+            data = await loop.sock_recv(device.socket, 1024)
+            if not data:
+                ml.elog(f"Device {device.name} disconnected.")
+                break
+
+            chunk = data.decode("utf-8", errors="ignore")
+            buffer += chunk
+
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1) # Grab the first line and keep the rest in the buffer
+
+                if (line.startswith(("STRM", "GETS"))) and isinstance(device, SensorMonitor):
+                    publishSensorData(line[4:], device)  # Strip the "STRM" prefix
+
+    except Exception as e:
+        ml.elog(f"Error receiving response from {device.name}: {e}")
+
+def publishSensorData(message: str, device: SensorMonitor) -> None:
+    """Parse a stream data message from the device and publish the sensor data.
+
+    Args:
+        message (str): The message received from the device.
+        device (ESPDevice): The device that sent the message.
+    """
+    message = message.strip()
+
+    parts = message.split(" ")
+
+    if len(parts) != len(device.sensors):
+        ml.elog(f"Not enough data points received from {device.name}: {message}")
+        stopStreaming(device)
+
+    sensorValues = [float(val) for val in parts]
+    device.addDataPoints(sensorValues)
+
+    # Publish the sensor data to the redis log
+    for i, sensor in enumerate(device.sensors):
+        sensorName = sensor.name
+        sensorValue = sensorValues[i]
+        ml.log(f"{device.name} {sensorName}: {sensorValue}")
+
+
+# ---------------------- #
+# Device Control Tools   #
+# ---------------------- #
+
+def getSingle(device: ESPDevice) -> None:
+    """Request a single data point from the device.
+
+    Args:
+        device (ESPDevice): The device to request data from.
+    """
+    if device.socket:
+        try:
+            device.socket.sendall(b"GETS\n")
+            ml.slog(f"Sent GETS command to {device.name}")
+        except Exception as e:
+            ml.elog(f"Error sending GETS command to {device.name}: {e}")
+    else:
+        ml.elog(f"No socket available for {device.name} to send GETS command.")
+
+def startStreaming(device: ESPDevice) -> None:
+    """Start streaming data from a device.
+
+    Args:
+        device (ESPDevice): The device to start streaming from.
+    """
+    if device.socket:
+        try:
+            device.socket.sendall(b"STRM\n")
+            ml.slog(f"Sent STRM command to {device.name}")
+        except Exception as e:
+            ml.elog(f"Error sending STRM command to {device.name}: {e}")
+    else:
+        ml.elog(f"No socket available for {device.name} to send STRM command.")
+
+def stopStreaming(device: ESPDevice) -> None:
+    """Stop streaming data from a device.
+
+    Args:
+        device (ESPDevice): The device to stop streaming from.
+    """
+    if device.socket:
+        try:
+            device.socket.sendall(b"STOP\n")
+            ml.slog(f"Sent STOP command to {device.name}")
+        except Exception as e:
+            ml.elog(f"Error sending STOP command to {device.name}: {e}")
+    else:
+        ml.elog(f"No socket available for {device.name} to send STOP command.")
+
+# ---------------------- #
+# Data Export Tools      #
+# ---------------------- #
+
+def exportDataToCSV() -> None:
+    """Export sensor data to a CSV file.
+
+    Args:
+        device (SensorMonitor): The device to export data from.
+        filename (str): The name of the file to save the data to.
+    """
+    testTime = time.strftime("%Y%m%d-%H%M%S")
+
+    # Export data for each SensorMonitor device to a separate CSV file
+    for device in deviceRegistry.values():
+        if isinstance(device, SensorMonitor):
+            testTime = time.strftime("%Y%m%d-%H:%M:%S")
+            deviceFilename = f"test_data/{device.name}_{testTime}.csv"
+
+            sensorNames = [sensor.name for sensor in device.sensors]
+
+            with open(deviceFilename, mode='w', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                header = ["Time", *sensorNames]
+                writer.writerow(header)
+                for i in range(len(device.times)):
+                    row = [device.times[i]] + [sensor.data[i] for sensor in device.sensors]
+                    writer.writerow(row)
+
+            ml.slog(f"Exported data to {deviceFilename} for device: {device.name}")
+

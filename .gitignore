@@ -1,4 +1,6 @@
 __pycache__/
-TestingData/
+test_data/
 build/
+
+
 *.egg-info

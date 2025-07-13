@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
+    import asyncio
+
     from libqretprop.Devices.SensorMonitor import SensorMonitor
 
 class ESPDevice:
@@ -27,9 +29,10 @@ class ESPDevice:
                  jsonConfig: dict[str, Any],
                  ) -> None:
 
-        self.tcpSocket = socket
+        self.socket = socket
         self.address = address
         self.jsonConfig = jsonConfig
+        self.listenerTask: asyncio.Task[Any]
 
         self.name = jsonConfig["deviceName"]
         self.type = jsonConfig["deviceType"]

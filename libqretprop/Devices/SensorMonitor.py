@@ -1,4 +1,5 @@
 import socket
+import time
 from typing import Any
 
 from libqretprop.Devices.ESPDevice import ESPDevice
@@ -30,7 +31,7 @@ class SensorMonitor(ESPDevice):
         self.name = config.get("deviceName")
         self.type = config.get("deviceType")
 
-        self.dataTimes : list[float] = [] # GET RID OF THIS! Data is not stored on teh device level
+        self.times : list[float] = []
         self.sensors = self._initializeFromConfig(config)
 
     # JSON.loads returns a dictionary where attributes are defined with string titles and can contain whatever as values.
@@ -38,8 +39,6 @@ class SensorMonitor(ESPDevice):
         """Initialize all devices and sensors from the config file."""
 
         sensors: list[Thermocouple | LoadCell | PressureTransducer] = []
-
-        print(f"Initializing device: {config.get('deviceName', 'Unknown Device')}")
 
         sensorInfo = config.get("sensorInfo", {})
 
@@ -72,3 +71,15 @@ class SensorMonitor(ESPDevice):
                                     ))
 
         return sensors
+
+    def addDataPoints(self, vals: list[float]) -> None:
+        """Take an array of values in order of definition and appends them to the corresponding sensor.
+
+        Logs the time of the data point as well.
+
+        """
+
+        for i, sensor in enumerate(self.sensors):
+            sensor.data.append(vals[i])
+
+        self.times.append(time.monotonic())

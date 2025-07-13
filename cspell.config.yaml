@@ -4,6 +4,8 @@ dictionaryDefinitions: []
 dictionaries: []
 words:
   - absjoin
+  - csvfile
+  - DEVICECOMMANDS
   - DGRAM
   - dlog
   - DUMBASS
@@ -32,6 +34,7 @@ words:
   - qretprop
   - qretproptools
   - REUSEADDR
+  - SERVERCOMMANDS
   - showlegend
   - skiprows
   - SSDP
