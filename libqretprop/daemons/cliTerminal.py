@@ -18,8 +18,9 @@ SERVERCOMMANDS = [
 
 DEVICECOMMANDS = [
     "GETS",
-    "STRM",
+    "STREAM",
     "STOP",
+    "VALVE",
     ]
 
 
@@ -37,6 +38,10 @@ async def processCommand(command: str) -> None:
     command = fullCommand.split(" ")[0]  # Get the first word as the command
     args = fullCommand.split(" ")[1:]  # Get the rest as arguments
 
+
+    # ------
+    # SERVER COMMANDS
+    # ------
     if command.upper() in SERVERCOMMANDS:
         ml.slog(f"Server command received: {command}")
         if command.upper() == "QUIT" or command.upper() == "EXIT":
@@ -66,6 +71,9 @@ async def processCommand(command: str) -> None:
         elif command.upper() == "EXPO": # Export data to CSV
             deviceTools.exportDataToCSV()
 
+    # ------
+    # DEVICE COMMANDS
+    # ------
     elif command.upper() in DEVICECOMMANDS:
         devices = deviceTools.getRegisteredDevices()
         if not devices:
@@ -75,8 +83,9 @@ async def processCommand(command: str) -> None:
         for device in devices.values():
             try:
                 if command.upper() == "GETS": deviceTools.getSingle(device)
-                elif command.upper() == "STRM": deviceTools.startStreaming(device)
+                elif command.upper() == "STREAM": deviceTools.startStreaming(device, args)
                 elif command.upper() == "STOP": deviceTools.stopStreaming(device)
+                elif command.upper() == "VALVE": deviceTools.setValve(device, args)
 
             except Exception as e:
                 ml.elog(f"Error sending command to {device.name}: {e}")

@@ -72,7 +72,7 @@ async def connectToDevice(deviceIP: str) -> None:
 
     # After initial connection a device should send its config file so that the server can configure
     # the device and add it to the registry.
-    config = await loop.sock_recv(deviceSocket, 1024)  # Receive initial config data (if any)
+    config = await loop.sock_recv(deviceSocket, 2048)  # Config files are generally less han 2kB. Change if needed
     if config[:4].decode("utf-8") != "CONF":
         ml.elog("First message received from device was not a config file."
                 f"Expected 'CONF' prefix and got {config[:4].decode('utf-8', errors='ignore')}")
@@ -227,6 +227,10 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                 if (line.startswith(("STRM", "GETS"))) and isinstance(device, SensorMonitor):
                     publishSensorData(line[4:], device)  # Strip the "STRM" prefix
 
+                elif line.startswith("VALVE") and isinstance(device, SensorMonitor):
+                    # Handle valve commands if applicable
+                    ml.log(f"{device.name}: {line}")
+
     except Exception as e:
         ml.elog(f"Error receiving response from {device.name}: {e}")
 
@@ -274,18 +278,40 @@ def getSingle(device: ESPDevice) -> None:
     else:
         ml.elog(f"No socket available for {device.name} to send GETS command.")
 
-def startStreaming(device: ESPDevice) -> None:
+def startStreaming(device: ESPDevice,
+                   args: list[str] = []) -> None:
     """Start streaming data from a device.
 
     Args:
         device (ESPDevice): The device to start streaming from.
+        args (list[str]): Optional arguments to include in the streaming command.
+
     """
+
+    # Default command if no arguments are provided
+    command = "STREAM\n"
+
+    numArgsCheck = False
+    argTypeCheck = False
+
+    if args:
+        # Screen the arguments to ensure that there is only one and that it is a number
+        numArgsCheck = len(args) == 1
+        argTypeCheck = args[0].isdigit()
+
+        if numArgsCheck and argTypeCheck:
+            command = f"STREAM {args[0]}\n"
+    else:
+        ml.elog(f"Incorrect arguments provided for STREAM command: {args}. Expected a single numeric argument.")
+        return
+
     if device.socket:
         try:
-            device.socket.sendall(b"STRM\n")
-            ml.slog(f"Sent STRM command to {device.name}")
+            device.socket.sendall(command.encode("utf-8"))
+            ml.slog(f"Sent '{command}' command to {device.name}")
+
         except Exception as e:
-            ml.elog(f"Error sending STRM command to {device.name}: {e}")
+            ml.elog(f"Error sending '{command}' command to {device.name}: {e}")
     else:
         ml.elog(f"No socket available for {device.name} to send STRM command.")
 
@@ -303,6 +329,46 @@ def stopStreaming(device: ESPDevice) -> None:
             ml.elog(f"Error sending STOP command to {device.name}: {e}")
     else:
         ml.elog(f"No socket available for {device.name} to send STOP command.")
+
+def setValve(device: SensorMonitor, args: list[str]) -> None:
+    """Set the valve state on a device.
+
+    Args:
+        device (ESPDevice): The device to set the valve state on.
+        args (list[str]): Arguments for the valve command, expected to be a single numeric value.
+    """
+    # Default state that does nothing but should help catch code errors.
+    command = "BAD COMMAND\n"
+    numArgsCheck = False
+    valveNameCheck = False
+    stateCheck = False
+
+    if args:
+        numArgsCheck = len(args) == 2
+        valveNameCheck = args[0].upper() in device.valves
+        stateCheck = args[1].upper() in ["OPEN", "CLOSE"]
+
+    if not (numArgsCheck and stateCheck):
+        ml.elog(f"Invalid arguments for VALVE command: {args}. Usage: VALVE <valve_name> <OPEN|CLOSE>")
+        return
+
+    if not valveNameCheck:
+        ml.elog(f"Valve {args[0]} not found in device {device.name}. Available valves: {', '.join(device.valves.keys())}")
+        return
+
+    valveName:str = args[0].upper()
+    valveState:str = args[1].upper()
+
+    if device.socket:
+        try:
+            command = f"VALVE {valveName} {valveState}\n"
+            device.socket.sendall(command.encode("utf-8"))
+            ml.slog(f"Sent '{command.strip()}' command to {device.name}")
+
+        except Exception as e:
+            ml.elog(f"Error sending {command} command to {device.name}: {e}")
+    else:
+        ml.elog(f"No socket available for {device.name} to send {command} command.")
 
 # ---------------------- #
 # Data Export Tools      #
