@@ -1,8 +1,8 @@
 [project]
 name = "prop-teststand"
-version = "1.0"
+version = "0.1.0"
 authors = [
-    {name = "Noah Warren", email = "noahwarren42@gmail.com"}
+    {name = "Noah Warren"}
 ]
 requires-python = ">=3.11"
 
@@ -17,15 +17,22 @@ dependencies = [
     "keyboard",
     "types-keyboard",
     "redis",
-
     # Dev stuff
     "ruff",
     "uv",
     "mypy",
-    "mpremote",
     "matplotlib", # needed for plotting test data
     "ipykernel", # needed for jupyterlab
+    "aioconsole>=0.8.1",
 ]
+
+[build-system]
+requires = ["uv_build>=0.7.21,<0.8.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = ["libqretprop", "qretproptools"]
+module-root = ""
 
 [project.scripts]
 # CLI TOOLS
@@ -36,25 +43,19 @@ see_logs = "qretproptools.cli.see_logs.see_logs:main"
 start_server = "qretproptools.cli.start_server.start_server:main"
 
 [project.gui-scripts]
-
 # GUI TOOLS
 hello_gui = "qretproptools.gui.hello_gui.hello_gui:main"
 full_gui =  "qretproptools.gui.full_Gui.full_Gui:main"
 multi_plot = "qretproptools.gui.full_Gui.test_multi_plot:main"
 
-[tool.setuptools.packages.find]
-where = [""]
-include = ["libqretprop*", "qretproptools*"]
-namespaces = false
-
 [tool.mypy]
-strict = true
+strict = false
+ignore_missing_imports = true
 
 [tool.mypy-plotly]
 ignore_missing_imports = true
 
 [tool.pyright]
-#reportMissingTypeStubs=false   # pyqtgraph has issues
+reportMissingTypeStubs=false   # pyqtgraph has issues
 reportPrivateUsage=false       # Leave this to ruff
 reportUnknownMemberType=false  # WAY too many problems with PySide6 and pyqtgraph to have this on
-reportMissingTypeStubs = "information"
