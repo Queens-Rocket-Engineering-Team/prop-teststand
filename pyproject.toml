@@ -1,0 +1,17 @@
+[project]
+name = "qret-test-logger"
+version = "0.1.0"
+description = "LabJack-based test data logger with JSON-configured I/O"
+authors = [
+    { name = "PROP 2024", email = "propulsion.qret@engsoc.queensu.ca" }
+]
+requires-python = ">=3.9"
+readme = "README.md"
+
+dependencies = [
+    "labjack-ljm",         
+    "matplotlib",      
+]
+
+[tool.setuptools]
+packages = ["."]

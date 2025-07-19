@@ -82,7 +82,7 @@ def exportTestDataCSV(timeStamps, sensors, dataDir, configName, configPath):
 
 
 handle = ljm.openS("T7","ANY","ANY")
-configPath = r"C:\\Users\\Teighin Nordholt\\Desktop\\QRET\\prop_oldtest_code\\prop-teststand\\TestingData\\teighinConfig.json"
+configPath = r"TestingData\teighinConfig.json"
 ljm.eWriteName(handle, "FIO_DIRECTION", 1) # Set the pin as an output
 
 
