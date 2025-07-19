@@ -49,14 +49,17 @@ def takeAllData(sensors):
     ''' Takes sensor dictionary'''
     for sensor in sensors.values(): sensor.takeData()
 
-def exportTestDataCSV(timeStamps, sensors, dataDir, configName, configPath):
+def exportTestDataCSV(timeStamps, sensors, valveStatesOverTime, dataDir, configName, configPath):
     
     # Setting CSV filename
     localTime = time.strftime('%Y-%m-%d %H-%M-%S', time.localtime(time.time()))
     csvFilename = configName + '---' + localTime
 
+    valveNames = list(valveStatesOverTime[0].keys())
+
+
     # Setting CSV headers
-    csvData = [['Time'] + list(sensors.keys())]
+    csvData = [['Time'] + list(sensors.keys()) + valveNames]
     
     # Assembling CSV rows for each sensor
     for i in range(len(timeStamps)):
@@ -68,6 +71,9 @@ def exportTestDataCSV(timeStamps, sensors, dataDir, configName, configPath):
                 row.append(sensor.data_PSI[i]) 
             if type(sensor) == loadCell:
                 row.append(sensor.data_kg[i]) 
+
+        for valveName in valveNames:
+            row.append(valveStatesOverTime[i][valveName])
         csvData.append(row)
     
     # Writing data to csv
@@ -121,6 +127,7 @@ getStateMap = {
 startTime = time.time()
 sampleSpacing_s = 0.01
 times = []
+valveStatesOverTime = []
 count = 0
 
 print("Enter control keys now:")
@@ -132,6 +139,9 @@ while(True):
     if (currentTime - lastTime) > sampleSpacing_s:
         takeAllData(sensors)
         times.append(currentTime - startTime)
+        valveStatesOverTime.append({
+            valveName: valve.currentState for valveName, valve in valves.items()
+        })
         count += 1
         if count % 10 == 0:
             print(f"PTN2Supply: {sensors['PTN2Supply'].data_PSI[count-1]:3.1f} | PTN2OSupply: {sensors['PTN2OSupply'].data_PSI[count-1]:3.1f} | PTRunPSI: {sensors['PTRun'].data_PSI[count-1]:3.1f} | PTEngine: {sensors['PTPreInjector'].data_PSI[count-1]:3.1f} | RunKG: {sensors['LCRun'].data_kg[count-1]:3.1f}")
@@ -166,7 +176,7 @@ while(True):
 print("Data collected.")
 
 print("Exporting Data to CSV...")
-exportTestDataCSV(times, sensors, dataDirectory, configName, configPath)
+exportTestDataCSV(times, sensors, valveStatesOverTime, dataDirectory, configName, configPath)
 
 print("Closing Connection...")
 # ljm.close(handle)
