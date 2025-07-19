@@ -96,7 +96,8 @@ openValveMap = {
     '2': "AVDump",  # FIO1
     '3': "AVRun",  # FIO2
     '4': "AVN2Purge1",  # FIO3
-    '5': "AVN2Purge2"   # FIO4
+    '5': "AVN2Purge2",   # FIO4
+    '6': "AVRunVent"   # FIO5
 }
 
 closeValveMap = {
@@ -104,7 +105,8 @@ closeValveMap = {
     'w': "AVDump",  # FIO1
     'e': "AVRun",  # FIO2
     'r': "AVN2Purge1",  # FIO3
-    't': "AVN2Purge2"   # FIO4
+    't': "AVN2Purge2",
+    'y': "AVRunVent"   # FIO4
 }
 
 getStateMap = {
@@ -112,7 +114,8 @@ getStateMap = {
     's': "AVDump",  # FIO1
     'd': "AVRun",  # FIO2
     'f': "AVN2Purge1",  # FIO3
-    'g': "AVN2Purge2"   # FIO4
+    'g': "AVN2Purge2",
+    'h': "AVRunVent"   # FIO4
 }
 
 startTime = time.time()
