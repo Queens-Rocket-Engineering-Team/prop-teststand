@@ -58,6 +58,10 @@
         "AVN2Purge2" : {
             "controlPin" : "FIO5",
             "defaultState" : 1
+        },
+        "AVRunVent" : {
+            "controlPin" : "FIO7",
+            "defaultState" : 1
         }
     }
 }
