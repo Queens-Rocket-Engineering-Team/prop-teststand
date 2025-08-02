@@ -98,7 +98,7 @@ sensors, valves, configName, dataDirectory = jsonDefineIO(handle, configPath)
 print("Sensors Initialized.")
 
 openValveMap = {
-    '1': "AVFill",  # FIO0
+    'q': "AVFill",  # FIO0
     '2': "AVDump",  # FIO1
     '3': "AVRun",  # FIO2
     '4': "AVN2Purge1",  # FIO3
@@ -107,10 +107,10 @@ openValveMap = {
 }
 
 closeValveMap = {
-    'q': "AVFill",  # FIO0
+    '1': "AVFill",  # FIO0
     'w': "AVDump",  # FIO1
     'e': "AVRun",  # FIO2
-    'r': "AVN2Purge1",  # FIO3
+    'r': "AqVN2Purge1",  # FIO3
     't': "AVN2Purge2",
     'y': "AVRunVent"   # FIO4
 }
