@@ -22,8 +22,10 @@ def jsonDefineIO(handle, configFilename):
         for sensorName, sensorInfo in sensors.items():
             if sensorType == "thermocouple":
                 pin = sensorInfo["pin"]
-                offset = sensorInfo["offset"]
-                sensorsObjects[sensorName] = thermocouple(handle, pin, offset)
+                bias = sensorInfo["bias"]
+                gain = sensorInfo["gain"]
+                seebeck_coeff = sensorInfo["seebeck_coeff"]
+                sensorsObjects[sensorName] = thermocouple(handle, pin, bias, gain, seebeck_coeff)
             
             elif sensorType == "pressureTransducer":
                 pin = sensorInfo["pin"]
@@ -110,7 +112,7 @@ closeValveMap = {
     '1': "AVFill",  # FIO0
     'w': "AVDump",  # FIO1
     'e': "AVRun",  # FIO2
-    'r': "AqVN2Purge1",  # FIO3
+    'r': "AVN2Purge1",  # FIO3
     't': "AVN2Purge2",
     'y': "AVRunVent"   # FIO4
 }
@@ -144,7 +146,7 @@ while(True):
         })
         count += 1
         if count % 10 == 0:
-            print(f"PTN2Supply: {sensors['PTN2Supply'].data_PSI[count-1]:3.1f} | PTN2OSupply: {sensors['PTN2OSupply'].data_PSI[count-1]:3.1f} | PTRunPSI: {sensors['PTRun'].data_PSI[count-1]:3.1f} | PTEngine: {sensors['PTPreInjector'].data_PSI[count-1]:3.1f} | RunKG: {sensors['LCRun'].data_kg[count-1]:3.1f}")
+            print(f"PTN2Supply: {sensors['PTN2Supply'].data_PSI[count-1]:3.1f} | PTN2OSupply: {sensors['PTN2OSupply'].data_PSI[count-1]:3.1f} | PTRunPSI: {sensors['PTRun'].data_PSI[count-1]:3.1f} | PTEngine: {sensors['PTPreInjector'].data_PSI[count-1]:3.1f} | RunKG: {sensors['LCRun'].data_kg[count-1]:3.1f} | N2O TC: {sensors['TCNitrousSupply'].data_celsius[count-1]:3.1f}")
         
         
     if msvcrt.kbhit():
