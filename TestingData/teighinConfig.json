@@ -4,6 +4,15 @@
     
     "sensors" : {
 
+        "thermocouple" : {
+            "TCNitrousSupply" : {
+                "pin" : "AIN10",
+                "bias" : 1.0,
+                "gain" : 230.70,
+                "seebeck_coeff" : 0.00004
+            }
+        },
+
         "pressureTransducer" :{
             "PTN2OSupply" : {
                 "pin" : "AIN1",
