@@ -245,18 +245,33 @@ def publishSensorData(message: str, device: SensorMonitor) -> None:
 
     parts = message.split(" ")
 
-    if len(parts) != len(device.sensors):
+    if len(parts) != len(device.sensors) + 1:
         ml.elog(f"Not enough data points received from {device.name}: {message}")
+        ml.elog(f"Expected {len(device.sensors)} data points, got {len(parts)}. Stopping streaming.")
         stopStreaming(device)
 
-    sensorValues = [float(val) for val in parts]
+    sensorValues: dict[str, float] = {}
+
+    # Sensor data is expected to be in the format "time:timevalue sensor1:value1 sensor2:value2 ..."
+    for val in parts:
+        if ":" not in val:
+            ml.elog(f"Invalid sensor data format from {device.name}: {val}")
+            continue
+
+        key, value = val.strip().split(":", 1)
+
+        if key == "time":
+            pass # Time is handled by the server! Maybe change this later #FIXME
+
+        if key in device.sensors:
+            sensorValues[key] = float(value)
+
     device.addDataPoints(sensorValues)
+    time = device.times[-1]
 
     # Publish the sensor data to the redis log
-    for i, sensor in enumerate(device.sensors):
-        sensorName = sensor.name
-        sensorValue = sensorValues[i]
-        ml.log(f"{device.name} {sensorName}: {sensorValue}")
+    for sense, reading in sensorValues.items():
+        ml.log(f"{device.name} {time} {sense}:{reading}")
 
 
 # ---------------------- #
@@ -389,14 +404,14 @@ def exportDataToCSV() -> None:
             testTime = time.strftime("%Y%m%d-%H:%M:%S")
             deviceFilename = f"test_data/{device.name}_{testTime}.csv"
 
-            sensorNames = [sensor.name for sensor in device.sensors]
+            sensorNames = [sensor.name for sensor in device.sensors.values()]
 
             with open(deviceFilename, mode='w', newline='') as csvfile:
                 writer = csv.writer(csvfile)
                 header = ["Time", *sensorNames]
                 writer.writerow(header)
                 for i in range(len(device.times)):
-                    row = [device.times[i]] + [sensor.data[i] for sensor in device.sensors]
+                    row = [device.times[i]] + [sensor.data[i] for sensor in device.sensors.values()]
                     writer.writerow(row)
 
             ml.slog(f"Exported data to {deviceFilename} for device: {device.name}")

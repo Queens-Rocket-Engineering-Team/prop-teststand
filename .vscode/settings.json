@@ -8,12 +8,7 @@
     "ruff.nativeServer": true,
     "files.trimTrailingWhitespace": true,
 
-    // Probably Legacy settings -- throws error
-    // "python.analysis.diagnosticSeverityOverrides": {
-    //     "reportPrivateUsage": false,
-    //     "reportUnusedFunctionArgument": "none",
-    //     "reportUnusedMethodArgument": "none",
-    //     "reportUnusedVariable": "none",
-    //     "reportUnnecessaryIsInstance": false,
-    // },
+    "python.analysis.exclude": [
+    "libqretprop/LJM_archive"
+  ]
 }

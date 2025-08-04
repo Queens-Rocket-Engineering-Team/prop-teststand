@@ -47,7 +47,7 @@ class ESPDevice:
             from libqretprop.Devices.SensorMonitor import SensorMonitor
 
             return SensorMonitor(socket, address, configJson)
-        else:
-            err = f"Device type {deviceType} not recognized."
-            raise ValueError(err)
+
+        err = f"Device type {deviceType} not recognized."
+        raise ValueError(err)
 

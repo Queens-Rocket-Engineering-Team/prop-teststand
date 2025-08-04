@@ -37,34 +37,34 @@ class SensorMonitor(ESPDevice):
         self.sensors, self.valves = self._initializeFromConfig(config)
 
     # JSON.loads returns a dictionary where attributes are defined with string titles and can contain whatever as values.
-    def _initializeFromConfig(self, config: dict[str, Any]) -> tuple[list[Thermocouple | LoadCell | PressureTransducer],
+    def _initializeFromConfig(self, config: dict[str, Any]) -> tuple[dict[str, Thermocouple | LoadCell | PressureTransducer],
                                                                      dict[str, Valve]]:
         """Initialize all devices and sensors from the config file."""
 
-        sensors: list[Thermocouple | LoadCell | PressureTransducer] = []
+        sensors: dict[str, Thermocouple | LoadCell | PressureTransducer] = {}
         valves: dict[str, Valve] = {}
 
         sensorInfo = config.get("sensorInfo", {})
 
         for name, details in sensorInfo.get("thermocouples", {}).items():
-            sensors.append(Thermocouple(name=name,
+            sensors[name] = Thermocouple(name=name,
                                         ADCIndex=details["ADCIndex"],
                                         highPin=details["highPin"],
                                         lowPin=details["lowPin"],
                                         thermoType=details["type"],
                                         units=details["units"],
-                                        ))
+                                        )
 
         for name, details in sensorInfo.get("pressureTransducers", {}).items():
-            sensors.append(PressureTransducer(name=name,
+            sensors[name] = PressureTransducer(name=name,
                                             ADCIndex=details["ADCIndex"],
                                             pinNumber=details["pin"],
                                             maxPressure_PSI=details["maxPressure_PSI"],
                                             units=details["units"],
-                                            ))
+                                            )
 
         for name, details in sensorInfo.get("loadCells", {}).items():
-            sensors.append(LoadCell(name=name,
+            sensors[name] = LoadCell(name=name,
                                     ADCIndex=details["ADCIndex"],
                                     highPin=details["highPin"],
                                     lowPin=details["lowPin"],
@@ -72,7 +72,7 @@ class SensorMonitor(ESPDevice):
                                     excitation_V=details["excitation_V"],
                                     sensitivity_vV=details["sensitivity_vV"],
                                     units=details["units"],
-                                    ))
+                                    )
 
         # Register valves
         for name, details in config.get("valves", {}).items():
@@ -86,15 +86,16 @@ class SensorMonitor(ESPDevice):
 
         return sensors, valves
 
-    def addDataPoints(self, vals: list[float]) -> None:
-        """Take an array of values in order of definition and appends them to the corresponding sensor.
+    def addDataPoints(self, vals: dict[str, float]) -> None:
+        """Take a dict of sensor:value pairs and appends them to the corresponding sensor.
 
         Logs the time of the data point as well.
 
         """
 
-        for i, sensor in enumerate(self.sensors):
-            sensor.data.append(vals[i])
+        for sensorName, sensor in self.sensors.items():
+            if sensorName in vals:
+                sensor.data.append(vals[sensorName])
 
         self.times.append(time.monotonic())
 

@@ -747,12 +747,16 @@ dependencies = [
     { name = "mypy" },
     { name = "numpy" },
     { name = "pyqtgraph" },
-    { name = "pyside6" },
-    { name = "pyside6-stubs" },
     { name = "redis" },
     { name = "ruff" },
     { name = "types-keyboard" },
     { name = "uv" },
+]
+
+[package.optional-dependencies]
+gui = [
+    { name = "pyside6" },
+    { name = "pyside6-stubs" },
 ]
 
 [package.metadata]
@@ -766,13 +770,14 @@ requires-dist = [
     { name = "mypy" },
     { name = "numpy" },
     { name = "pyqtgraph" },
-    { name = "pyside6" },
-    { name = "pyside6-stubs" },
+    { name = "pyside6", marker = "extra == 'gui'" },
+    { name = "pyside6-stubs", marker = "extra == 'gui'" },
     { name = "redis" },
     { name = "ruff" },
     { name = "types-keyboard" },
     { name = "uv" },
 ]
+provides-extras = ["gui"]
 
 [[package]]
 name = "psutil"

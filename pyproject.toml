@@ -20,7 +20,7 @@ dependencies = [
     "uv",
     "mypy",
     "matplotlib", # needed for plotting test data
-    "ipykernel", # needed for jupyterlab
+    "ipykernel", # needed for jupyter
     "aioconsole>=0.8.1",
 ]
 
@@ -56,6 +56,7 @@ multi_plot = "qretproptools.gui.full_Gui.test_multi_plot:main"
 [tool.mypy]
 strict = false
 ignore_missing_imports = true
+exclude = "libqretprop/LJM_archive/"
 
 [tool.mypy-plotly]
 ignore_missing_imports = true

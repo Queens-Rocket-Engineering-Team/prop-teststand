@@ -4,6 +4,8 @@ dictionaryDefinitions: []
 dictionaries: []
 words:
   - absjoin
+  - aioconsole
+  - colorama
   - csvfile
   - DEVICECOMMANDS
   - DGRAM
@@ -17,16 +19,19 @@ words:
   - getch
   - gethostname
   - IPPROTO
+  - ipykernel
   - isconnected
   - kbhit
   - labjack
   - libqretprop
+  - matplotlib
   - microcontroller
   - micropython
   - Modbus
   - mpremote
   - mylogging
   - Nikhil
+  - numpy
   - osdebug
   - pyproject
   - pyqtgraph
