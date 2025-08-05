@@ -5,6 +5,7 @@ import aioconsole
 
 import libqretprop.mylogging as ml
 from libqretprop.DeviceControllers import deviceTools
+from libqretprop.Devices.SensorMonitor import SensorMonitor
 
 
 SERVERCOMMANDS = [
@@ -81,14 +82,15 @@ async def processCommand(command: str) -> None:
             return
 
         for device in devices.values():
-            try:
-                if command.upper() == "GETS": deviceTools.getSingle(device)
-                elif command.upper() == "STREAM": deviceTools.startStreaming(device, args)
-                elif command.upper() == "STOP": deviceTools.stopStreaming(device)
-                elif command.upper() == "VALVE": deviceTools.setValve(device, args)
+            if isinstance(device, SensorMonitor):
+                try:
+                    if command.upper() == "GETS": deviceTools.getSingle(device)
+                    elif command.upper() == "STREAM": deviceTools.startStreaming(device, args)
+                    elif command.upper() == "STOP": deviceTools.stopStreaming(device)
+                    elif command.upper() == "VALVE": deviceTools.setValve(device, args)
 
-            except Exception as e:
-                ml.elog(f"Error sending command to {device.name}: {e}")
+                except Exception as e:
+                    ml.elog(f"Error sending command to {device.name}: {e}")
 
     else:
         ml.elog(f"Unknown command: {command}. Available commands: {', '.join(SERVERCOMMANDS + DEVICECOMMANDS)}")
