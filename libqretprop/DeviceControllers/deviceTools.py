@@ -271,7 +271,7 @@ def publishSensorData(message: str, device: SensorMonitor) -> None:
 
     # Publish the sensor data to the redis log
     for sense, reading in sensorValues.items():
-        ml.log(f"{device.name} {time} {sense}:{reading}")
+        ml.log(f"{device.name} {time:.2f} {sense}:{reading}")
 
 
 # ---------------------- #

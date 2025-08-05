@@ -1,11 +1,10 @@
+import asyncio
 import json
 import socket
 from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
-    import asyncio
-
     from libqretprop.Devices.SensorMonitor import SensorMonitor
 
 class ESPDevice:
@@ -36,6 +35,22 @@ class ESPDevice:
 
         self.name = jsonConfig["deviceName"]
         self.type = jsonConfig["deviceType"]
+
+        heartbeatTask = asyncio.create_task(self.heartbeat())
+
+    async def heartbeat(self) -> None:
+        """Send a heartbeat message to the device to keep the connection alive.
+
+        Sometimes TCP connections will drop if no data is sent for awhile, but the socket wont come through as closed.
+        This just makes sure the connection stays alive by sending a heartbeat message every couple of seconds.
+
+        """
+        while True:
+            if self.socket:
+                import contextlib
+                with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                    self.socket.sendall(b"BEAT\n")
+            await asyncio.sleep(5)  # Wait for 5 seconds before sending the next heartbeat
 
     @staticmethod
     def fromConfigBytes(socket: socket.socket, address: str, configBytes: bytes) -> "SensorMonitor": # Delay evaluation of SensorMonitor to avoid circular imports

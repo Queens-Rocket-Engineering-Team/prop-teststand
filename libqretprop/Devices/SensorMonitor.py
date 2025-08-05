@@ -33,6 +33,7 @@ class SensorMonitor(ESPDevice):
         self.name = config.get("deviceName")
         self.type = config.get("deviceType")
 
+        self.startTime = time.monotonic()  # Start time for the device, used for uptime tracking
         self.times : list[float] = []
         self.sensors, self.valves = self._initializeFromConfig(config)
 
@@ -97,7 +98,7 @@ class SensorMonitor(ESPDevice):
             if sensorName in vals:
                 sensor.data.append(vals[sensorName])
 
-        self.times.append(time.monotonic())
+        self.times.append(time.monotonic() - self.startTime)
 
     def openValve(self, valveName: str) -> None: # FIXME Open loop for now. Add check against redis log later.
         """Open the valve based on its default state."""
