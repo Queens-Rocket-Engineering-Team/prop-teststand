@@ -22,6 +22,9 @@ dependencies = [
     "matplotlib", # needed for plotting test data
     "ipykernel", # needed for jupyter
     "aioconsole>=0.8.1",
+    "fastapi>=0.116.1",
+    "uvicorn>=0.35.0",
+    "pydantic>=2.11.7",
 ]
 
 

@@ -4,6 +4,7 @@ from enum import Enum
 import redis
 
 import libqretprop.mylogging as ml
+from libqretprop.API import fastAPI
 from libqretprop.daemons.cliTerminal import commandProcessor
 from libqretprop.DeviceControllers import deviceTools
 
@@ -33,6 +34,9 @@ async def main(directIP: str | None = None,
 
     loop = asyncio.get_event_loop()
     daemons: dict[str, asyncio.Task[None]] = {}
+
+    # Fire up the FastAPI app and add it as a daemon task
+    daemons["fastAPI"] = loop.create_task(fastAPI.startAPI())
 
     # -------
     # CONFIG OPTIONS
