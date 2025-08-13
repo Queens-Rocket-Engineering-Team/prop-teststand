@@ -345,7 +345,7 @@ def stopStreaming(device: ESPDevice) -> None:
     else:
         ml.elog(f"No socket available for {device.name} to send STOP command.")
 
-def setValve(device: SensorMonitor, args: list[str]) -> None:
+def setControl(device: SensorMonitor, args: list[str]) -> None:
     """Set the valve state on a device.
 
     Args:
@@ -355,28 +355,28 @@ def setValve(device: SensorMonitor, args: list[str]) -> None:
     # Default state that does nothing but should help catch code errors.
     command = "BAD COMMAND\n"
     numArgsCheck = False
-    valveNameCheck = False
+    controlNameCheck = False
     stateCheck = False
 
     if args:
         numArgsCheck = len(args) == 2
-        valveNameCheck = args[0].upper() in device.valves
+        controlNameCheck = args[0].upper() in device.controls
         stateCheck = args[1].upper() in ["OPEN", "CLOSE"]
 
     if not (numArgsCheck and stateCheck):
-        ml.elog(f"Invalid arguments for VALVE command: {args}. Usage: VALVE <valve_name> <OPEN|CLOSE>")
+        ml.elog(f"Invalid arguments for CONTROL command: {args}. Usage: CONTROL <control_name> <OPEN|CLOSE>")
         return
 
-    if not valveNameCheck:
-        ml.elog(f"Valve {args[0]} not found in device {device.name}. Available valves: {', '.join(device.valves.keys())}")
+    if not controlNameCheck:
+        ml.elog(f"Control {args[0]} not found in device {device.name}. Available controls: {', '.join(device.controls.keys())}")
         return
 
-    valveName:str = args[0].upper()
-    valveState:str = args[1].upper()
+    controlName:str = args[0].upper()
+    controlState:str = args[1].upper()
 
     if device.socket:
         try:
-            command = f"VALVE {valveName} {valveState}\n"
+            command = f"CONTROL {controlName} {controlState}\n"
             device.socket.sendall(command.encode("utf-8"))
             ml.slog(f"Sent '{command.strip()}' command to {device.name}")
 

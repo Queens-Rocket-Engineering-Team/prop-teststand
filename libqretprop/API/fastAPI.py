@@ -81,7 +81,7 @@ async def sendDeviceCommand(
         "GETS": deviceTools.getSingle,
         "STREAM": deviceTools.startStreaming,
         "STOP": deviceTools.stopStreaming,
-        "VALVE": deviceTools.setValve,
+        "VALVE": deviceTools.setControl,
     }
 
     devices = deviceTools.getRegisteredDevices()

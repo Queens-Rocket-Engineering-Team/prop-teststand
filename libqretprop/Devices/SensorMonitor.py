@@ -7,7 +7,7 @@ from libqretprop.Devices.ESPDevice import ESPDevice
 from libqretprop.Devices.sensors.LoadCell import LoadCell
 from libqretprop.Devices.sensors.PressureTransducer import PressureTransducer
 from libqretprop.Devices.sensors.Thermocouple import Thermocouple
-from libqretprop.Devices.Valve import Valve
+from libqretprop.Devices.Control import Control
 
 
 class SensorMonitor(ESPDevice):
@@ -35,15 +35,15 @@ class SensorMonitor(ESPDevice):
 
         self.startTime = time.monotonic()  # Start time for the device, used for uptime tracking
         self.times : list[float] = []
-        self.sensors, self.valves = self._initializeFromConfig(config)
+        self.sensors, self.controls = self._initializeFromConfig(config)
 
     # JSON.loads returns a dictionary where attributes are defined with string titles and can contain whatever as values.
     def _initializeFromConfig(self, config: dict[str, Any]) -> tuple[dict[str, Thermocouple | LoadCell | PressureTransducer],
-                                                                     dict[str, Valve]]:
+                                                                     dict[str, Control]]:
         """Initialize all devices and sensors from the config file."""
 
         sensors: dict[str, Thermocouple | LoadCell | PressureTransducer] = {}
-        valves: dict[str, Valve] = {}
+        controls: dict[str, Control] = {}
 
         sensorInfo = config.get("sensorInfo", {})
 
@@ -76,16 +76,18 @@ class SensorMonitor(ESPDevice):
                                     )
 
         # Register valves
-        for name, details in config.get("valves", {}).items():
+        for name, details in config.get("controls", {}).items():
                 pin = details.get("pin", None)
+                controlType = details.get("type")
                 defaultState = details.get("defaultState")
 
-                valves[name.upper()] = (Valve(name=name.upper(),
-                                              pin=pin,
-                                              defaultState=defaultState,
-                                              ))
+                controls[name.upper()] = (Control(name=name.upper(),
+                                                  controlType=controlType,
+                                                  pin=pin,
+                                                  defaultState=defaultState,
+                                                  ))
 
-        return sensors, valves
+        return sensors, controls
 
     def addDataPoints(self, vals: dict[str, float]) -> None:
         """Take a dict of sensor:value pairs and appends them to the corresponding sensor.
@@ -102,7 +104,7 @@ class SensorMonitor(ESPDevice):
 
     def openValve(self, valveName: str) -> None: # FIXME Open loop for now. Add check against redis log later.
         """Open the valve based on its default state."""
-        deviceTools.setValve(self, [valveName, "OPEN"])
+        deviceTools.setControl(self, [valveName, "OPEN"])
 
     def closeValve(self, valveName: str) -> None: # FIXME Open loop for now. Add check against redis log later.
-        deviceTools.setValve(self, [valveName, "CLOSE"])
+        deviceTools.setControl(self, [valveName, "CLOSE"])

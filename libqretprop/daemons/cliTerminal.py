@@ -21,7 +21,7 @@ DEVICECOMMANDS = [
     "GETS",
     "STREAM",
     "STOP",
-    "VALVE",
+    "CONTROL",
     ]
 
 
@@ -66,8 +66,8 @@ async def handleDeviceCommand(command: str, args: list) -> None:
                     deviceTools.startStreaming(device, args)
                 elif cmd == "STOP":
                     deviceTools.stopStreaming(device)
-                elif cmd == "VALVE":
-                    deviceTools.setValve(device, args)
+                elif cmd == "CONTROL":
+                    deviceTools.setControl(device, args)
             except Exception as e:
                 ml.elog(f"Error sending command to {device.name}: {e}")
 
