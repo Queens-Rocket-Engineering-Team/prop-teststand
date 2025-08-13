@@ -7,6 +7,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+from libqretprop import mylogging as ml
 from libqretprop.DeviceControllers import deviceTools
 
 
@@ -45,7 +46,7 @@ def authUser(creds: HTTPBasicCredentials = Depends(security)) -> str:
 # Command request models
 # ------------------------
 class CommandRequest(BaseModel):
-    command: Literal["GETS", "STREAM", "STOP", "VALVE"]
+    command: Literal["GETS", "STREAM", "STOP", "CONTROL"]
     args: list[str] = []
 
 class CommandResponse(BaseModel):
@@ -68,20 +69,22 @@ async def readAuth(user: Annotated[str, Depends(authUser)]) -> dict:
 
 @app.post("/command/devices",
           summary="Send a command to the devices on the network",
-          dependencies=[Depends(authUser)]
-          )  # Define a POST endpoint for device commands
+          dependencies=[Depends(authUser)],
+          )  # Define a POST endpoint for device commands at “/command/devices”
 async def sendDeviceCommand(
     cmd: CommandRequest,
     bgTasks: BackgroundTasks,
     user: Annotated[str, Depends(authUser)],
 ) -> CommandResponse:
 
+    ml.slog(f"User: {user} sent '{cmd.command} {cmd.args}'")
+
     # Map the relevant command name to their functions
     commandMap: dict[str, Callable] = {
         "GETS": deviceTools.getSingle,
         "STREAM": deviceTools.startStreaming,
         "STOP": deviceTools.stopStreaming,
-        "VALVE": deviceTools.setControl,
+        "CONTROL": deviceTools.setControl,
     }
 
     devices = deviceTools.getRegisteredDevices()
@@ -92,7 +95,7 @@ async def sendDeviceCommand(
 
     # Run the command in the background to not block the API
     for device in devices.values():
-        bgTasks.add_task(run_in_threadpool, func, device, *cmd.args)
+        bgTasks.add_task(run_in_threadpool, func, device, cmd.args)
 
     return CommandResponse(
         status="sent",
