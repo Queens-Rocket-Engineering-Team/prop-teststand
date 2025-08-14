@@ -9,6 +9,8 @@ from libqretprop.daemons.cliTerminal import commandProcessor
 from libqretprop.DeviceControllers import deviceTools
 
 
+PI_IP = "192.168.1.100"
+
 # Server state enumeration using Enum
 class ServerState(Enum):
     INITIALIZING = 0
@@ -28,7 +30,13 @@ async def main(directIP: str | None = None,
     # -------
 
     # Initialize Redis client for logging
-    redisClient = redis.Redis(host="localhost", port=6379, db=0)
+    redisClient = redis.Redis(host="127.0.0.1",
+                              port=6379,
+                              db=0,
+                              username="roclient",
+                              password="password",
+                              decode_responses=True,
+                              )
     ml.initLogger(redisClient)
     ml.log("Starting server...")
 

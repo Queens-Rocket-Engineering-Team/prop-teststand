@@ -67,10 +67,10 @@ async def readAuth(user: Annotated[str, Depends(authUser)]) -> dict:
 
     return {"message": f"Authenticated as, {user}!"}
 
-@app.post("/command/devices",
+@app.post("/v1/command",
           summary="Send a command to the devices on the network",
           dependencies=[Depends(authUser)],
-          )  # Define a POST endpoint for device commands at “/command/devices”
+          )  # Define a POST endpoint for device commands at “/command”
 async def sendDeviceCommand(
     cmd: CommandRequest,
     bgTasks: BackgroundTasks,
