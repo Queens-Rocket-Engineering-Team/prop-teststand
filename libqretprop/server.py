@@ -33,8 +33,8 @@ async def main(directIP: str | None = None,
     redisClient = redis.Redis(host="127.0.0.1",
                               port=6379,
                               db=0,
-                              username="roclient",
-                              password="password",
+                              username="server",
+                              password="propteambestteam",
                               decode_responses=True,
                               )
     ml.initLogger(redisClient)
