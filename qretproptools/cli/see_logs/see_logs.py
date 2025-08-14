@@ -26,18 +26,25 @@ def main() -> None:
             pubsub = None
 
             try:
-                r = redis.Redis()
+                r = redis.Redis(host="localhost",
+                              port=6379,
+                              db=0,
+                              username="roclient",
+                              password="password",
+                              decode_responses=True,
+                              )
                 pubsub = r.pubsub()
                 pubsub.subscribe(*channels)
 
                 for message in pubsub.listen():
                     if message["type"] == "message":
-                        print(f"[{message['channel'].decode()}] {message['data'].decode()}")
+                        print(f"[{message['channel']}] {message['data']}")
 
             except (redis.exceptions.ConnectionError, ConnectionRefusedError):
                 time.sleep(1)
-            except Exception:
+            except Exception as e:
                 print("Lost connection to server. Waiting for server...")
+                print("Error details:", e)
             finally:
                 if pubsub is not None:
                     pubsub.close()

@@ -10,6 +10,7 @@ from libqretprop.Devices.SensorMonitor import SensorMonitor
 from libqretprop.Devices.sensors.LoadCell import LoadCell
 from libqretprop.Devices.sensors.PressureTransducer import PressureTransducer
 from libqretprop.Devices.sensors.Thermocouple import Thermocouple
+import contextlib
 
 
 MULTICAST_ADDRESS = "239.255.255.250"
@@ -89,38 +90,28 @@ async def connectToDevice(deviceIP: str) -> None:
 
 def _createSSDPSocket() -> socket.socket:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-    sock.setsockopt(socket.SOL_SOCKET,      # SOL_SOCKET is the socket level for options
-                    socket.SO_REUSEADDR,    # SO_REUSEADDR allows the socket to be bound to an address that is already in use
-                    1)                      # Set the option value to 1 (true)
+    with contextlib.suppress(OSError):
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
-    try:
-        sock.bind(("", MULTICAST_PORT)) # Bind to all interfaces on the specified port. MAYBE SPECIFY INTERFACE
-    except OSError as e:
-        ml.elog(f"Error binding to port {MULTICAST_PORT}: {e}")
+    # Receive on all interfaces, SSDP port
+    sock.bind(("", MULTICAST_PORT))
 
+    # Join the SSDP group on eth0 (your LAN IP)
+    local_ip = "192.168.1.100"  # or detect dynamically (see below)
+    membershipRequest = socket.inet_aton(MULTICAST_ADDRESS) + socket.inet_aton(local_ip)
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membershipRequest)
 
-    membershipRequest = struct.pack(
-        "4s4s",                                     # Pack the multicast address and interface address
-        socket.inet_aton(MULTICAST_ADDRESS),    # inet_aton converts the IP address from string to binary format
-        socket.inet_aton("0.0.0.0"))                # Bind to all for simplicity. WILL NEED TO CHANGE IF MULTIPLE INTERFACES ARE USED
+    # >>> CRITICAL FOR SENDING: choose outbound interface <<<
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(local_ip))
 
-    # Join the multicast group
-    sock.setsockopt(socket.IPPROTO_IP,          # Specifies option is for IP protocol layer
-                    socket.IP_ADD_MEMBERSHIP,   # Join the multicast group
-                    membershipRequest)          # The packed membership request containing the multicast address and interface address
+    # Optional but helpful
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 1)
 
-    # TTL Options
-    sock.setsockopt(socket.IPPROTO_IP,       # IP protocol level
-                    socket.IP_MULTICAST_TTL, # Set the time-to-live for multicast packets
-                    2)                       # Set the TTL to 2, can jump through two routers (default is 1, which is local network only)
-
-
-    # Set the socket to non-blocking mode
     sock.setblocking(False)
-
-    ml.slog(f"SSDP Listener socket initialized on {MULTICAST_ADDRESS}:{MULTICAST_ADDRESS}")
-
+    ml.slog(f"SSDP Listener socket initialized on {MULTICAST_ADDRESS}:{MULTICAST_PORT}")
     return sock
 
 # ---------------------- #
