@@ -33,7 +33,7 @@ class ESPDevice:
         self.jsonConfig = jsonConfig
         self.listenerTask: asyncio.Task[Any]
 
-        self.name = jsonConfig["deviceName"]
+        self.name: str = jsonConfig["deviceName"]
         self.type = jsonConfig["deviceType"]
 
         heartbeatTask = asyncio.create_task(self.heartbeat())

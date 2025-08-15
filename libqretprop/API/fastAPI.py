@@ -1,5 +1,6 @@
+import json
 from collections.abc import Callable
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Any
 
 import uvicorn
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
@@ -9,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from libqretprop import mylogging as ml
 from libqretprop.DeviceControllers import deviceTools
+from libqretprop.Devices.SensorMonitor import SensorMonitor
 
 
 app = FastAPI()
@@ -67,6 +69,10 @@ async def readAuth(user: Annotated[str, Depends(authUser)]) -> dict:
 
     return {"message": f"Authenticated as, {user}!"}
 
+@app.get("/health")
+async def getHealth() -> dict:
+    return {"message": "The server is alive!"}
+
 @app.post("/v1/command",
           summary="Send a command to the devices on the network",
           dependencies=[Depends(authUser)],
@@ -95,9 +101,33 @@ async def sendDeviceCommand(
 
     # Run the command in the background to not block the API
     for device in devices.values():
-        bgTasks.add_task(run_in_threadpool, func, device, cmd.args)
+        bgTasks.add_task(run_in_threadpool, func, device, *cmd.args)
 
     return CommandResponse(
         status="sent",
         message=f"User {user} sent command '{cmd.command}' with args: {cmd.args} to {', '.join(device.name for device in devices.values())} devices.",
     )
+
+class ConfigsResponse(BaseModel):
+    count: int
+    configs: dict[str, dict[str, Any]]
+
+@app.get("/config", summary="Get the sensor and control config",
+         response_model=ConfigsResponse,
+         dependencies=[Depends(authUser)])
+async def getServerConfig() -> ConfigsResponse:
+    configs: dict[str, dict] = {}
+    for dev in deviceTools.deviceRegistry.values():
+        cfg = dev.jsonConfig
+        if isinstance(cfg, str):
+            cfg = json.loads(cfg)   # avoid double-encoding
+        configs[getattr(dev, "name", getattr(dev, "id", "unknown"))] = cfg
+    return ConfigsResponse(count=len(configs), configs=configs)
+
+class StatusResponse(BaseModel):
+    status: dict[str, str]
+
+@app.get("/status", summary="Gets the current state of each valve. Status is reported to redis log channel.")
+async def getStatus() -> None:
+    for device in deviceTools.deviceRegistry.values():
+        deviceTools.getStatus(device)

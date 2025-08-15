@@ -28,9 +28,9 @@ class SensorMonitor(ESPDevice):
         # Storing the default information inherited from the parent class
         self.socket = socket
         self.address = address
-        self.jsonConfig = config
+        self.jsonConfig: dict[str, str] = config
 
-        self.name = config.get("deviceName")
+        self.name: str = config.get("deviceName")
         self.type = config.get("deviceType")
 
         self.startTime = time.monotonic()  # Start time for the device, used for uptime tracking
@@ -104,7 +104,7 @@ class SensorMonitor(ESPDevice):
 
     def openValve(self, valveName: str) -> None: # FIXME Open loop for now. Add check against redis log later.
         """Open the valve based on its default state."""
-        deviceTools.setControl(self, [valveName, "OPEN"])
+        deviceTools.setControl(self, valveName, "OPEN")
 
     def closeValve(self, valveName: str) -> None: # FIXME Open loop for now. Add check against redis log later.
-        deviceTools.setControl(self, [valveName, "CLOSE"])
+        deviceTools.setControl(self, valveName, "CLOSE")

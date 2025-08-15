@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import csv
 import socket
 import struct
@@ -10,7 +11,6 @@ from libqretprop.Devices.SensorMonitor import SensorMonitor
 from libqretprop.Devices.sensors.LoadCell import LoadCell
 from libqretprop.Devices.sensors.PressureTransducer import PressureTransducer
 from libqretprop.Devices.sensors.Thermocouple import Thermocouple
-import contextlib
 
 
 MULTICAST_ADDRESS = "239.255.255.250"
@@ -218,12 +218,17 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                 if (line.startswith(("STRM", "GETS"))) and isinstance(device, SensorMonitor):
                     publishSensorData(line[4:], device)  # Strip the "STRM" prefix
 
-                elif line.startswith("VALVE") and isinstance(device, SensorMonitor):
+                elif line.startswith("CONTROL") and isinstance(device, SensorMonitor):
                     # Handle valve commands if applicable
+                    ml.log(f"{device.name}: {line}")
+                elif line.startswith("STATUS") and isinstance(device, SensorMonitor):
                     ml.log(f"{device.name}: {line}")
 
     except Exception as e:
         ml.elog(f"Error receiving response from {device.name}: {e}")
+        # Remove the device from the device registry if there is an exception
+        _removed = deviceRegistry.pop(device.name)
+        ml.slog(f"{device.name} removed from registry")
 
 def publishSensorData(message: str, device: SensorMonitor) -> None:
     """Parse a stream data message from the device and publish the sensor data.
@@ -285,7 +290,7 @@ def getSingle(device: ESPDevice) -> None:
         ml.elog(f"No socket available for {device.name} to send GETS command.")
 
 def startStreaming(device: ESPDevice,
-                   args: list[str] = []) -> None:
+                   Hz: int) -> None:
     """Start streaming data from a device.
 
     Args:
@@ -297,18 +302,10 @@ def startStreaming(device: ESPDevice,
     # Default command if no arguments are provided
     command = "STREAM\n"
 
-    numArgsCheck = False
-    argTypeCheck = False
-
-    if args:
-        # Screen the arguments to ensure that there is only one and that it is a number
-        numArgsCheck = len(args) == 1
-        argTypeCheck = args[0].isdigit()
-
-        if numArgsCheck and argTypeCheck:
-            command = f"STREAM {args[0]}\n"
+    if Hz:
+        command = f"STREAM {Hz}\n"
     else:
-        ml.elog(f"Incorrect arguments provided for STREAM command: {args}. Expected a single numeric argument.")
+        ml.elog(f"Incorrect arguments provided for STREAM command: {Hz}. Expected a single numeric argument.")
         return
 
     if device.socket:
@@ -336,34 +333,24 @@ def stopStreaming(device: ESPDevice) -> None:
     else:
         ml.elog(f"No socket available for {device.name} to send STOP command.")
 
-def setControl(device: SensorMonitor, args: list[str]) -> None:
+def setControl(device: SensorMonitor, controlName: str, controlState: str,) -> None:
     """Set the valve state on a device.
 
     Args:
         device (ESPDevice): The device to set the valve state on.
         args (list[str]): Arguments for the valve command, expected to be a single numeric value.
     """
-    # Default state that does nothing but should help catch code errors.
-    command = "BAD COMMAND\n"
-    numArgsCheck = False
-    controlNameCheck = False
-    stateCheck = False
 
-    if args:
-        numArgsCheck = len(args) == 2
-        controlNameCheck = args[0].upper() in device.controls
-        stateCheck = args[1].upper() in ["OPEN", "CLOSE"]
+    command = "BADCOMMAND\n" # Default fail state
 
-    if not (numArgsCheck and stateCheck):
-        ml.elog(f"Invalid arguments for CONTROL command: {args}. Usage: CONTROL <control_name> <OPEN|CLOSE>")
-        return
+    controlName = controlName.upper()
+    controlState = controlState.upper()
 
-    if not controlNameCheck:
-        ml.elog(f"Control {args[0]} not found in device {device.name}. Available controls: {', '.join(device.controls.keys())}")
-        return
+    if controlName not in device.controls:
+        ml.elog(f"Invalid control name. Valid names are {device.controls}")
 
-    controlName:str = args[0].upper()
-    controlState:str = args[1].upper()
+    if controlState not in ["OPEN", "CLOSE"]:
+        ml.elog(f"Invalid state. Valid states are {['OPEN', 'CLOSE']}")
 
     if device.socket:
         try:
@@ -375,6 +362,11 @@ def setControl(device: SensorMonitor, args: list[str]) -> None:
             ml.elog(f"Error sending {command} command to {device.name}: {e}")
     else:
         ml.elog(f"No socket available for {device.name} to send {command} command.")
+
+def getStatus(device: ESPDevice) -> None:
+    command = "STATUS"
+    device.socket.sendall(command.encode("utf-8"))
+    ml.slog(f"Sent '{command}' command to {device.name}")
 
 # ---------------------- #
 # Data Export Tools      #
