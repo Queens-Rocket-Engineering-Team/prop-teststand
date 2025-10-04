@@ -100,12 +100,12 @@ def _createSSDPSocket() -> socket.socket:
 
     # Join the SSDP group on eth0 (your LAN IP)
     # TODO: fix this to work with docker
-    local_ip = "192.168.1.100"  # or detect dynamically (see below)
-    membershipRequest = socket.inet_aton(MULTICAST_ADDRESS) + socket.inet_aton(local_ip)
+    #local_ip = "192.168.1.100"  # or detect dynamically (see below)
+    membershipRequest = socket.inet_aton(MULTICAST_ADDRESS) + socket.INADDR_ANY.to_bytes(4, "big")
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membershipRequest)
 
     # >>> CRITICAL FOR SENDING: choose outbound interface <<<
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(local_ip))
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.INADDR_ANY)
 
     # Optional but helpful
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
@@ -114,7 +114,6 @@ def _createSSDPSocket() -> socket.socket:
     sock.setblocking(False)
     ml.slog(f"SSDP Listener socket initialized on {MULTICAST_ADDRESS}:{MULTICAST_PORT}")
     return sock
-
 # ---------------------- #
 # Discovery Listener Tools
 # ---------------------- #

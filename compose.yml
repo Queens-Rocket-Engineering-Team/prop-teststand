@@ -3,11 +3,12 @@ services:
     # Build the image from the Dockerfile in the current directory
     build: .
     ports:
-      - "127.0.0.1:8000:8000"
+      - "8000:8000"
     depends_on:
       - redis
     environment:
-      REDIS_HOST: redis
+      REDIS_HOST: localhost
+    network_mode: "host"  # Use host networking for SSDP
 
     # Allow manual interaction with the container (cli)
     stdin_open: true
