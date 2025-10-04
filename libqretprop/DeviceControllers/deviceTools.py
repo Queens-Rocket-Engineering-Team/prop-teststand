@@ -86,8 +86,6 @@ async def connectToDevice(deviceIP: str) -> None:
     listenerTask = loop.create_task(_monitorSingleDevice(deviceRegistry[deviceIP]))
     deviceRegistry[deviceIP].listenerTask = listenerTask
 
-
-
 def _createSSDPSocket() -> socket.socket:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

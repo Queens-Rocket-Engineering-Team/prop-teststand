@@ -3,11 +3,12 @@ import time
 from typing import Any
 
 from libqretprop.DeviceControllers import deviceTools
+from libqretprop.Devices.Control import Control
 from libqretprop.Devices.ESPDevice import ESPDevice
+from libqretprop.Devices.sensors.Current import Current
 from libqretprop.Devices.sensors.LoadCell import LoadCell
 from libqretprop.Devices.sensors.PressureTransducer import PressureTransducer
 from libqretprop.Devices.sensors.Thermocouple import Thermocouple
-from libqretprop.Devices.Control import Control
 
 
 class SensorMonitor(ESPDevice):
@@ -38,11 +39,11 @@ class SensorMonitor(ESPDevice):
         self.sensors, self.controls = self._initializeFromConfig(config)
 
     # JSON.loads returns a dictionary where attributes are defined with string titles and can contain whatever as values.
-    def _initializeFromConfig(self, config: dict[str, Any]) -> tuple[dict[str, Thermocouple | LoadCell | PressureTransducer],
+    def _initializeFromConfig(self, config: dict[str, Any]) -> tuple[dict[str, Thermocouple | LoadCell | PressureTransducer | Current],
                                                                      dict[str, Control]]:
         """Initialize all devices and sensors from the config file."""
 
-        sensors: dict[str, Thermocouple | LoadCell | PressureTransducer] = {}
+        sensors: dict[str, Thermocouple | LoadCell | PressureTransducer | Current] = {}
         controls: dict[str, Control] = {}
 
         sensorInfo = config.get("sensorInfo", {})
@@ -72,6 +73,15 @@ class SensorMonitor(ESPDevice):
                                     loadRating_N=details["loadRating_N"],
                                     excitation_V=details["excitation_V"],
                                     sensitivity_vV=details["sensitivity_vV"],
+                                    units=details["units"],
+                                    )
+
+        for name, details in sensorInfo.get("current", {}).items():
+            sensors[name] = Current(name=name,
+                                    ADCIndex=details["ADCIndex"],
+                                    pinNumber=details["pin"],
+                                    shuntResistor_Ohms=details["shuntResistor_Ohms"],
+                                    csaGain=details["csaGain"],
                                     units=details["units"],
                                     )
 
