@@ -2,6 +2,7 @@ import asyncio
 from enum import Enum
 
 import redis
+import os
 
 import libqretprop.mylogging as ml
 from libqretprop.API import fastAPI
@@ -29,8 +30,11 @@ async def main(directIP: str | None = None,
     # INITIALIZATION
     # -------
 
+    # Read Redis host from environment variable (for docker compose) or default to localhost
+    REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+
     # Initialize Redis client for logging
-    redisClient = redis.Redis(host="localhost",
+    redisClient = redis.Redis(host=REDIS_HOST,
                               port=6379,
                               db=0,
                               username="server",

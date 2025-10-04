@@ -1,0 +1,42 @@
+services:
+  server:
+    # Build the image from the Dockerfile in the current directory
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      - redis
+    environment:
+      REDIS_HOST: redis
+
+    # Allow manual interaction with the container (cli)
+    stdin_open: true
+    tty: true
+
+    develop:
+      watch:
+        # Sync the working directory with the `/app` directory in the container
+        - action: sync+restart
+          path: .
+          target: /app
+          # Exclude the project virtual environment
+          ignore:
+            - .venv/
+
+        # Rebuild the image if dependencies change by checking uv.lock
+        - action: rebuild
+          path: ./uv.lock
+  redis:
+    image: "redis:latest"
+    ports:
+      - "6379:6379"
+    volumes:
+          - ./redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+
+    develop:
+      watch:
+        # Sync the working directory with the `/app` directory in the container
+        - action: sync+restart
+          path: redis.conf
+          target: /usr/local/etc/redis/redis.conf

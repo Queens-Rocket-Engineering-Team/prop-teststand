@@ -24,9 +24,13 @@ ALLOWED_USERS = {
 
 async def startAPI() -> None:
     """Start the FastAPI server."""
+    # config = uvicorn.Config(
+    #    app, host="192.168.1.100", port=8000,
+    #     loop="asyncio", log_level="info",
+    # )
     config = uvicorn.Config(
-        app, host="192.168.1.100", port=8000,
-        loop="asyncio", log_level="info",
+         app, host="0.0.0.0", port=8000,
+            loop="asyncio", log_level="info",
     )
     server = uvicorn.Server(config)
     await server.serve()

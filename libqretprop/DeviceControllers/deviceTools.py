@@ -99,6 +99,7 @@ def _createSSDPSocket() -> socket.socket:
     sock.bind(("", MULTICAST_PORT))
 
     # Join the SSDP group on eth0 (your LAN IP)
+    # TODO: fix this to work with docker
     local_ip = "192.168.1.100"  # or detect dynamically (see below)
     membershipRequest = socket.inet_aton(MULTICAST_ADDRESS) + socket.inet_aton(local_ip)
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membershipRequest)

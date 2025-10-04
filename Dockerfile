@@ -5,12 +5,20 @@ RUN apk add gcc musl-dev linux-headers
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-
-# Copy over code
-COPY . /app
 WORKDIR /app
 
-# Install python dependencies
-RUN uv sync --locked
+# Install dependencies
+# Use host dependencies by default during development to improve build times
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project
 
-CMD ["uv", "run", "libqretprop/server.py"]
+# Copy the project into the image
+ADD . /app
+
+# Sync the project
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked
+
+CMD ["uv", "run", "start_server"]
