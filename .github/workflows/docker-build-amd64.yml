@@ -32,6 +32,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=amd64-latest
+            type=raw,value=amd64-${{ github.sha }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
