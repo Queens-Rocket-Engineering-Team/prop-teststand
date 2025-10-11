@@ -3,7 +3,7 @@ name: Docker Build Server
 on:
   push:
     branches:
-      - dockerize # TODO: Change to main after merging
+      - main
   workflow_dispatch:
 
 jobs:
