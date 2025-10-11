@@ -4,6 +4,8 @@ import time
 import redis
 import redis.exceptions
 
+import os
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Tap into QRET logs via Redis.")
@@ -21,16 +23,19 @@ def main() -> None:
     print(f"Listening to channels: {', '.join(channels)}")
 
     try:
+        REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+
         while True:
             r = None
             pubsub = None
 
             try:
-                r = redis.Redis(host="localhost",
+
+                r = redis.Redis(host=REDIS_HOST,
                               port=6379,
                               db=0,
-                              username="roclient",
-                              password="password",
+                              username="server",
+                              password="propteambestteam",
                               decode_responses=True,
                               )
                 pubsub = r.pubsub()
