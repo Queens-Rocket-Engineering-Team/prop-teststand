@@ -1,0 +1,62 @@
+services:
+  server:
+    # Build the image from the Dockerfile in the current directory
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+      - logs
+    network_mode: "host"  # Use host networking for SSDP
+
+    # Allow manual interaction with the container (cli)
+    stdin_open: true
+    tty: true
+
+    develop:
+      watch:
+        # Sync the working directory with the `/app` directory in the container
+        - action: sync+restart
+          path: ./libqretprop
+          target: /app/libqretprop
+          # Exclude the project virtual environment
+          ignore:
+            - .venv/
+
+        # Rebuild the image if dependencies change by checking uv.lock
+        - action: rebuild
+          path: ./uv.lock
+  logs:
+    build:
+      context: .
+      dockerfile: Dockerfile.logs
+    depends_on:
+      - redis
+    environment:
+      REDIS_HOST: redis
+    tty: true
+
+    develop:
+      watch:
+        # Sync script changes for development
+        - action: sync+restart
+          path: ./qretproptools/cli/see_logs
+          target: /app/qretproptools/cli/see_logs
+
+  redis:
+    image: "redis:latest"
+    ports:
+      - "6379:6379"
+    volumes:
+          - ./redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+
+    develop:
+      watch:
+        # Restart on redis.conf changes
+        # Sync doesn't actually work here because of the volume mount
+        - action: sync+restart
+          path: redis.conf
+          target: /usr/local/etc/redis/redis.conf
