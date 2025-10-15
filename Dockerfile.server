@@ -9,13 +9,13 @@ WORKDIR /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-install-project
+    uv sync --no-install-project --no-dev
 
 # Copy the project into the image
 ADD . /app
 
 # Sync the project
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked
+    uv sync --no-dev
 
-CMD ["uv", "run", "start_server"]
+CMD ["uv", "run", "--no-dev", "start_server"]

@@ -20,8 +20,7 @@ dependencies = [
     "aioconsole>=0.8.1",
 ]
 
-
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "ruff",
     "uv",
@@ -31,6 +30,7 @@ dev = [
     "pydantic>=2.11.7",
 ]
 
+[project.optional-dependencies]
 gui = [
   "PySide6",
   "PySide6-stubs",
