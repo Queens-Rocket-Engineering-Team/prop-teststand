@@ -44,7 +44,7 @@ jobs:
                   images: ghcr.io/${{ github.repository }}-server
                   tags: |
                       type=raw,value=latest
-                      type=raw,value=${TAG_REF#refs/tags/}
+                      type=raw,value=${{ github.ref_name }}
 
             - name: Build and push Docker image (server)
               uses: docker/build-push-action@v5
