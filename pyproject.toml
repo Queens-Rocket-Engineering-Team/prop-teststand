@@ -15,20 +15,22 @@ dependencies = [
     "keyboard",
     "types-keyboard",
     "redis",
-    # Dev stuff
+    "fastapi>=0.116.1",
+    "uvicorn>=0.35.0",
+    "aioconsole>=0.8.1",
+]
+
+
+[project.optional-dependencies]
+dev = [
     "ruff",
     "uv",
     "mypy",
     "matplotlib", # needed for plotting test data
     "ipykernel", # needed for jupyter
-    "aioconsole>=0.8.1",
-    "fastapi>=0.116.1",
-    "uvicorn>=0.35.0",
     "pydantic>=2.11.7",
 ]
 
-
-[project.optional-dependencies]
 gui = [
   "PySide6",
   "PySide6-stubs",

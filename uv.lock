@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 
 [[package]]
@@ -808,22 +808,24 @@ dependencies = [
     { name = "aioconsole" },
     { name = "colorama" },
     { name = "fastapi" },
-    { name = "ipykernel" },
     { name = "keyboard" },
     { name = "labjack-ljm" },
-    { name = "matplotlib" },
-    { name = "mypy" },
     { name = "numpy" },
-    { name = "pydantic" },
     { name = "pyqtgraph" },
     { name = "redis" },
-    { name = "ruff" },
     { name = "types-keyboard" },
-    { name = "uv" },
     { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
+dev = [
+    { name = "ipykernel" },
+    { name = "matplotlib" },
+    { name = "mypy" },
+    { name = "pydantic" },
+    { name = "ruff" },
+    { name = "uv" },
+]
 gui = [
     { name = "pyside6" },
     { name = "pyside6-stubs" },
@@ -834,23 +836,23 @@ requires-dist = [
     { name = "aioconsole", specifier = ">=0.8.1" },
     { name = "colorama" },
     { name = "fastapi", specifier = ">=0.116.1" },
-    { name = "ipykernel" },
+    { name = "ipykernel", marker = "extra == 'dev'" },
     { name = "keyboard" },
     { name = "labjack-ljm" },
-    { name = "matplotlib" },
-    { name = "mypy" },
+    { name = "matplotlib", marker = "extra == 'dev'" },
+    { name = "mypy", marker = "extra == 'dev'" },
     { name = "numpy" },
-    { name = "pydantic", specifier = ">=2.11.7" },
+    { name = "pydantic", marker = "extra == 'dev'", specifier = ">=2.11.7" },
     { name = "pyqtgraph" },
     { name = "pyside6", marker = "extra == 'gui'" },
     { name = "pyside6-stubs", marker = "extra == 'gui'" },
     { name = "redis" },
-    { name = "ruff" },
+    { name = "ruff", marker = "extra == 'dev'" },
     { name = "types-keyboard" },
-    { name = "uv" },
+    { name = "uv", marker = "extra == 'dev'" },
     { name = "uvicorn", specifier = ">=0.35.0" },
 ]
-provides-extras = ["gui"]
+provides-extras = ["dev", "gui"]
 
 [[package]]
 name = "psutil"
