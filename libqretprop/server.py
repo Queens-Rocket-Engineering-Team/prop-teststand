@@ -7,6 +7,7 @@ import os
 import libqretprop.mylogging as ml
 from libqretprop.API import fastAPI
 from libqretprop.daemons.cliTerminal import commandProcessor
+from libqretprop.daemons.protocolTestCLI import protocol_test_cli
 from libqretprop.DeviceControllers import deviceTools
 
 
@@ -20,7 +21,8 @@ class ServerState(Enum):
 
 async def main(directIP: str | None = None,
                noDiscovery: bool = False,
-               cmdLine: bool = True, # FIXME change to default false later
+               cmdLine: bool = True, # fixme change to default false later
+               useNewCLI: bool = True,  # Use enhanced protocol test CLI
                ) -> None:
     """Run the server."""
 
@@ -65,7 +67,11 @@ async def main(directIP: str | None = None,
         deviceTools.sendMulticastDiscovery()
 
     # Command line interface daemon
-    if cmdLine: daemons["commandProcessor"] = loop.create_task(commandProcessor())
+    if cmdLine:
+        if useNewCLI:
+            daemons["commandProcessor"] = loop.create_task(protocol_test_cli())
+        else:
+            daemons["commandProcessor"] = loop.create_task(commandProcessor())
 
     # If a direct IP is provided, connect to the device directly
     if directIP:
