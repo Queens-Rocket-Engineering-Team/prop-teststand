@@ -1,7 +1,10 @@
 import json
 from collections.abc import Callable
 from typing import Annotated, Literal, Any
+import subprocess
+import os
 
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -9,12 +12,17 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from libqretprop import mylogging as ml
-from libqretprop.DeviceControllers import deviceTools
+from libqretprop.DeviceControllers import deviceTools, cameraTools
 from libqretprop.Devices.SensorMonitor import SensorMonitor
 
 
 app = FastAPI()
 security = HTTPBasic()
+
+HLS_DIR = "hls"
+os.makedirs(HLS_DIR, exist_ok=True)
+
+app.mount("/hls", StaticFiles(directory=HLS_DIR), name="hls")
 
 # Hardcoded creds
 ALLOWED_USERS = {
@@ -54,6 +62,13 @@ class CommandRequest(BaseModel):
 class CommandResponse(BaseModel):
     status: str
     message: str
+
+class CameraInfo(BaseModel):
+    ip: str
+    stream: str
+
+class CameraList(BaseModel):
+    cameras: list[CameraInfo]
 
 # API Endpoints
 # ------------------------
@@ -107,6 +122,44 @@ async def sendDeviceCommand(
         status="sent",
         message=f"User {user} sent command '{cmd.command}' with args: {cmd.args} to {', '.join(device.name for device in devices.values())} devices.",
     )
+
+@app.get("/v1/cameras", summary="Get the list of connected cameras", dependencies=[Depends(authUser)])
+async def getCameras() -> CameraList:
+    cameras = cameraTools.cameraRegistry
+
+    cameraDataList = []
+
+    for cam in cameras.values():
+        cameraData = CameraInfo(ip=cam.address, stream=cameraTools.getStreamURL(cam.address))
+        cameraDataList.append(cameraData)
+
+    return CameraList(cameras=cameraDataList)
+
+@app.post("/v1/camera", summary="Control a camera's movement",
+          dependencies=[Depends(authUser)])
+async def controlCamera(
+    ip: str,
+    x_movement: float,
+    y_movement: float,
+    bgTasks: BackgroundTasks,
+    user: Annotated[str, Depends(authUser)],
+) -> CommandResponse:
+
+    ml.slog(f"User {user} sent camera move command to {ip}: <{x_movement}, {y_movement}>")
+
+    bgTasks.add_task(
+        run_in_threadpool,
+        cameraTools.moveCamera,
+        ip,
+        x_movement,
+        y_movement,
+    )
+
+    return CommandResponse(
+        status="sent",
+        message=f"User {user} sent camera move command to {ip}: <{x_movement}, {y_movement}>",
+    )
+
 
 class ConfigsResponse(BaseModel):
     count: int

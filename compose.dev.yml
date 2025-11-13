@@ -45,6 +45,21 @@ services:
           path: ./qretproptools/cli/see_logs
           target: /app/qretproptools/cli/see_logs
 
+  media:
+    image: "bluenviron/mediamtx:latest"
+    network_mode: "host"
+    ports:
+      - "8889:8889"
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml
+
+    develop:
+      watch:
+        # Restart on mediamtx.yml changes
+        - action: sync+restart
+          path: ./mediamtx.yml
+          target: /mediamtx.yml
+
   redis:
     image: "redis:latest"
     ports:

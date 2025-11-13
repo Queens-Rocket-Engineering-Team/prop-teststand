@@ -18,6 +18,7 @@ dependencies = [
     "fastapi>=0.116.1",
     "uvicorn>=0.35.0",
     "aioconsole>=0.8.1",
+    "onvif-zeep>=0.2.12",
 ]
 
 [dependency-groups]

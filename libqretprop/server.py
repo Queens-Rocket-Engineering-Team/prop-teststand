@@ -7,7 +7,7 @@ import os
 import libqretprop.mylogging as ml
 from libqretprop.API import fastAPI
 from libqretprop.daemons.cliTerminal import commandProcessor
-from libqretprop.DeviceControllers import deviceTools
+from libqretprop.DeviceControllers import deviceTools, cameraTools
 
 
 PI_IP = "192.168.1.100"
@@ -63,6 +63,10 @@ async def main(directIP: str | None = None,
         # Send a multicast discovery request immediately
         await asyncio.sleep(0.1)  # Give the listener time to start
         deviceTools.sendMulticastDiscovery()
+
+    # Connect to all cameras
+    daemons["cameraConnector"] = loop.create_task(cameraTools.connectAllCameras())
+    ml.slog("Started cameraConnector daemon task.")
 
     # Command line interface daemon
     if cmdLine: daemons["commandProcessor"] = loop.create_task(commandProcessor())
