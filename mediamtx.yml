@@ -1,6 +1,0 @@
-rtspAddress: :8555
-
-paths:
-  cam1:
-    sourceOnDemand: true
-    source: rtsp://localhost:8556/cam

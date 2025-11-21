@@ -9,6 +9,8 @@ services:
     depends_on:
       - redis
       - logs
+    volumes:
+      - media-config:/app/media-config
     network_mode: "host"  # Use host networking for SSDP
 
     # Allow manual interaction with the container (cli)
@@ -46,17 +48,26 @@ services:
           target: /app/qretproptools/cli/see_logs
 
   media:
-    image: "bluenviron/mediamtx:latest"
+    image: "bluenviron/mediamtx:latest-ffmpeg"
     network_mode: "host"
     ports:
       - "8889:8889"
+    depends_on:
+      - server
     volumes:
-      - ./mediamtx.yml:/mediamtx.yml
+      - media-config:/config
+    # - ./mediamtx.yml:/config/mediamtx.yml
+    # Use configuration from volume
+    command: ["/config/mediamtx.yml"]
+    environment:
+    # Use a different RTSP port to avoid conflicts with local testing
+    # This port isn't being accessed externally, changing it is fine
+      - MTX_RTSPADDRESS=:8558
 
     develop:
       watch:
         # Restart on mediamtx.yml changes
-        - action: sync+restart
+        - action: restart
           path: ./mediamtx.yml
           target: /mediamtx.yml
 
@@ -72,6 +83,10 @@ services:
       watch:
         # Restart on redis.conf changes
         # Sync doesn't actually work here because of the volume mount
-        - action: sync+restart
-          path: redis.conf
+        - action: restart
+          path: ./redis.conf
           target: /usr/local/etc/redis/redis.conf
+
+volumes:
+  media-config:
+    driver: local

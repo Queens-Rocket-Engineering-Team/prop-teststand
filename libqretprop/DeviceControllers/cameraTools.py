@@ -1,11 +1,6 @@
 from onvif import ONVIFCamera, ONVIFService
 from libqretprop.Devices.Camera import Camera
-
-cameraConfig = [
-    # (IP, Port)
-    ("192.168.1.5", 2020),
-    # TODO: Add rest of cameras here
-]
+from libqretprop.DeviceControllers.cameraConfig import cameraConfig
 
 cameraRegistry : dict[str, Camera] = {}
 
@@ -51,5 +46,6 @@ def getStreamURL(ip: str) -> str:
         "Transport": {"Protocol": "RTSP"}
     }
     streamUri = cam.media.GetStreamUri({"ProfileToken": cam.token, "StreamSetup": streamSetup})
+    print(streamUri)
 
-    return streamUri.MediaUri.Uri
+    return streamUri.Uri

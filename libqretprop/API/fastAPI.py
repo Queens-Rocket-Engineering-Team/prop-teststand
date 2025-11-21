@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 import uvicorn
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -19,10 +20,13 @@ from libqretprop.Devices.SensorMonitor import SensorMonitor
 app = FastAPI()
 security = HTTPBasic()
 
-HLS_DIR = "hls"
-os.makedirs(HLS_DIR, exist_ok=True)
-
-app.mount("/hls", StaticFiles(directory=HLS_DIR), name="hls")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Hardcoded creds
 ALLOWED_USERS = {
