@@ -19,6 +19,7 @@ dependencies = [
     "uvicorn>=0.35.0",
     "aioconsole>=0.8.1",
     "onvif-zeep>=0.2.12",
+    "aiohttp>=3.13.2",
 ]
 
 [dependency-groups]
@@ -52,8 +53,6 @@ direct_tcp = "qretproptools.cli.direct_tcp.direct_tcp:main"
 sim_device = "qretproptools.cli.deviceSimulator.sim_device:main"
 see_logs = "qretproptools.cli.see_logs.see_logs:main"
 start_server = "qretproptools.cli.start_server.start_server:main"
-# CAMERA TOOLS
-write_cam_config = "qretproptools.camera.write_cam_config.write_cam_config:main"
 
 [project.gui-scripts]
 # GUI TOOLS

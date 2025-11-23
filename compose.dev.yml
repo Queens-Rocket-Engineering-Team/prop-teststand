@@ -9,8 +9,6 @@ services:
     depends_on:
       - redis
       - logs
-    volumes:
-      - media-config:/app/media-config
     network_mode: "host"  # Use host networking for SSDP
 
     # Allow manual interaction with the container (cli)
@@ -26,7 +24,6 @@ services:
           # Exclude the project virtual environment
           ignore:
             - .venv/
-
         # Rebuild the image if dependencies change by checking uv.lock
         - action: rebuild
           path: ./uv.lock
@@ -54,22 +51,11 @@ services:
       - "8889:8889"
     depends_on:
       - server
-    volumes:
-      - media-config:/config
-    # - ./mediamtx.yml:/config/mediamtx.yml
-    # Use configuration from volume
-    command: ["/config/mediamtx.yml"]
     environment:
     # Use a different RTSP port to avoid conflicts with local testing
     # This port isn't being accessed externally, changing it is fine
       - MTX_RTSPADDRESS=:8558
-
-    develop:
-      watch:
-        # Restart on mediamtx.yml changes
-        - action: restart
-          path: ./mediamtx.yml
-          target: /mediamtx.yml
+      - MTX_API=yes
 
   redis:
     image: "redis:latest"
@@ -86,7 +72,3 @@ services:
         - action: restart
           path: ./redis.conf
           target: /usr/local/etc/redis/redis.conf
-
-volumes:
-  media-config:
-    driver: local

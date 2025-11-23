@@ -1,15 +1,32 @@
 from onvif import ONVIFCamera, ONVIFService
 from libqretprop.Devices.Camera import Camera
 from libqretprop.DeviceControllers.cameraConfig import cameraConfig
+import aiohttp
+
+cameraConfig = [
+    # IP, ONVIF Port
+    ("192.168.1.6", 2020),
+]
 
 cameraRegistry : dict[str, Camera] = {}
-
 """
 Connect to all camera defined in cameraConfig and register them
 """
 async def connectAllCameras():
+    httpClient : aiohttp.ClientSession = aiohttp.ClientSession()
+
     for camera in cameraConfig:
         await registerCamera(camera[0], camera[1])
+
+        # Configure camera rtsp relay in media server
+        cam = cameraRegistry[camera[0]]
+        await httpClient.post(f"http://localhost:9997/v3/config/paths/add/{cam.address}", json={
+            "source": f"rtsp://propcam:propteambestteam@{cam.address}/stream1",
+            "sourceOnDemand": True,
+        })
+
+    await httpClient.close()
+
 
 """Register a camera with its IP and port
 
@@ -46,6 +63,5 @@ def getStreamURL(ip: str) -> str:
         "Transport": {"Protocol": "RTSP"}
     }
     streamUri = cam.media.GetStreamUri({"ProfileToken": cam.token, "StreamSetup": streamSetup})
-    print(streamUri)
 
     return streamUri.Uri
