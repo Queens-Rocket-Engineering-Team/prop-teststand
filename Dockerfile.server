@@ -18,7 +18,4 @@ ADD . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev
 
-# Write the cam config file
-RUN uv run --no-dev write_cam_config
-
 CMD ["uv", "run", "--no-dev", "start_server"]
