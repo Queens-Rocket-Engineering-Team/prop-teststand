@@ -1,0 +1,12 @@
+accounts:
+  camera:
+    username: propcam
+    password: propteambestteam
+
+cameras:
+  - ip: 192.168.1.5
+    onvif_port: 2020
+  - ip: 192.168.1.6
+    onvif_port: 2020
+  - ip: 192.168.1.8
+    onvif_port: 2020

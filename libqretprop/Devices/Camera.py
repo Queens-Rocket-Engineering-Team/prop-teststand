@@ -1,5 +1,7 @@
 from onvif import ONVIFCamera
-from zeep.transports import Transport
+from zeep.transports import AsyncTransport, Transport
+import libqretprop.configManager as config
+import asyncio
 
 
 class Camera:
@@ -18,9 +20,9 @@ class Camera:
 
         self.address = address
         self.port = port
-
+    async def connect(self):
         # All cameras are setup with these credentials
-        self.camera = ONVIFCamera(address, port, "propcam", "propteambestteam", transport=Transport(timeout=5))
+        self.camera = ONVIFCamera(self.address, self.port, config.serverConfig["accounts"]["camera"]["username"], config.serverConfig["accounts"]["camera"]["password"], transport=AsyncTransport())
 
         # ONVIF Services
         self.ptz = self.camera.create_ptz_service()

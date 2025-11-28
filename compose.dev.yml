@@ -15,6 +15,9 @@ services:
     stdin_open: true
     tty: true
 
+    volumes:
+      - ./config.yaml:/app/config.yaml  # Mount local config file for development
+
     develop:
       watch:
         # Sync the working directory with the `/app` directory in the container
@@ -25,6 +28,10 @@ services:
           ignore:
             - .venv/
         # Rebuild the image if dependencies change by checking uv.lock
+        - action: sync+restart
+          path: ./config.yaml
+          target: /app/config.yaml
+
         - action: rebuild
           path: ./uv.lock
   logs:
@@ -45,7 +52,7 @@ services:
           target: /app/qretproptools/cli/see_logs
 
   media:
-    image: "bluenviron/mediamtx:latest-ffmpeg"
+    image: "bluenviron/mediamtx:latest"
     network_mode: "host"
     ports:
       - "8889:8889"

@@ -15,6 +15,7 @@ from starlette.concurrency import run_in_threadpool
 from libqretprop import mylogging as ml
 from libqretprop.DeviceControllers import deviceTools, cameraTools
 from libqretprop.Devices.SensorMonitor import SensorMonitor
+import libqretprop.configManager as config
 
 
 app = FastAPI()
@@ -69,7 +70,7 @@ class CommandResponse(BaseModel):
 
 class CameraInfo(BaseModel):
     ip: str
-    stream: str
+    stream_path: str
 
 class CameraList(BaseModel):
     cameras: list[CameraInfo]
@@ -134,7 +135,7 @@ async def getCameras() -> CameraList:
     cameraDataList = []
 
     for cam in cameras.values():
-        cameraData = CameraInfo(ip=cam.address, stream=cameraTools.getStreamURL(cam.address))
+        cameraData = CameraInfo(ip=cam.address, stream_path=f"/{cam.address}")
         cameraDataList.append(cameraData)
 
     return CameraList(cameras=cameraDataList)

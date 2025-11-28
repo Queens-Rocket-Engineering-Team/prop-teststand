@@ -25,6 +25,19 @@ services:
     # Always restart logs on dockerd start
     restart: always
 
+  media:
+    image: "bluenviron/mediamtx:latest"
+    network_mode: "host"
+    ports:
+      - "8889:8889"
+    depends_on:
+      - server
+    environment:
+    # Use a different RTSP port to avoid conflicts with local testing
+    # This port isn't being accessed externally, changing it is fine
+      - MTX_RTSPADDRESS=:8558
+      - MTX_API=yes
+
   redis:
     image: "redis:latest"
     ports:

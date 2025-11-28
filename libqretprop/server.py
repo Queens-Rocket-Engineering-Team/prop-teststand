@@ -6,8 +6,10 @@ import os
 
 import libqretprop.mylogging as ml
 from libqretprop.API import fastAPI
+import libqretprop.configManager as config
 from libqretprop.daemons.cliTerminal import commandProcessor
 from libqretprop.DeviceControllers import deviceTools, cameraTools
+
 
 
 PI_IP = "192.168.1.100"
@@ -29,6 +31,9 @@ async def main(directIP: str | None = None,
     # -------
     # INITIALIZATION
     # -------
+
+    # Load server configuration
+    config.loadConfig("./config.yaml")
 
     # Read Redis host from environment variable (for docker compose) or default to localhost
     REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
