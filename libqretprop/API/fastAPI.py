@@ -3,7 +3,7 @@ from collections.abc import Callable
 from typing import Annotated, Literal, Any
 
 import uvicorn
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
@@ -11,9 +11,10 @@ from starlette.concurrency import run_in_threadpool
 from libqretprop import mylogging as ml
 from libqretprop.DeviceControllers import deviceTools
 from libqretprop.Devices.SensorMonitor import SensorMonitor
-
+from qretproptools.gui.GuiDataStream import router as log_router
 
 app = FastAPI()
+app.include_router(log_router)
 security = HTTPBasic()
 
 # Hardcoded creds
@@ -131,3 +132,18 @@ class StatusResponse(BaseModel):
 async def getStatus() -> None:
     for device in deviceTools.deviceRegistry.values():
         deviceTools.getStatus(device)
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+   
+    try:
+        while True:
+            msg = await ws.receive_text()
+            print("Received from WS:", msg)
+
+            # send something back
+            await ws.send_text(f"Server received: {msg}")
+
+    except WebSocketDisconnect:
+        print("WebSocket client disconnected")
