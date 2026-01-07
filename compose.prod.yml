@@ -11,6 +11,9 @@ services:
     stdin_open: true
     tty: true
 
+    volumes:
+      - ./config.yaml:/app/config.yaml  # Mount local config file for production
+
     # Always restart server on dockerd start
     restart: always
 
