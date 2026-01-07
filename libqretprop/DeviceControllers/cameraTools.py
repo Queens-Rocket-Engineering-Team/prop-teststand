@@ -1,14 +1,15 @@
-from onvif import ONVIFCamera, ONVIFService
-from libqretprop.Devices.Camera import Camera
+import aiohttp
+
 import libqretprop.configManager as config
 import libqretprop.mylogging as ml
-import aiohttp
+from libqretprop.Devices.Camera import Camera
+
 
 cameraRegistry : dict[str, Camera] = {}
 """
 Connect to all camera defined in cameraConfig and register them
 """
-async def connectAllCameras():
+async def connectAllCameras() -> None:
     httpClient : aiohttp.ClientSession = aiohttp.ClientSession()
 
     cam_username = config.serverConfig["accounts"]["camera"]["username"]
@@ -79,7 +80,7 @@ async def getStreamURL(ip: str) -> str:
 
     streamSetup = {
         "Stream": "RTP-Unicast",
-        "Transport": {"Protocol": "RTSP"}
+        "Transport": {"Protocol": "RTSP"},
     }
     streamUri = await cam.media.GetStreamUri({"ProfileToken": cam.token, "StreamSetup": streamSetup})
 

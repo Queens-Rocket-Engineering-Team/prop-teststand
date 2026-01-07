@@ -1,21 +1,19 @@
 import json
-from collections.abc import Callable
-from typing import Annotated, Literal, Any
-import subprocess
-import os
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from fastapi.staticfiles import StaticFiles
 import uvicorn
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from libqretprop import mylogging as ml
-from libqretprop.DeviceControllers import deviceTools, cameraTools
-from libqretprop.Devices.SensorMonitor import SensorMonitor
-import libqretprop.configManager as config
+from libqretprop.DeviceControllers import cameraTools, deviceTools
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 app = FastAPI()

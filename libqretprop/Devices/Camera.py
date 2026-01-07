@@ -2,6 +2,7 @@ from onvif import ONVIFCamera
 from zeep.transports import AsyncTransport, Transport
 import libqretprop.configManager as config
 import asyncio
+import libqretprop.mylogging as ml
 
 
 class Camera:
@@ -20,14 +21,20 @@ class Camera:
 
         self.address = address
         self.port = port
-    async def connect(self):
-        # All cameras are setup with these credentials
-        self.camera = ONVIFCamera(self.address, self.port, config.serverConfig["accounts"]["camera"]["username"], config.serverConfig["accounts"]["camera"]["password"], './.venv/lib/python3.13/site-packages/onvif/wsdl/')
-        await self.camera.update_xaddrs()
 
-        # ONVIF Services
-        self.ptz = self.camera.create_ptz_service()
-        self.media = self.camera.create_media_service()
+    async def connect(self) -> None:
+        try:
+            # All cameras are setup with these credentials
+            self.camera = ONVIFCamera(self.address, self.port, config.serverConfig["accounts"]["camera"]["username"], config.serverConfig["accounts"]["camera"]["password"], './.venv/lib/python3.13/site-packages/onvif/wsdl/')
+            await asyncio.wait_for(self.camera.update_xaddrs(), timeout=5)
 
-        # Token (needed for PTZ and media commands)
-        self.token = (await self.media.GetProfiles())[0].token
+            # ONVIF Services
+            self.ptz = self.camera.create_ptz_service()
+            self.media = self.camera.create_media_service()
+
+            # Token (needed for PTZ and media commands)
+            self.token = (await self.media.GetProfiles())[0].token
+        except asyncio.TimeoutError as e:
+            raise Exception("Connection timed out") from e
+        except Exception as e:
+            raise e

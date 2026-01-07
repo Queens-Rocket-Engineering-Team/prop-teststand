@@ -1,5 +1,7 @@
-import yaml
 from typing import TypedDict
+
+import yaml
+
 
 class AccountServiceConfig(TypedDict):
     username: str

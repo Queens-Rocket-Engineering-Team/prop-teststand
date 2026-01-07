@@ -1,15 +1,14 @@
 import asyncio
+import os
 from enum import Enum
 
 import redis
-import os
 
+import libqretprop.configManager as config
 import libqretprop.mylogging as ml
 from libqretprop.API import fastAPI
-import libqretprop.configManager as config
 from libqretprop.daemons.cliTerminal import commandProcessor
-from libqretprop.DeviceControllers import deviceTools, cameraTools
-
+from libqretprop.DeviceControllers import cameraTools, deviceTools
 
 
 PI_IP = "192.168.1.100"
