@@ -68,6 +68,7 @@ class CommandResponse(BaseModel):
 
 class CameraInfo(BaseModel):
     ip: str
+    hostname: str
     stream_path: str
 
 class CameraList(BaseModel):
@@ -133,7 +134,7 @@ async def getCameras() -> CameraList:
     cameraDataList = []
 
     for cam in cameras.values():
-        cameraData = CameraInfo(ip=cam.address, stream_path=f"/{cam.address}")
+        cameraData = CameraInfo(ip=cam.address, hostname=cam.hostname, stream_path=f"/{cam.address}")
         cameraDataList.append(cameraData)
 
     return CameraList(cameras=cameraDataList)

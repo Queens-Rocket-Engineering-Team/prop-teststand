@@ -26,7 +26,7 @@ async def connectAllCameras() -> None:
         # Only configure for successful camera connections
         if camera_ip in cameraRegistry:
             cam = cameraRegistry[camera_ip]
-            ml.slog(f"Configuring media server for camera at {camera_ip}")
+            ml.slog(f"Configuring media server for camera {cam.hostname} ({camera_ip})")
             await httpClient.post(f"http://localhost:9997/v3/config/paths/add/{cam.address}", json={
                 "source": f"rtsp://{cam_username}:{cam_password}@{cam.address}/stream1",
                 "sourceOnDemand": True,
@@ -52,7 +52,7 @@ async def registerCamera(ip: str, port: int) -> None:
         cameraObject = Camera(ip, port)
         await cameraObject.connect()
 
-        ml.slog(f"Connected to camera at {ip}")
+        ml.slog(f"Connected to camera {cameraObject.hostname} ({ip})")
 
         cameraRegistry[ip] = cameraObject
     except Exception as e:

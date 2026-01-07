@@ -28,9 +28,19 @@ class Camera:
             self.camera = ONVIFCamera(self.address, self.port, config.serverConfig["accounts"]["camera"]["username"], config.serverConfig["accounts"]["camera"]["password"], './.venv/lib/python3.13/site-packages/onvif/wsdl/')
             await asyncio.wait_for(self.camera.update_xaddrs(), timeout=5)
 
+
             # ONVIF Services
+            self.devicemgmt = self.camera.create_devicemgmt_service()
             self.ptz = self.camera.create_ptz_service()
             self.media = self.camera.create_media_service()
+
+            # Get hostname
+            hostname = await self.devicemgmt.GetHostname()
+
+            if "Name" in hostname:
+                self.hostname = hostname["Name"]
+            else:
+                self.hostname = "Camera"
 
             # Token (needed for PTZ and media commands)
             self.token = (await self.media.GetProfiles())[0].token
