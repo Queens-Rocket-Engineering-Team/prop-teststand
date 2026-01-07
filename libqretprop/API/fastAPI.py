@@ -140,6 +140,13 @@ async def getCameras() -> CameraList:
 
     return CameraList(cameras=cameraDataList)
 
+@app.post("/v1/cameras/reconnect", summary="Reconnect all cameras", dependencies=[Depends(authUser)])
+async def reconnectCameras(user: Annotated[str, Depends(authUser)]) -> CameraList:
+    ml.slog(f"User {user} sent camera reconnect")
+    await cameraTools.connectAllCameras()
+    return await getCameras()
+
+
 @app.post("/v1/camera", summary="Control a camera's movement",
           dependencies=[Depends(authUser)])
 async def controlCamera(
@@ -153,7 +160,6 @@ async def controlCamera(
     ml.slog(f"User {user} sent camera move command to {ip}: <{x_movement}, {y_movement}>")
 
     bgTasks.add_task(
-        run_in_threadpool,
         cameraTools.moveCamera,
         ip,
         x_movement,

@@ -22,11 +22,12 @@ class Camera:
         self.port = port
     async def connect(self):
         # All cameras are setup with these credentials
-        self.camera = ONVIFCamera(self.address, self.port, config.serverConfig["accounts"]["camera"]["username"], config.serverConfig["accounts"]["camera"]["password"], transport=AsyncTransport())
+        self.camera = ONVIFCamera(self.address, self.port, config.serverConfig["accounts"]["camera"]["username"], config.serverConfig["accounts"]["camera"]["password"], './.venv/lib/python3.13/site-packages/onvif/wsdl/')
+        await self.camera.update_xaddrs()
 
         # ONVIF Services
         self.ptz = self.camera.create_ptz_service()
         self.media = self.camera.create_media_service()
 
         # Token (needed for PTZ and media commands)
-        self.token = self.media.GetProfiles()[0].token
+        self.token = (await self.media.GetProfiles())[0].token

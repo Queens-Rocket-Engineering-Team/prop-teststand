@@ -8,5 +8,5 @@ cameras:
     onvif_port: 2020
   - ip: 192.168.1.6
     onvif_port: 2020
-  - ip: 192.168.1.8
+  - ip: 192.168.1.7
     onvif_port: 2020

@@ -688,6 +688,34 @@ wheels = [
 ]
 
 [[package]]
+name = "httpcore"
+version = "1.0.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "h11" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/06/94/82699a10bca87a5556c9c59b5963f2d039dbd239f25bc2a63907a05a14cb/httpcore-1.0.9.tar.gz", hash = "sha256:6e34463af53fd2ab5d807f399a9b45ea31c3dfa2276f15a2c3f00afff6e176e8", size = 85484, upload-time = "2025-04-24T22:06:22.219Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7e/f5/f66802a942d491edb555dd61e3a9961140fd64c90bce1eafd741609d334d/httpcore-1.0.9-py3-none-any.whl", hash = "sha256:2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55", size = 78784, upload-time = "2025-04-24T22:06:20.566Z" },
+]
+
+[[package]]
+name = "httpx"
+version = "0.28.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "certifi" },
+    { name = "httpcore" },
+    { name = "idna" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b1/df/48c586a5fe32a0f01324ee087459e112ebb7224f646c0b5023f5e79e9956/httpx-0.28.1.tar.gz", hash = "sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc", size = 141406, upload-time = "2024-12-06T15:37:23.222Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl", hash = "sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad", size = 73517, upload-time = "2024-12-06T15:37:21.509Z" },
+]
+
+[[package]]
 name = "idna"
 version = "3.11"
 source = { registry = "https://pypi.org/simple" }
@@ -1349,13 +1377,17 @@ wheels = [
 ]
 
 [[package]]
-name = "onvif-zeep"
-version = "0.2.12"
+name = "onvif-zeep-async"
+version = "1.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "zeep" },
+    { name = "httpx" },
+    { name = "zeep", extra = ["async"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d7/3c/fe79b4f59337b5cf5d40ea747764b4ff38bab322b2de66706a4d8d7b01e8/onvif_zeep-0.2.12.tar.gz", hash = "sha256:aa8bbc02a73eaa50894b0c18e39fa8d318a583a664c65bf35b3c8029d1c40b49", size = 163061, upload-time = "2018-08-20T18:12:24.209Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4f/b0/55ed9dc5ee7c1e738258e2e35222f4ab07aeacceacf15573ac305f0b6506/onvif-zeep-async-1.2.2.tar.gz", hash = "sha256:32afa60116500f8f0cebef57c335fb579e3526a9ffbc93127a2126e64f3f6082", size = 166617, upload-time = "2023-03-25T17:29:51.692Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f0/c2/dc7907d223f9e202e9663822b6561c5f953f89fbd2e100ae6296770da7ca/onvif_zeep_async-1.2.2-py2.py3-none-any.whl", hash = "sha256:066659c35301cbc8d1616e18631523f6219e8028cb1237d47c347e7b29ed567f", size = 188553, upload-time = "2023-03-25T17:29:49.525Z" },
+]
 
 [[package]]
 name = "packaging"
@@ -1513,7 +1545,7 @@ dependencies = [
     { name = "keyboard" },
     { name = "labjack-ljm" },
     { name = "numpy" },
-    { name = "onvif-zeep" },
+    { name = "onvif-zeep-async" },
     { name = "pyqtgraph" },
     { name = "pyyaml" },
     { name = "redis" },
@@ -1546,7 +1578,7 @@ requires-dist = [
     { name = "keyboard" },
     { name = "labjack-ljm" },
     { name = "numpy" },
-    { name = "onvif-zeep", specifier = ">=0.2.12" },
+    { name = "onvif-zeep-async", specifier = "==1.2.2" },
     { name = "pyqtgraph" },
     { name = "pyside6", marker = "extra == 'gui'" },
     { name = "pyside6-stubs", marker = "extra == 'gui'" },
@@ -5181,4 +5213,10 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e8/06/4f1d3ff61e930163565fb73616c6251e412a4d2fc7ed18214e1c2107258d/zeep-4.3.2.tar.gz", hash = "sha256:1a23a667ce9d73a0dbfdf15745bfa2b7ab0b6402135c0cd5067574838398e0e6", size = 166687, upload-time = "2025-09-15T10:26:03.4Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cd/78/f43f3feb70d67cbe260ec5b682ecc3c1850c8f437f1df707495126e51817/zeep-4.3.2-py3-none-any.whl", hash = "sha256:ed08c3179709172bfaaa9b76a6a545f8a57043ec6218e64e9deb81ff1e0ff79b", size = 101853, upload-time = "2025-09-15T10:26:02.12Z" },
+]
+
+[package.optional-dependencies]
+async = [
+    { name = "httpx" },
+    { name = "packaging" },
 ]

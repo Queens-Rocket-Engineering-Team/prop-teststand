@@ -1,6 +1,7 @@
 from onvif import ONVIFCamera, ONVIFService
 from libqretprop.Devices.Camera import Camera
 import libqretprop.configManager as config
+import libqretprop.mylogging as ml
 import aiohttp
 
 cameraRegistry : dict[str, Camera] = {}
@@ -13,18 +14,22 @@ async def connectAllCameras():
     cam_username = config.serverConfig["accounts"]["camera"]["username"]
     cam_password = config.serverConfig["accounts"]["camera"]["password"]
 
-
     for camera in config.serverConfig["cameras"]:
-        print(camera)
+        camera_ip = camera["ip"]
+        camera_port = camera["onvif_port"]
+
         # Register camera in camera registry
-        await registerCamera(camera["ip"], camera["onvif_port"])
+        await registerCamera(camera_ip, camera_port)
 
         # Configure camera RTSP relay in media server
-        cam = cameraRegistry[camera["ip"]]
-        await httpClient.post(f"http://localhost:9997/v3/config/paths/add/{cam.address}", json={
-            "source": f"rtsp://{cam_username}:{cam_password}@{cam.address}/stream1",
-            "sourceOnDemand": True,
-        })
+        # Only configure for successful camera connections
+        if camera_ip in cameraRegistry:
+            cam = cameraRegistry[camera_ip]
+            ml.slog(f"Configuring media server for camera at {camera_ip}")
+            await httpClient.post(f"http://localhost:9997/v3/config/paths/add/{cam.address}", json={
+                "source": f"rtsp://{cam_username}:{cam_password}@{cam.address}/stream1",
+                "sourceOnDemand": True,
+            })
 
     await httpClient.close()
 
@@ -36,18 +41,21 @@ Args:
     port (int): The tcp port of the camera's ONVIF service
 """
 async def registerCamera(ip: str, port: int) -> None:
-    print("CONNECTING")
+    # Reset camera in registry if exists
+    cameraRegistry.pop(ip, None)
 
-    # Create camera object and connect to it
-    cameraObject = Camera(ip, port)
+    ml.slog(f"Attempting to connect to camera at {ip}")
 
-    print("SETUP")
+    try:
+        # Create camera object and connect to it
+        cameraObject = Camera(ip, port)
+        await cameraObject.connect()
 
-    await cameraObject.connect()
+        ml.slog(f"Connected to camera at {ip}")
 
-    print("CONNECTED")
-
-    cameraRegistry[ip] = cameraObject
+        cameraRegistry[ip] = cameraObject
+    except Exception as e:
+        ml.elog(f"Failed to connect to camera at {ip}: {e}")
 
 """Move a camera at given IP by relative x (pan) and y (tilt) amounts
 
@@ -56,23 +64,23 @@ Args:
     x (float): The relative x movement (pan)
     y (float): The relative y movement (tilt)
 """
-def moveCamera(ip: str, x: float, y: float) -> None:
+async def moveCamera(ip: str, x: float, y: float) -> None:
     cam = cameraRegistry[ip]
 
-    cam.ptz.RelativeMove({"ProfileToken": cam.token, "Translation": {"PanTilt": {"x": x, "y": y}, "Zoom": {"x": 0}}})
+    await cam.ptz.RelativeMove({"ProfileToken": cam.token, "Translation": {"PanTilt": {"x": x, "y": y}, "Zoom": {"x": 0}}})
 
 """Get the RTSP stream URL for a camera at given IP
 
 Args:
     ip (str): The IP address of the camera
 """
-def getStreamURL(ip: str) -> str:
+async def getStreamURL(ip: str) -> str:
     cam = cameraRegistry[ip]
 
     streamSetup = {
         "Stream": "RTP-Unicast",
         "Transport": {"Protocol": "RTSP"}
     }
-    streamUri = cam.media.GetStreamUri({"ProfileToken": cam.token, "StreamSetup": streamSetup})
+    streamUri = await cam.media.GetStreamUri({"ProfileToken": cam.token, "StreamSetup": streamSetup})
 
     return streamUri.Uri
