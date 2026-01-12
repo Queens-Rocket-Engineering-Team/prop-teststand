@@ -32,6 +32,7 @@ from libqretprop.protocol import (
     PacketType,
     StatusPacket,
     StreamStartPacket,
+    Unit,
 )
 
 
@@ -239,7 +240,7 @@ class MockSensorDevice:
                 self.print_status(f"Buffer now {len(buffer)} bytes", "DATA")
 
                 # Try to decode packets
-                while len(buffer) >= 10:  # Minimum packet size
+                while len(buffer) >= 12:  # Minimum packet size (header)
                     try:
                         self.print_status(f"Attempting to decode packet from buffer...", "DATA")
                         packet = decode_packet(buffer)
@@ -369,13 +370,13 @@ class MockSensorDevice:
 
         # Send data for each sensor (using sensor indices)
         sensors = [
-            (0, self.tc1_temp, "TC1"),
-            (1, self.tc2_temp, "TC2"),
-            (2, self.pt1_pressure, "PT1"),
+            (0, self.tc1_temp, Unit.CELSIUS, "TC1"),
+            (1, self.tc2_temp, Unit.CELSIUS, "TC2"),
+            (2, self.pt1_pressure, Unit.PSI, "PT1"),
         ]
 
-        for sensor_id, value, name in sensors:
-            packet = DataPacket.create(sensor_id=sensor_id, data=value)
+        for sensor_id, value, unit, name in sensors:
+            packet = DataPacket.create(sensor_id=sensor_id, data=value, unit=unit)
             await loop.sock_sendall(self.sock, packet.pack())
 
         # Print occasionally (not every packet)

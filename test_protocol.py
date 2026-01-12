@@ -10,7 +10,6 @@ from typing import Any
 
 from libqretprop.protocol import (
     MAGIC_NUMBER,
-    PROTOCOL_VERSION,
     AckPacket,
     ConfigPacket,
     ControlPacket,
@@ -26,6 +25,7 @@ from libqretprop.protocol import (
     StatusPacket,
     StreamStartPacket,
     TimeSyncPacket,
+    Unit,
 )
 
 
@@ -79,7 +79,6 @@ def test_packet_header() -> bool:
     header = PacketHeader(
         magic=MAGIC_NUMBER,
         packet_type=PacketType.HEARTBEAT,
-        version=PROTOCOL_VERSION,
         timestamp=123456
     )
 
@@ -92,7 +91,6 @@ def test_packet_header() -> bool:
     passed &= assert_equal(len(packed), PacketHeader.SIZE, f"Header size is {PacketHeader.SIZE} bytes")
     passed &= assert_equal(unpacked.magic, MAGIC_NUMBER, "Magic number preserved")
     passed &= assert_equal(unpacked.packet_type, PacketType.HEARTBEAT, "Packet type preserved")
-    passed &= assert_equal(unpacked.version, PROTOCOL_VERSION, "Version preserved")
     passed &= assert_equal(unpacked.timestamp, 123456, "Timestamp preserved")
 
     return passed
@@ -111,7 +109,7 @@ def test_discovery_packet() -> bool:
 
     # Validate
     passed = True
-    passed &= assert_equal(len(packed), 10, "Packet size is 10 bytes")
+    passed &= assert_equal(len(packed), 12, "Packet size is 12 bytes")
     passed &= assert_equal(unpacked.header.packet_type, PacketType.DISCOVERY, "Packet type correct")
     passed &= assert_equal(unpacked.header.magic, MAGIC_NUMBER, "Magic number correct")
 
@@ -132,7 +130,7 @@ def test_timesync_packet() -> bool:
 
     # Validate
     passed = True
-    passed &= assert_equal(len(packed), 18, "Packet size is 18 bytes")
+    passed &= assert_equal(len(packed), 20, "Packet size is 20 bytes")
     passed &= assert_equal(unpacked.header.packet_type, PacketType.TIMESYNC, "Packet type correct")
     passed &= assert_equal(unpacked.server_time_ms, test_time_ms, "Server time preserved")
 
@@ -149,7 +147,7 @@ def test_control_packet() -> bool:
     unpacked = ControlPacket.unpack(packed)
 
     passed = True
-    passed &= assert_equal(len(packed), 14, "Packet size is 14 bytes")
+    passed &= assert_equal(len(packed), 16, "Packet size is 16 bytes")
     passed &= assert_equal(unpacked.header.packet_type, PacketType.CONTROL, "Packet type correct")
     passed &= assert_equal(unpacked.command_id, 0, "Command ID preserved")
     passed &= assert_equal(unpacked.command_state, ControlState.OPEN, "Command state preserved")
@@ -179,13 +177,14 @@ def test_data_packet() -> bool:
 
     passed = True
     for sensor_id, data_value, description in test_cases:
-        packet = DataPacket.create(sensor_id=sensor_id, data=data_value)
+        packet = DataPacket.create(sensor_id=sensor_id, data=data_value, unit=Unit.CELSIUS)
         packed = packet.pack()
         unpacked = DataPacket.unpack(packed)
 
-        passed &= assert_equal(len(packed), 18, f"{description}: size is 18 bytes")
+        passed &= assert_equal(len(packed), 20, f"{description}: size is 20 bytes")
         passed &= assert_equal(unpacked.header.packet_type, PacketType.DATA, f"{description}: type correct")
         passed &= assert_equal(unpacked.sensor_id, sensor_id, f"{description}: sensor ID preserved")
+        passed &= assert_equal(unpacked.unit, Unit.CELSIUS, f"{description}: unit preserved")
 
         # Float comparison with tolerance (32-bit floats have ~7 decimal digits of precision)
         # For large values, use relative tolerance
@@ -214,7 +213,7 @@ def test_status_packet() -> bool:
         packed = packet.pack()
         unpacked = StatusPacket.unpack(packed)
 
-        passed &= assert_equal(len(packed), 14, f"Status {status.name}: size is 14 bytes")
+        passed &= assert_equal(len(packed), 16, f"Status {status.name}: size is 16 bytes")
         passed &= assert_equal(unpacked.header.packet_type, PacketType.STATUS, f"Status {status.name}: type correct")
         passed &= assert_equal(unpacked.status, status, f"Status {status.name}: status preserved")
 
@@ -266,7 +265,7 @@ def test_config_packet() -> bool:
 
     # Validate
     passed = True
-    expected_size = 12 + len(config_json.encode('utf-8'))
+    expected_size = 16 + len(config_json.encode('utf-8'))
     passed &= assert_equal(len(packed), expected_size, f"Packet size is {expected_size} bytes")
     passed &= assert_equal(unpacked.header.packet_type, PacketType.CONFIG, "Packet type correct")
     passed &= assert_equal(unpacked.config_json, config_json, "JSON config preserved")
@@ -287,8 +286,8 @@ def test_stream_start_packet() -> bool:
     """Test StreamStartPacket encoding and decoding."""
     print_test("StreamStartPacket")
 
-    # Test various frequencies
-    test_frequencies = [1, 10, 100, 1000]
+    # Test various frequencies (max 255 Hz with 1-byte field)
+    test_frequencies = [1, 10, 100, 255]
     passed = True
 
     for freq in test_frequencies:
@@ -296,7 +295,7 @@ def test_stream_start_packet() -> bool:
         packed = packet.pack()
         unpacked = StreamStartPacket.unpack(packed)
 
-        passed &= assert_equal(len(packed), 14, f"Frequency {freq} Hz: size is 14 bytes")
+        passed &= assert_equal(len(packed), 16, f"Frequency {freq} Hz: size is 16 bytes")
         passed &= assert_equal(unpacked.header.packet_type, PacketType.STREAM_START, f"Frequency {freq} Hz: type correct")
         passed &= assert_equal(unpacked.frequency_hz, freq, f"Frequency {freq} Hz: frequency preserved")
 
@@ -322,7 +321,7 @@ def test_simple_packets() -> bool:
         packed = packet.pack()
         unpacked = SimplePacket.unpack(packed)
 
-        passed &= assert_equal(len(packed), 10, f"{ptype.name}: size is 10 bytes")
+        passed &= assert_equal(len(packed), 12, f"{ptype.name}: size is 12 bytes")
         passed &= assert_equal(unpacked.header.packet_type, ptype, f"{ptype.name}: type preserved")
 
     return passed
@@ -339,7 +338,7 @@ def test_ack_nack_packets() -> bool:
     ack_packed = ack.pack()
     ack_unpacked = AckPacket.unpack(ack_packed)
 
-    passed &= assert_equal(len(ack_packed), 14, "ACK: size is 14 bytes")
+    passed &= assert_equal(len(ack_packed), 16, "ACK: size is 16 bytes")
     passed &= assert_equal(ack_unpacked.header.packet_type, PacketType.ACK, "ACK: type is ACK")
     passed &= assert_equal(ack_unpacked.ack_packet_type, PacketType.CONTROL, "ACK: acknowledging CONTROL")
 
@@ -348,7 +347,7 @@ def test_ack_nack_packets() -> bool:
     nack_packed = nack.pack()
     nack_unpacked = AckPacket.unpack(nack_packed)
 
-    passed &= assert_equal(len(nack_packed), 14, "NACK: size is 14 bytes")
+    passed &= assert_equal(len(nack_packed), 16, "NACK: size is 16 bytes")
     passed &= assert_equal(nack_unpacked.header.packet_type, PacketType.NACK, "NACK: type is NACK")
     passed &= assert_equal(nack_unpacked.ack_packet_type, PacketType.STREAM_START, "NACK: acknowledging STREAM_START")
 
@@ -408,7 +407,6 @@ def test_error_handling() -> bool:
     bad_header = PacketHeader(
         magic=0xDEAD,  # Wrong magic
         packet_type=PacketType.HEARTBEAT,
-        version=PROTOCOL_VERSION,
         timestamp=12345
     )
     try:
@@ -426,7 +424,6 @@ def test_error_handling() -> bool:
     header_bytes = PacketHeader(
         magic=MAGIC_NUMBER,
         packet_type=255,  # Not a valid PacketType
-        version=PROTOCOL_VERSION,
         timestamp=12345
     )
     try:
@@ -446,16 +443,16 @@ def test_get_packet_size() -> bool:
     passed = True
 
     expected_sizes = {
-        PacketType.DISCOVERY: 10,
-        PacketType.TIMESYNC: 18,
-        PacketType.CONTROL: 14,
-        PacketType.DATA: 18,
-        PacketType.STATUS: 14,
+        PacketType.DISCOVERY: 12,
+        PacketType.TIMESYNC: 20,
+        PacketType.CONTROL: 16,
+        PacketType.DATA: 20,
+        PacketType.STATUS: 16,
         PacketType.CONFIG: 0,  # Variable
-        PacketType.STREAM_START: 14,
-        PacketType.STREAM_STOP: 10,
-        PacketType.HEARTBEAT: 10,
-        PacketType.ACK: 14,
+        PacketType.STREAM_START: 16,
+        PacketType.STREAM_STOP: 12,
+        PacketType.HEARTBEAT: 12,
+        PacketType.ACK: 16,
     }
 
     for ptype, expected_size in expected_sizes.items():
@@ -491,9 +488,10 @@ def test_roundtrip_all_packets() -> bool:
     passed &= assert_equal(decoded_p3.command_state, ControlState.OPEN, "Control roundtrip: state")
 
     # Data
-    p4 = DataPacket.create(3, 99.99)
+    p4 = DataPacket.create(3, 99.99, Unit.VOLTS)
     decoded_p4 = decode_packet(p4.pack())
     passed &= assert_equal(decoded_p4.sensor_id, 3, "Data roundtrip: sensor_id")
+    passed &= assert_equal(decoded_p4.unit, Unit.VOLTS, "Data roundtrip: unit")
     if abs(decoded_p4.data - 99.99) < 0.01:
         print_pass("  ✓ Data roundtrip: data value")
     else:
@@ -575,8 +573,8 @@ def test_realistic_scenario() -> bool:
     print_info(f"6. Server sends STREAM_START at 10 Hz ({len(stream_start.pack())} bytes)")
 
     # 7. Device sends 2 data packets (TC1 and PT1)
-    data1 = DataPacket.create(sensor_id=0, data=23.5)  # TC1: 23.5°C
-    data2 = DataPacket.create(sensor_id=1, data=145.2)  # PT1: 145.2 PSI
+    data1 = DataPacket.create(sensor_id=0, data=23.5, unit=Unit.CELSIUS)  # TC1: 23.5°C
+    data2 = DataPacket.create(sensor_id=1, data=145.2, unit=Unit.PSI)  # PT1: 145.2 PSI
     print_info(f"7. Device sends DATA for TC1 ({len(data1.pack())} bytes): 23.5°C")
     print_info(f"   Device sends DATA for PT1 ({len(data2.pack())} bytes): 145.2 PSI")
 
