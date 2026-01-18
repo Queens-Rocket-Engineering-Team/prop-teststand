@@ -63,7 +63,9 @@ services:
     # This port isn't being accessed externally, changing it is fine
       - MTX_RTSPADDRESS=:8558
       - MTX_API=yes
-
+      # Windows firewall blocks UDP, so use TCP for development streams
+      - MTX_WEBRTCLOCALTCPADDRESS=:8189
+  
   redis:
     image: "redis:latest"
     ports:
