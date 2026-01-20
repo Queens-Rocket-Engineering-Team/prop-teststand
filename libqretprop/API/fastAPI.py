@@ -172,7 +172,7 @@ async def test_websocket_page():
             ws.onmessage = function(event) {
                 try {
                     const data = JSON.parse(event.data);
-                    messagesDiv.innerHTML += `<p>[${data.channel}] ${data.data}</p>`;
+                    messagesDiv.innerHTML += `<p>[${data.channel}] [${data.timestamp_ws}] ${data.data}</p>`;
                 } catch (e) {
                     messagesDiv.innerHTML += `<p>Received: ${event.data}</p>`;
                 }

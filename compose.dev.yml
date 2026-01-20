@@ -9,7 +9,10 @@ services:
     depends_on:
       - redis
       - logs
-    network_mode: "host"  # Use host networking for SSDP
+    environment:
+      REDIS_HOST: redis
+      ENABLE_CLI: "false"
+    # network_mode: "host"  # Use host networking for SSDP (disabled for development)
 
     # Allow manual interaction with the container (cli)
     stdin_open: true

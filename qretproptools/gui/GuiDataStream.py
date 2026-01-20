@@ -2,8 +2,10 @@
 import os
 import asyncio
 import json
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 import redis.asyncio as redis
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 router = APIRouter()      # Create a router for log streaming
 
@@ -25,7 +27,9 @@ async def redis_listener(pubsub, websocket: WebSocket):
         async for message in pubsub.listen():
             if message["type"] == "message":
                 try:
-                    await websocket.send_text(json.dumps({"channel": message["channel"], "data": message["data"]}))
+                    now = datetime.now(ZoneInfo("America/New_York"))
+                    timestamp = now.strftime("%H:%M:%S")
+                    await websocket.send_text(json.dumps({"channel": message["channel"], "data": message["data"], "timestamp_ws": timestamp}))
                 except WebSocketDisconnect:
                     raise
                 except Exception as e:
@@ -66,5 +70,5 @@ async def websocket_logs(websocket: WebSocket):
             await r.close()
             print("WebSocket: connection closed")
     except Exception as e:
-        print(f"WebSocket setup error: {e}") 
+        print(f"WebSocket setup error: {e}")
         await websocket.close()
