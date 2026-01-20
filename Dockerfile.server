@@ -4,9 +4,6 @@ FROM python:3.13-alpine3.22
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 WORKDIR /app
 
-# Install dependencies
-RUN apk add --no-cache gcc python3-dev musl-dev linux-headers
-
 # Use host dependencies by default during development to improve build times
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
