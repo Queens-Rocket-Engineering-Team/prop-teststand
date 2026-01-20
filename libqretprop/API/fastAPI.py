@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from libqretprop import mylogging as ml
 from libqretprop.DeviceControllers import deviceTools
 from libqretprop.Devices.SensorMonitor import SensorMonitor
-from qretproptools.gui.GuiDataStream import router as log_router
+from libqretprop.GuiDataStream import router as log_router
 
 app = FastAPI()
 app.include_router(log_router)
@@ -150,43 +150,3 @@ async def websocket_endpoint(websocket: WebSocket):
         print("WebSocket client disconnected")
 
 
-@app.get("/test-websocket", summary="Test page for WebSocket connection")
-async def test_websocket_page():
-    html_content = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>WebSocket Test</title>
-    </head>
-    <body>
-        <h1>WebSocket Test Page</h1>
-        <div id="messages"></div>
-        <script>
-            const ws = new WebSocket('ws://localhost:8000/ws/logs');
-            const messagesDiv = document.getElementById('messages');
-
-            ws.onopen = function(event) {
-                messagesDiv.innerHTML += '<p>WebSocket connected</p>';
-            };
-
-            ws.onmessage = function(event) {
-                try {
-                    const data = JSON.parse(event.data);
-                    messagesDiv.innerHTML += `<p>[${data.channel}] [${data.timestamp_ws}] ${data.data}</p>`;
-                } catch (e) {
-                    messagesDiv.innerHTML += `<p>Received: ${event.data}</p>`;
-                }
-            };
-
-            ws.onerror = function(error) {
-                messagesDiv.innerHTML += '<p>Error: ' + error.type + ' ' + error.target.url + '</p>';
-            };
-
-            ws.onclose = function(event) {
-                messagesDiv.innerHTML += '<p>WebSocket closed: code=' + event.code + ', reason=' + event.reason + '</p>';
-            };
-        </script>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html_content, status_code=200)
