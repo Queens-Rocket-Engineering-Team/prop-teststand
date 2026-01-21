@@ -1,32 +1,30 @@
 # Import required modules
+import os
 import asyncio
 import json
-import os
+import redis.asyncio as redis
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from datetime import datetime
 from zoneinfo import ZoneInfo
-
-import redis
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-
 
 router = APIRouter()      # Create a router for log streaming
 
 # Connect to Redis
-redisClient: redis.Redis | None = None
-
-def initWSLogger(client: redis.Redis) -> None:
-    global redisClient
-    try:
-        client.ping()
-        redisClient = client
-    except redis.exceptions.ConnectionError as err:
-        raise RuntimeError("Redis server is not running or cannot be reached.") from err
-
+async def get_redis_client():
+    REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+    return redis.Redis(
+        host=REDIS_HOST,
+        port=6379,
+        db=0,
+        username="server",
+        password="propteambestteam",
+        decode_responses=True,
+    )
 
 # Listen to Redis channels and forward messages to WebSocket
 async def redis_listener(pubsub, websocket: WebSocket):
     try:
-        for message in pubsub.listen():
+        async for message in pubsub.listen():
             if message["type"] == "message":
                 try:
                     now = datetime.now(ZoneInfo("America/New_York"))
@@ -46,18 +44,14 @@ async def redis_listener(pubsub, websocket: WebSocket):
 # WebSocket endpoint for log streaming
 @router.websocket("/ws/logs")
 async def websocket_logs(websocket: WebSocket):
-    global redisClient
-
-    if redisClient is None:
-        raise ValueError("WS Logger not initialized. Call initWSLogger() first.")
-
     print("WebSocket: client trying to connect")
     await websocket.accept()
     print("WebSocket: client accepted")
 
     try:
-        pubsub = redisClient.pubsub()
-        pubsub.subscribe("log", "errlog", "debuglog", "syslog")
+        r = await get_redis_client()
+        pubsub = r.pubsub()
+        await pubsub.subscribe("log", "errlog", "debuglog", "syslog")
         print("Subscribed to Redis log channels")
 
         listener_task = asyncio.create_task(redis_listener(pubsub, websocket))
@@ -73,7 +67,7 @@ async def websocket_logs(websocket: WebSocket):
             listener_task.cancel()
             await pubsub.unsubscribe("log", "errlog", "debuglog", "syslog")
             await pubsub.close()
-            await redisClient.close()
+            await r.close()
             print("WebSocket: connection closed")
     except Exception as e:
         print(f"WebSocket setup error: {e}")

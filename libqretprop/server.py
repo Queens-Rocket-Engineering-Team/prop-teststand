@@ -44,7 +44,6 @@ async def main(directIP: str | None = None,
                               )
 
     ml.initLogger(redisClient)
-    gds.initWSLogger(redisClient)
     ml.log("Starting server...")
 
     loop = asyncio.get_event_loop()
