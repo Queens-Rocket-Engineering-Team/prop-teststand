@@ -135,18 +135,3 @@ async def getStatus() -> None:
     for device in deviceTools.deviceRegistry.values():
         deviceTools.getStatus(device)
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    try:
-        while True:
-            msg = await ws.receive_text()
-            print("Received from WS:", msg)
-
-            # send something back
-            await ws.send_text(f"Server received: {msg}")
-
-    except WebSocketDisconnect:
-        print("WebSocket client disconnected")
-
-
