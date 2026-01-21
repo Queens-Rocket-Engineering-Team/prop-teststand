@@ -57,7 +57,6 @@ async def websocket_logs(websocket: WebSocket):
 
     try:
         pubsub = redisClient.pubsub()
-        print(pubsub)
         pubsub.subscribe("log", "errlog", "debuglog", "syslog")
         print("Subscribed to Redis log channels")
 
