@@ -5,6 +5,7 @@ import redis
 import os
 
 import libqretprop.mylogging as ml
+import libqretprop.GuiDataStream as gds
 from libqretprop.API import fastAPI
 from libqretprop.daemons.cliTerminal import commandProcessor
 from libqretprop.DeviceControllers import deviceTools
@@ -43,6 +44,7 @@ async def main(directIP: str | None = None,
                               )
 
     ml.initLogger(redisClient)
+    gds.initWSLogger(redisClient)
     ml.log("Starting server...")
 
     loop = asyncio.get_event_loop()
