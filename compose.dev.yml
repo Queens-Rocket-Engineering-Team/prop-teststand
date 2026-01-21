@@ -15,6 +15,9 @@ services:
     stdin_open: true
     tty: true
 
+    volumes:
+      - ./config.yaml:/app/config.yaml  # Mount local config file for development
+
     develop:
       watch:
         # Sync the working directory with the `/app` directory in the container
@@ -24,8 +27,11 @@ services:
           # Exclude the project virtual environment
           ignore:
             - .venv/
-
         # Rebuild the image if dependencies change by checking uv.lock
+        - action: sync+restart
+          path: ./config.yaml
+          target: /app/config.yaml
+
         - action: rebuild
           path: ./uv.lock
   logs:
@@ -45,6 +51,21 @@ services:
           path: ./qretproptools/cli/see_logs
           target: /app/qretproptools/cli/see_logs
 
+  media:
+    image: "bluenviron/mediamtx:latest"
+    network_mode: "host"
+    ports:
+      - "8889:8889"
+    depends_on:
+      - server
+    environment:
+    # Use a different RTSP port to avoid conflicts with local testing
+    # This port isn't being accessed externally, changing it is fine
+      - MTX_RTSPADDRESS=:8558
+      - MTX_API=yes
+      # Windows firewall blocks UDP, so use TCP for development streams
+      - MTX_WEBRTCLOCALTCPADDRESS=:8189
+  
   redis:
     image: "redis:latest"
     ports:
@@ -57,6 +78,6 @@ services:
       watch:
         # Restart on redis.conf changes
         # Sync doesn't actually work here because of the volume mount
-        - action: sync+restart
-          path: redis.conf
+        - action: restart
+          path: ./redis.conf
           target: /usr/local/etc/redis/redis.conf

@@ -404,4 +404,3 @@ def exportDataToCSV() -> None:
                     writer.writerow(row)
 
             ml.slog(f"Exported data to {deviceFilename} for device: {device.name}")
-
