@@ -2,6 +2,7 @@
 import os
 import asyncio
 import json
+import re
 import redis.asyncio as redis
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from datetime import datetime
@@ -21,6 +22,11 @@ async def get_redis_client():
         decode_responses=True,
     )
 
+ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+def strip_ansi(s: str) -> str:
+    return ANSI_ESCAPE.sub('', s)
+
 # Listen to Redis channels and forward messages to WebSocket
 async def redis_listener(pubsub, websocket: WebSocket):
     try:
@@ -29,7 +35,10 @@ async def redis_listener(pubsub, websocket: WebSocket):
                 try:
                     now = datetime.now(ZoneInfo("America/New_York"))
                     timestamp = now.strftime("%H:%M:%S")
-                    await websocket.send_text(json.dumps({"channel": message["channel"], "data": message["data"], "timestamp_ws": timestamp}))
+                    clean_message_data = strip_ansi(message["data"])
+                    clean_message_channel = strip_ansi(message["channel"])
+
+                    await websocket.send_text(json.dumps({"channel": clean_message_channel, "data": clean_message_data, "timestamp_ws": timestamp}))
                 except WebSocketDisconnect:
                     raise
                 except Exception as e:
