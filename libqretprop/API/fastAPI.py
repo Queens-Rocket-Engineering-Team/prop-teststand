@@ -3,7 +3,8 @@ from collections.abc import Callable
 from typing import Annotated, Literal, Any
 
 import uvicorn
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
@@ -11,9 +12,10 @@ from starlette.concurrency import run_in_threadpool
 from libqretprop import mylogging as ml
 from libqretprop.DeviceControllers import deviceTools
 from libqretprop.Devices.SensorMonitor import SensorMonitor
-
+from libqretprop.GuiDataStream import router as log_router
 
 app = FastAPI()
+app.include_router(log_router)
 security = HTTPBasic()
 
 # Hardcoded creds
@@ -131,3 +133,45 @@ class StatusResponse(BaseModel):
 async def getStatus() -> None:
     for device in deviceTools.deviceRegistry.values():
         deviceTools.getStatus(device)
+
+
+@app.get("/test-websocket", summary="Test page for WebSocket connection")
+async def test_websocket_page():
+    html_content = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>WebSocket Test</title>
+    </head>
+    <body>
+        <h1>WebSocket Test Page</h1>
+        <div id="messages"></div>
+        <script>
+            const ws = new WebSocket('ws://localhost:8000/ws/logs');
+            const messagesDiv = document.getElementById('messages');
+
+            ws.onopen = function(event) {
+                messagesDiv.innerHTML += '<p>WebSocket connected</p>';
+            };
+
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    messagesDiv.innerHTML += `<p>[${data.channel}] [${data.timestamp_ws}] ${data.data}</p>`;
+                } catch (e) {
+                    messagesDiv.innerHTML += `<p>Received: ${event.data}</p>`;
+                }
+            };
+
+            ws.onerror = function(error) {
+                messagesDiv.innerHTML += '<p>Error: ' + error.type + ' ' + error.target.url + '</p>';
+            };
+
+            ws.onclose = function(event) {
+                messagesDiv.innerHTML += '<p>WebSocket closed: code=' + event.code + ', reason=' + event.reason + '</p>';
+            };
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content, status_code=200)

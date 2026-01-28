@@ -10,5 +10,7 @@
 
     "python.analysis.exclude": [
     "libqretprop/LJM_archive"
-  ]
+  ],
+  "python-envs.defaultEnvManager": "ms-python.python:system",
+  "python-envs.pythonProjects": []
 }
