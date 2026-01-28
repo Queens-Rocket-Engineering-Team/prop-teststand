@@ -1,12 +1,16 @@
 # Import required modules
-import os
 import asyncio
 import json
+import os
 import re
-import redis.asyncio as redis
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+import redis.asyncio as redis
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+import libqretprop.mylogging as ml
+
 
 router = APIRouter()      # Create a router for log streaming
 
@@ -42,26 +46,26 @@ async def redis_listener(pubsub, websocket: WebSocket):
                 except WebSocketDisconnect:
                     raise
                 except Exception as e:
-                    print(f"Error sending message to WebSocket: {e}")
+                    ml.elog(f"Error sending message to WebSocket: {e}")
                     raise
     except asyncio.CancelledError:
         raise
     except Exception as e:
-        print(f"Redis listener error: {e}")
+        ml.elog(f"Redis listener error: {e}")
         raise
 
 # WebSocket endpoint for log streaming
 @router.websocket("/ws/logs")
 async def websocket_logs(websocket: WebSocket):
-    print("WebSocket: client trying to connect")
+    ml.dlog("WebSocket: client trying to connect")
     await websocket.accept()
-    print("WebSocket: client accepted")
+    ml.dlog("WebSocket: client accepted")
 
     try:
         r = await get_redis_client()
         pubsub = r.pubsub()
         await pubsub.subscribe("log", "errlog", "debuglog", "syslog")
-        print("Subscribed to Redis log channels")
+        ml.dlog("WebSocket: Subscribed to Redis log channels")
 
         listener_task = asyncio.create_task(redis_listener(pubsub, websocket))
 
@@ -69,15 +73,15 @@ async def websocket_logs(websocket: WebSocket):
             while True:
                 await websocket.receive_text()  # Keep the connection alive
         except WebSocketDisconnect:
-            print("WebSocket: client disconnected")
+            ml.dlog("WebSocket: client disconnected")
         except Exception as e:
-            print(f"WebSocket: error occurred - {e}")
+            ml.elog(f"WebSocket: error occurred - {e}")
         finally:
             listener_task.cancel()
             await pubsub.unsubscribe("log", "errlog", "debuglog", "syslog")
             await pubsub.close()
             await r.close()
-            print("WebSocket: connection closed")
+            ml.dlog("WebSocket: connection closed")
     except Exception as e:
-        print(f"WebSocket setup error: {e}")
+        ml.elog(f"WebSocket setup error: {e}")
         await websocket.close()
