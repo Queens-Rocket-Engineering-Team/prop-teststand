@@ -10,36 +10,32 @@ cameraRegistry : dict[str, Camera] = {}
 Connect to all camera defined in cameraConfig and register them
 """
 async def connectAllCameras() -> None:
-    httpClient : aiohttp.ClientSession = aiohttp.ClientSession()
+    async with aiohttp.ClientSession() as httpClient:
+        cam_username = config.serverConfig["accounts"]["camera"]["username"]
+        cam_password = config.serverConfig["accounts"]["camera"]["password"]
 
-    cam_username = config.serverConfig["accounts"]["camera"]["username"]
-    cam_password = config.serverConfig["accounts"]["camera"]["password"]
+        for camera in config.serverConfig["cameras"]:
+            camera_ip = camera["ip"]
+            camera_port = camera["onvif_port"]
 
-    for camera in config.serverConfig["cameras"]:
-        camera_ip = camera["ip"]
-        camera_port = camera["onvif_port"]
+            # Register camera in camera registry
+            await registerCamera(camera_ip, camera_port)
 
-        # Register camera in camera registry
-        await registerCamera(camera_ip, camera_port)
+            # Configure camera RTSP relay in media server
+            # Only configure for successful camera connections
+            if (camera_ip in cameraRegistry) and (config.serverConfig["mediamtx"] is not None):
+                mediamtx_ip = config.serverConfig["mediamtx"]["ip"]
+                mediamtx_port = config.serverConfig["mediamtx"]["port"]
 
-        # Configure camera RTSP relay in media server
-        # Only configure for successful camera connections
-        if (camera_ip in cameraRegistry) and (config.serverConfig["mediamtx"] is not None):
-            mediamtx_ip = config.serverConfig["mediamtx"]["ip"]
-            mediamtx_port = config.serverConfig["mediamtx"]["port"]
-
-            cam = cameraRegistry[camera_ip]
-            try:
-                ml.slog(f"Configuring media server for camera {cam.hostname} ({camera_ip})")
-                await httpClient.post(f"http://{mediamtx_ip}:{mediamtx_port}/v3/config/paths/add/{cam.address}", json={
-                    "source": f"rtsp://{cam_username}:{cam_password}@{cam.address}/stream1",
-                    "sourceOnDemand": True,
-                }, timeout=aiohttp.ClientTimeout(10))
-            except aiohttp.ConnectionTimeoutError:
-                ml.elog(f"Media server configuration timed out for {cam.hostname} ({camera_ip})")
-
-
-    await httpClient.close()
+                cam = cameraRegistry[camera_ip]
+                try:
+                    ml.slog(f"Configuring media server for camera {cam.hostname} ({camera_ip})")
+                    await httpClient.post(f"http://{mediamtx_ip}:{mediamtx_port}/v3/config/paths/add/{cam.address}", json={
+                        "source": f"rtsp://{cam_username}:{cam_password}@{cam.address}/stream1",
+                        "sourceOnDemand": True,
+                    }, timeout=aiohttp.ClientTimeout(10))
+                except TimeoutError:
+                    ml.elog(f"Media server configuration timed out for {cam.hostname} ({camera_ip})")
 
 
 """Register a camera with its IP and port

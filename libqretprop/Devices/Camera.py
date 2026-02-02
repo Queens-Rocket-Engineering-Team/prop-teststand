@@ -1,6 +1,7 @@
 import asyncio
+import os
 
-from onvif import ONVIFCamera
+import onvif
 
 import libqretprop.configManager as config
 
@@ -24,15 +25,17 @@ class Camera:
 
     async def connect(self) -> None:
         try:
-            # All cameras are setup with these credentials
-            self.camera = ONVIFCamera(self.address, self.port, config.serverConfig["accounts"]["camera"]["username"], config.serverConfig["accounts"]["camera"]["password"], './.venv/lib/python3.13/site-packages/onvif/wsdl/')
+            # Load wsdl files for ONVIF
+            wsdl_path = os.path.join(os.path.dirname(onvif.__file__), 'wsdl/')
+
+            self.camera = onvif.ONVIFCamera(self.address, self.port, config.serverConfig["accounts"]["camera"]["username"], config.serverConfig["accounts"]["camera"]["password"], wsdl_path)
             await asyncio.wait_for(self.camera.update_xaddrs(), timeout=5)
 
 
             # ONVIF Services
-            self.devicemgmt = self.camera.create_devicemgmt_service()
-            self.ptz = self.camera.create_ptz_service()
-            self.media = self.camera.create_media_service()
+            self.devicemgmt = await self.camera.create_devicemgmt_service()
+            self.ptz = await self.camera.create_ptz_service()
+            self.media = await self.camera.create_media_service()
 
             # Get hostname
             hostname = await self.devicemgmt.GetHostname()
