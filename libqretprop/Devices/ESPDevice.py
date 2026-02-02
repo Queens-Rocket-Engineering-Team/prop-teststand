@@ -48,8 +48,12 @@ class ESPDevice:
         while True:
             if self.socket:
                 import contextlib
+                from libqretprop.protocol import SimplePacket, PacketType
                 with contextlib.suppress(BrokenPipeError, ConnectionResetError):
-                    self.socket.sendall(b"BEAT\n")
+                    # Send binary heartbeat packet
+                    packet = SimplePacket.create(PacketType.HEARTBEAT)
+                    loop = asyncio.get_event_loop()
+                    await loop.sock_sendall(self.socket, packet.pack())
             await asyncio.sleep(5)  # Wait for 5 seconds before sending the next heartbeat
 
     @staticmethod

@@ -20,7 +20,7 @@ class ServerState(Enum):
 
 async def main(directIP: str | None = None,
                noDiscovery: bool = False,
-               cmdLine: bool = True, # FIXME change to default false later
+               cmdLine: bool = True, # fixme change to default false later
                ) -> None:
     """Run the server."""
 
@@ -49,13 +49,18 @@ async def main(directIP: str | None = None,
     daemons: dict[str, asyncio.Task[None]] = {}
 
     # Fire up the FastAPI app and add it as a daemon task
-    daemons["fastAPI"] = loop.create_task(fastAPI.startAPI())
+    # DISABLED FOR CLI TESTING - uncomment if you need the web API
+    # daemons["fastAPI"] = loop.create_task(fastAPI.startAPI())
 
     # -------
     # CONFIG OPTIONS
     # -------
 
     if not noDiscovery:
+        # TCP listener for incoming device connections
+        daemons["tcpListener"] = loop.create_task(deviceTools.tcpListener())
+        ml.slog("Started TCP listener daemon task.")
+
         # Listener daemon will run in the background to listen for SSDP responses and update the device registry
         daemons["deviceListener"] = loop.create_task(deviceTools.deviceListener())
         ml.slog("Started deviceListener daemon task.")
@@ -65,7 +70,8 @@ async def main(directIP: str | None = None,
         deviceTools.sendMulticastDiscovery()
 
     # Command line interface daemon
-    if cmdLine: daemons["commandProcessor"] = loop.create_task(commandProcessor())
+    if cmdLine:
+        daemons["commandProcessor"] = loop.create_task(commandProcessor())
 
     # If a direct IP is provided, connect to the device directly
     if directIP:
