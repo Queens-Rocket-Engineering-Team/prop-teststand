@@ -5,7 +5,6 @@ import redis
 import os
 
 import libqretprop.mylogging as ml
-import libqretprop.GuiDataStream as gds
 from libqretprop.API import fastAPI
 from libqretprop.daemons.cliTerminal import commandProcessor
 from libqretprop.DeviceControllers import deviceTools
