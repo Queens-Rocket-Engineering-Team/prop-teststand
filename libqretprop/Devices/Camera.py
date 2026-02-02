@@ -49,5 +49,5 @@ class Camera:
             self.token = (await self.media.GetProfiles())[0].token
         except asyncio.TimeoutError as e:
             raise Exception("Connection timed out") from e
-        except Exception as e:
-            raise e
+        except Exception:
+            raise

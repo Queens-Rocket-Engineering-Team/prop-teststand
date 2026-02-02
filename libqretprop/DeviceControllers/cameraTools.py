@@ -5,7 +5,7 @@ import libqretprop.mylogging as ml
 from libqretprop.Devices.Camera import Camera
 
 
-cameraRegistry : dict[str, Camera] = {}
+cameraRegistry: dict[str, Camera] = {}
 """
 Connect to all camera defined in cameraConfig and register them
 """
@@ -85,12 +85,19 @@ Args:
     ip (str): The IP address of the camera
 """
 async def getStreamURL(ip: str) -> str:
-    cam = cameraRegistry[ip]
+    try:
+        if ip not in cameraRegistry:
+            raise Exception("Camera does not exist")
 
-    streamSetup = {
-        "Stream": "RTP-Unicast",
-        "Transport": {"Protocol": "RTSP"},
-    }
-    streamUri = await cam.media.GetStreamUri({"ProfileToken": cam.token, "StreamSetup": streamSetup})
+        cam = cameraRegistry[ip]
 
-    return streamUri.Uri
+        streamSetup = {
+            "Stream": "RTP-Unicast",
+            "Transport": {"Protocol": "RTSP"},
+        }
+        streamUri = await cam.media.GetStreamUri({"ProfileToken": cam.token, "StreamSetup": streamSetup})
+
+        return streamUri.Uri
+    except Exception as e:
+        ml.elog(f"Failed to get stream URL for camera at {ip}: {e}")
+        raise

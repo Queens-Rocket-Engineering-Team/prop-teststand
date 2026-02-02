@@ -49,6 +49,11 @@ serverConfig: ServerConfig = {
 def loadConfig(configPath: str) -> None:
     global serverConfig
 
-    with open(configPath, "r") as file:
-        serverConfig = yaml.safe_load(file.read())
+    try:
+        with open(configPath, "r") as file:
+            serverConfig = yaml.safe_load(file.read())
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"Configuration file not found: {configPath}") from exc
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Failed to parse YAML configuration file '{configPath}': {exc}") from exc
 
