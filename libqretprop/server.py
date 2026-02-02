@@ -40,7 +40,7 @@ async def main(directIP: str | None = None,
 
     # Initialize Redis client for logging
     redisClient = redis.Redis(host=REDIS_HOST,
-                              port=6379,
+                              port=config.serverConfig["services"]["redis"]["port"],
                               db=0,
                               username=config.serverConfig["accounts"]["redis"]["username"],
                               password=config.serverConfig["accounts"]["redis"]["password"],

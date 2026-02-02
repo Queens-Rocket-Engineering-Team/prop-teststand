@@ -23,9 +23,9 @@ async def connectAllCameras() -> None:
 
             # Configure camera RTSP relay in media server
             # Only configure for successful camera connections
-            if (camera_ip in cameraRegistry) and (config.serverConfig["mediamtx"] is not None):
-                mediamtx_ip = config.serverConfig["mediamtx"]["ip"]
-                mediamtx_port = config.serverConfig["mediamtx"]["port"]
+            if (camera_ip in cameraRegistry) and (config.serverConfig["services"]["mediamtx"] is not None):
+                mediamtx_ip = config.serverConfig["services"]["mediamtx"]["ip"]
+                mediamtx_port = config.serverConfig["services"]["mediamtx"]["api_port"]
 
                 cam = cameraRegistry[camera_ip]
                 try:

@@ -12,18 +12,38 @@ class CameraConfig(TypedDict):
     onvif_port: int
 
 class MediaMTXConfig(TypedDict):
-    ip: str | None
-    port: int | None
+    ip: str
+    api_port: int
+    webrtc_port: int
+
+class RedisConfig(TypedDict):
+    ip: str
+    port: int
+
+class ServicesConfig(TypedDict):
+    mediamtx: MediaMTXConfig
+    redis: RedisConfig
 
 class ServerConfig(TypedDict):
     accounts: dict[str, AccountServiceConfig]
     cameras: list[CameraConfig]
-    mediamtx: MediaMTXConfig | None
+    services: ServicesConfig
 
 serverConfig: ServerConfig = {
     "accounts": {},
     "cameras": [],
-    "mediamtx": None,
+    # Services are required fields, so some default is needed
+    "services": {
+        "mediamtx": {
+            "ip": "",
+            "api_port": 0,
+            "webrtc_port": 0,
+        },
+        "redis": {
+            "ip": "",
+            "port": 0,
+        },
+    }
 }
 
 def loadConfig(configPath: str) -> None:
