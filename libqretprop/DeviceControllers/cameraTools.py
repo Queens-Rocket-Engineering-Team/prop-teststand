@@ -1,3 +1,5 @@
+import asyncio
+
 import aiohttp
 
 import libqretprop.configManager as config
@@ -34,7 +36,7 @@ async def connectAllCameras() -> None:
                         "source": f"rtsp://{cam_username}:{cam_password}@{cam.address}/stream1",
                         "sourceOnDemand": True,
                     }, timeout=aiohttp.ClientTimeout(10))
-                except TimeoutError:
+                except asyncio.TimeoutError:
                     ml.elog(f"Media server configuration timed out for {cam.hostname} ({camera_ip})")
 
 

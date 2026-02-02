@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 app = FastAPI()
 security = HTTPBasic()
 
+# Server runs exclusively on propnet and is not publicly available
+# CSRF is not a concern here
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
