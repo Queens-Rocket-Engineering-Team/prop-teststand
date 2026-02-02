@@ -3,6 +3,6 @@ test_data/
 build/
 data/
 configs/
-
+.claude/
 
 *.egg-info

@@ -11,9 +11,10 @@ from starlette.concurrency import run_in_threadpool
 from libqretprop import mylogging as ml
 from libqretprop.DeviceControllers import deviceTools
 from libqretprop.Devices.SensorMonitor import SensorMonitor
-
+from libqretprop.GuiDataStream import router as log_router
 
 app = FastAPI()
+app.include_router(log_router)
 security = HTTPBasic()
 
 # Hardcoded creds
