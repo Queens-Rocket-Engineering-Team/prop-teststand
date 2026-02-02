@@ -1,8 +1,8 @@
-from onvif import ONVIFCamera
-from zeep.transports import AsyncTransport, Transport
-import libqretprop.configManager as config
 import asyncio
-import libqretprop.mylogging as ml
+
+from onvif import ONVIFCamera
+
+import libqretprop.configManager as config
 
 
 class Camera:

@@ -32,7 +32,8 @@ async def main(directIP: str | None = None,
     # -------
 
     # Load server configuration
-    config.loadConfig("./config.yaml")
+    configPath = os.getenv("PROP_CONFIG", "./config.yaml")
+    config.loadConfig(configPath)
 
     # Read Redis host from environment variable (for docker compose) or default to localhost
     REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
@@ -41,8 +42,8 @@ async def main(directIP: str | None = None,
     redisClient = redis.Redis(host=REDIS_HOST,
                               port=6379,
                               db=0,
-                              username="server",
-                              password="propteambestteam",
+                              username=config.serverConfig["accounts"]["redis"]["username"],
+                              password=config.serverConfig["accounts"]["redis"]["password"],
                               decode_responses=True,
                               )
 
