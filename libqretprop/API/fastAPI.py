@@ -10,13 +10,15 @@ from starlette.concurrency import run_in_threadpool
 
 from libqretprop import mylogging as ml
 from libqretprop.DeviceControllers import cameraTools, deviceTools
-
+from libqretprop.Devices.SensorMonitor import SensorMonitor
+from libqretprop.GuiDataStream import router as log_router
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 
 app = FastAPI()
+app.include_router(log_router)
 security = HTTPBasic()
 
 # Server runs exclusively on propnet and is not publicly available
