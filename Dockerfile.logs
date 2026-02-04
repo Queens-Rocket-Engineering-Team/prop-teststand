@@ -19,7 +19,9 @@ ADD qretproptools/cli/see_logs /app/qretproptools/cli/see_logs
 RUN mkdir /app/libqretprop
 RUN touch /app/libqretprop/__init__.py /app/qretproptools/__init__.py
 
-RUN ls -l /app
+# Add config-specific files
+ADD libqretprop/configManager.py /app/libqretprop/configManager.py
+ADD config.yaml /app/config.yaml
 
 # Sync the project
 RUN --mount=type=cache,target=/root/.cache/uv \

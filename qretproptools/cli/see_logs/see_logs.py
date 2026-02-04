@@ -5,6 +5,7 @@ import redis
 import redis.exceptions
 
 import os
+import libqretprop.configManager as config
 
 
 def main() -> None:
@@ -22,20 +23,22 @@ def main() -> None:
 
     print(f"Listening to channels: {', '.join(channels)}")
 
+
     try:
-        REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+        # Load server configuration for redis
+        configPath = os.getenv("PROP_CONFIG", "./config.yaml")
+        config.loadConfig(configPath)
 
         while True:
             r = None
             pubsub = None
 
             try:
-
-                r = redis.Redis(host=REDIS_HOST,
-                              port=6379,
+                r = redis.Redis(host=config.serverConfig["services"]["redis"]["ip"],
+                              port=config.serverConfig["services"]["redis"]["port"],
                               db=0,
-                              username="server",
-                              password="propteambestteam",
+                              username=config.serverConfig["accounts"]["redis"]["username"],
+                              password=config.serverConfig["accounts"]["redis"]["password"],
                               decode_responses=True,
                               )
                 pubsub = r.pubsub()
@@ -45,7 +48,9 @@ def main() -> None:
                     if message["type"] == "message":
                         print(f"[{message['channel']}] {message['data']}")
 
-            except (redis.exceptions.ConnectionError, ConnectionRefusedError):
+            except (redis.exceptions.ConnectionError, ConnectionRefusedError) as e:
+                print(e)
+                print("Failed to connect to Redis. Retrying in 1 second...")
                 time.sleep(1)
             except Exception as e:
                 print("Lost connection to server. Waiting for server...")

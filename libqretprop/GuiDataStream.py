@@ -10,19 +10,19 @@ import redis.asyncio as redis
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 import libqretprop.mylogging as ml
+import libqretprop.configManager as config
 
 
 router = APIRouter()      # Create a router for log streaming
 
 # Connect to Redis
 async def get_redis_client():
-    REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
     return redis.Redis(
-        host=REDIS_HOST,
-        port=6379,
+        host=config.serverConfig["services"]["redis"]["ip"],
+        port=config.serverConfig["services"]["redis"]["port"],
         db=0,
-        username="server",
-        password="propteambestteam",
+        username=config.serverConfig["accounts"]["redis"]["username"],
+        password=config.serverConfig["accounts"]["redis"]["password"],
         decode_responses=True,
     )
 
