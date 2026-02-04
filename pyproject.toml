@@ -31,7 +31,6 @@ dev = [
     "matplotlib", # needed for plotting test data
     "ipykernel", # needed for jupyter
     "pydantic>=2.11.7",
-    "types-pyyaml>=6.0.12.20250915",
 ]
 
 [project.optional-dependencies]
