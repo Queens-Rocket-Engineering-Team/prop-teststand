@@ -33,7 +33,7 @@ services:
     tty: true
 
     volumes:
-    - ./config.yaml:/app/config.yaml  # Mount local config file for production
+      - ./config.yaml:/app/config.yaml  # Mount local config file for production
 
     # Always restart logs on dockerd start
     restart: always
