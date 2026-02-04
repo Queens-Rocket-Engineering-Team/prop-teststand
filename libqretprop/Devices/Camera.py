@@ -48,6 +48,10 @@ class Camera:
             # Token (needed for PTZ and media commands)
             self.token = (await self.media.GetProfiles())[0].token
         except asyncio.TimeoutError as e:
+            if self.camera is not None:
+                await self.camera.close()
             raise Exception("Connection timed out") from e
         except Exception:
+            if self.camera is not None:
+                await self.camera.close()
             raise
