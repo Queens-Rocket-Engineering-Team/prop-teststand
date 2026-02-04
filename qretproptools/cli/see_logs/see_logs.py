@@ -52,6 +52,11 @@ def main() -> None:
                 print(e)
                 print("Failed to connect to Redis. Retrying in 1 second...")
                 time.sleep(1)
+            except KeyError as e:
+                print("Configuration error: missing or invalid Redis settings in config.yaml.")
+                print("Missing key:", e)
+                print("Please check that 'services.redis' and 'accounts.redis' are correctly configured.")
+                break
             except Exception as e:
                 print("Lost connection to server. Waiting for server...")
                 print("Error details:", e)
