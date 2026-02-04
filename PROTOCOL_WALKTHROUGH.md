@@ -1,6 +1,37 @@
-# QRET Propulsion Binary Protocol v2 - Wire Format Specification
+# QRET Propulsion Binary Protocol v1.0 - Wire Format Specification
 
-This document is the authoritative wire-format reference for the QRET Propulsion binary protocol. All values are big-endian (network byte order). All sizes are in bytes.
+This document is the authoritative wire-format reference for the QRET Propulsion binary protocol. It is intended to be sufficient for implementing both the server (Python) and device (MicroPython on ESP32) sides of the protocol. All values are big-endian (network byte order). All sizes are in bytes.
+
+---
+
+## Network Configuration
+
+### SSDP Discovery
+
+The server announces its presence via SSDP multicast. Devices listen for this broadcast to discover the server.
+
+- Multicast address: `239.255.255.250`
+- Multicast port: `1900`
+- Search target: `urn:qretprop:espdevice:1`
+
+The server sends the following M-SEARCH packet:
+
+```
+M-SEARCH * HTTP/1.1\r\n
+HOST: 239.255.255.250:1900\r\n
+MAN: "ssdp:discover"\r\n
+MX: 2\r\n
+ST: urn:qretprop:espdevice:1\r\n
+USER-AGENT: QRET/1.0\r\n
+\r\n
+```
+
+When a device receives this packet, it extracts the server's IP address from the UDP source address of the M-SEARCH packet. It then opens a TCP connection to the server.
+
+### TCP
+
+- Server listen port: `50000`
+- The server never connects to devices. Devices always initiate TCP connections to the server.
 
 ---
 
@@ -19,6 +50,8 @@ Offset  Size  Type    Field        Description
 ```
 
 Struct format: `>BBBHI` (9 bytes)
+
+The TIMESTAMP field on device-originated packets must be the device's `time.ticks_ms()` (milliseconds since boot). This is used by the server for accurate inter-sample timing.
 
 ### TCP Framing
 
@@ -158,21 +191,28 @@ Offset  Size  Type    Field          Description
 9       8     uint64  server_time_ms Unix epoch milliseconds
 ```
 
-The device uses this to compute an offset: `offset = server_time_ms - device_uptime_ms`. All subsequent device timestamps can be converted to absolute time by adding this offset.
+The server sends TIMESYNC immediately after acknowledging the device's CONFIG, and then periodically every 10 minutes during normal operation.
 
-**Server-side offset**: When the server receives the TIMESYNC ACK, it records:
-- `sync_device_ms` = the ACK header's timestamp (device ms-since-boot)
-- `sync_server_monotonic` = server's monotonic clock at ACK receipt
+**Device behavior**: When the device receives TIMESYNC, it must:
 
-For any subsequent DATA packet with header timestamp `t_device_ms`:
-```
-delta_ms = t_device_ms - sync_device_ms
-server_time = sync_server_monotonic + delta_ms / 1000.0
-```
+1. Compute a timestamp offset using the TIMESYNC packet's **header timestamp** (the server's monotonic ms):
+   ```
+   offset = timesync_header.timestamp - time.ticks_ms()
+   ```
+2. Store this offset.
+3. For **all subsequent outgoing packets**, set the header timestamp to:
+   ```
+   timestamp = (time.ticks_ms() + offset) & 0xFFFFFFFF
+   ```
+4. ACK the TIMESYNC.
 
-This uses the device's crystal oscillator for inter-sample timing (no network jitter), anchored to the server's reference frame.
+After this, every packet the device sends has its timestamp locked to the server's time scale. The server can use device header timestamps directly — no server-side conversion is needed.
 
-**Periodic resync**: ESP32 crystal oscillators drift ~20 ppm (~12 ms per 10 minutes, ~72 ms per hour). At high sample rates (hundreds of Hz), this drift exceeds one sample period over long tests. The server automatically sends a new TIMESYNC every 10 minutes to keep drift under ~12 ms. If no sync has been completed, the server falls back to server-side receive timestamps.
+The `server_time_ms` payload (uint64, Unix epoch ms) is available if the device needs absolute wall-clock time for its own purposes, but is not used for the timestamp sync mechanism.
+
+**Why this matters**: By locking device timestamps to the server's clock, the server gets inter-sample timing derived from the device's crystal oscillator rather than from network receive times. This eliminates jitter from TCP buffering, OS scheduling, and network latency. The device's oscillator provides consistent, microsecond-resolution intervals between readings.
+
+**Why periodic resync**: ESP32 crystal oscillators drift approximately 20 ppm. Over 10 minutes this is ~12 ms; over 1 hour it is ~72 ms. At high sample rates (hundreds of Hz), where one sample period is 5-10 ms, this drift becomes significant during long test runs. The server automatically sends a new TIMESYNC every 10 minutes. The device recomputes its offset on each TIMESYNC, keeping drift under ~12 ms.
 
 ---
 
@@ -305,12 +345,50 @@ Value  Name
 
 ---
 
+## Device Behavior Requirements
+
+This section defines what the device must do when it receives each server command.
+
+### Packets Requiring ACK
+
+The device **must** send an ACK for the following packet types:
+
+| Packet Type  | Required Response |
+|--------------|-------------------|
+| CONTROL      | ACK (or NACK on error) |
+| TIMESYNC     | ACK |
+| STREAM_START | ACK (or NACK on error) |
+| STREAM_STOP  | ACK |
+| HEARTBEAT    | ACK |
+
+STATUS_REQUEST and GET_SINGLE do not require ACK — the device responds with a STATUS or DATA packet instead.
+
+### ESTOP
+
+On receiving ESTOP, the device must immediately set **all controls to their default states** as defined in the device's configuration (the `defaultState` field of each control). This is the safest state for the hardware. The device should also stop streaming if active.
+
+ESTOP does not require an ACK. The server assumes immediate compliance.
+
+### GET_SINGLE
+
+On receiving GET_SINGLE, the device must take **one reading from every sensor** and send a single batched DATA packet containing all readings.
+
+### STATUS_REQUEST
+
+On receiving STATUS_REQUEST, the device must send a STATUS packet with its current DeviceStatus.
+
+### Unknown Packet Types
+
+If the device receives a packet with an unrecognized PACKET_TYPE, it must respond with a NACK using error code `UNKNOWN_TYPE` (0x01).
+
+---
+
 ## Connection Flow
 
 ```
  Server                                Device
    |                                     |
-   |-- SSDP M-SEARCH (multicast) ----->>|  1. Server broadcasts discovery
+   |-- SSDP M-SEARCH (multicast) ----->>|  1. Server broadcasts on 239.255.255.250:1900
    |                                     |
    |<<----------- TCP connect -----------|  2. Device opens TCP to server:50000
    |                                     |
@@ -320,7 +398,7 @@ Value  Name
    |                                     |
    |------------ TIMESYNC ----------->>  |  5. Server sends time reference
    |                                     |
-   |<<----------- ACK ------------------|  6. Device acknowledges
+   |<<----------- ACK ------------------|  6. Device acknowledges (server records sync)
    |                                     |
    |        (normal operation)           |
    |                                     |
@@ -332,63 +410,78 @@ Value  Name
    |                                     |
    |------------ STREAM_START ------->>  |  Start data streaming
    |<<----------- ACK ------------------|
-   |<<----------- DATA (batched) -------|  Continuous sensor data
+   |<<----------- DATA (batched) -------|  Continuous sensor data at requested Hz
    |<<----------- DATA (batched) -------|
    |                                     |
-   |------------ CONTROL ------------>>  |  Valve command
+   |------------ CONTROL ------------>>  |  Valve/actuator command
    |<<----------- ACK ------------------|
    |                                     |
    |------------ STREAM_STOP -------->>  |  Stop streaming
    |<<----------- ACK ------------------|
+   |                                     |
+   |------------ ESTOP ------------->>  |  Emergency stop (no ACK required)
+   |                                     |  Device sets all controls to defaults
 ```
 
 Key points:
 - The server never connects to devices. Devices always initiate TCP.
-- SSDP is broadcast-only (M-SEARCH). Devices hear it and connect back.
+- SSDP is broadcast-only (M-SEARCH). Devices hear it and connect back to the server IP from the UDP source address.
 - The first packet on a new TCP connection is always CONFIG from the device.
 - Sequence numbers in ACK/NACK match the sequence of the original request.
 - Server sends TIMESYNC immediately after CONFIG ACK, then every 10 minutes.
-- DATA packet timestamps come from the device clock, converted using the last sync offset.
+- DATA packet timestamps come from the device clock (`time.ticks_ms()`), converted by the server using the last sync offset.
 
 ---
 
 ## CONFIG JSON Structure
 
-The CONFIG packet carries a JSON object describing the device's capabilities:
+The CONFIG packet carries a JSON object describing the device's capabilities. The server uses this to register sensors and controls. Additional device-specific fields (such as `i2cBus`, `wifiIndicatorPin`) are stored but not parsed by the server.
 
-```
+### Schema
+
+```json
 {
-    "deviceName": "PropMonitor1",
+    "deviceName": "<string>",
     "deviceType": "Sensor Monitor",
+    "i2cBus": {
+        "sdaPin": "<int>",
+        "sclPin": "<int>",
+        "frequency_Hz": "<int>"
+    },
+    "wifiIndicatorPin": "<int>",
     "sensorInfo": {
         "thermocouples": {
             "<name>": {
-                "ADCIndex": <int>,
-                "highPin": <int>,
-                "lowPin": <int>,
+                "ADCIndex": "<int>",
+                "highPin": "<int>",
+                "lowPin": "<int>",
                 "type": "<string>",
                 "units": "<string>"
             }
         },
         "pressureTransducers": {
             "<name>": {
-                "ADCIndex": <int>,
-                "pin": <int>,
-                "maxPressure_PSI": <int>,
+                "ADCIndex": "<int>",
+                "pin": "<int>",
+                "maxPressure_PSI": "<int>",
                 "units": "<string>"
             }
         },
         "loadCells": {
             "<name>": {
-                "ADCIndex": <int>,
-                "pin": <int>,
+                "ADCIndex": "<int>",
+                "highPin": "<int>",
+                "lowPin": "<int>",
+                "loadRating_N": "<float>",
+                "excitation_V": "<float>",
+                "sensitivity_vV": "<float>",
                 "units": "<string>"
             }
         }
     },
     "controls": {
         "<name>": {
-            "pin": <int>,
+            "pin": "<int>",
             "type": "<string>",
             "defaultState": "<string>"
         }
@@ -396,9 +489,152 @@ The CONFIG packet carries a JSON object describing the device's capabilities:
 }
 ```
 
-Sensor IDs in DATA packets correspond to the order sensors appear when iterating all sensor categories (thermocouples first, then pressure transducers, then load cells).
+### Example (PANDA-V3)
 
-Control IDs in CONTROL packets correspond to the order controls appear in the `controls` object.
+```json
+{
+    "deviceName": "PANDA-V3",
+    "deviceType": "Sensor Monitor",
+    "i2cBus": {
+        "sdaPin": 21,
+        "sclPin": 22,
+        "frequency_Hz": 100000
+    },
+    "wifiIndicatorPin": 21,
+    "sensorInfo": {
+        "thermocouples": {},
+        "pressureTransducers": {
+            "PTCombustionChamber": {
+                "ADCIndex": 3,
+                "pin": 0,
+                "maxPressure_PSI": 1000,
+                "units": "PSI"
+            },
+            "PTN2OSupply": {
+                "ADCIndex": 4,
+                "pin": 0,
+                "maxPressure_PSI": 1000,
+                "units": "PSI"
+            },
+            "PTN2Supply": {
+                "ADCIndex": 4,
+                "pin": 1,
+                "maxPressure_PSI": 200,
+                "units": "PSI"
+            },
+            "PTPreInjector": {
+                "ADCIndex": 4,
+                "pin": 2,
+                "maxPressure_PSI": 1000,
+                "units": "PSI"
+            },
+            "PTRun": {
+                "ADCIndex": 4,
+                "pin": 3,
+                "maxPressure_PSI": 1000,
+                "units": "PSI"
+            }
+        },
+        "loadCells": {
+            "LCFill": {
+                "ADCIndex": 2,
+                "highPin": 1,
+                "lowPin": 0,
+                "loadRating_N": 889.644,
+                "excitation_V": 5,
+                "sensitivity_vV": 36,
+                "units": "kg"
+            },
+            "LCThrust": {
+                "ADCIndex": 3,
+                "highPin": 3,
+                "lowPin": 2,
+                "loadRating_N": 5000,
+                "excitation_V": 5,
+                "sensitivity_vV": 2,
+                "units": "kg"
+            }
+        }
+    },
+    "controls": {
+        "AVFill": {
+            "pin": 38,
+            "defaultState": "CLOSED",
+            "type": "solenoid"
+        },
+        "AVRun": {
+            "pin": 39,
+            "defaultState": "CLOSED",
+            "type": "solenoid"
+        },
+        "AVDump": {
+            "pin": 40,
+            "defaultState": "OPEN",
+            "type": "solenoid"
+        },
+        "AVPurge1": {
+            "pin": 41,
+            "defaultState": "OPEN",
+            "type": "solenoid"
+        },
+        "AVPurge2": {
+            "pin": 42,
+            "defaultState": "OPEN",
+            "type": "solenoid"
+        },
+        "AVVent": {
+            "pin": 43,
+            "defaultState": "OPEN",
+            "type": "solenoid"
+        },
+        "Safe24": {
+            "pin": 4,
+            "defaultState": "OPEN",
+            "type": "relay"
+        },
+        "IgnPrime": {
+            "pin": 6,
+            "defaultState": "OPEN",
+            "type": "relay"
+        },
+        "Ign": {
+            "pin": 5,
+            "defaultState": "OPEN",
+            "type": "relay"
+        }
+    }
+}
+```
+
+### Sensor and Control ID Mapping
+
+Sensor IDs in DATA packets correspond to the order sensors appear when iterating all sensor categories: **thermocouples first, then pressure transducers, then load cells**.
+
+In the PANDA-V3 example above (0 thermocouples, 5 pressure transducers, 2 load cells):
+
+| sensor_id | Name                 | Type                |
+|-----------|----------------------|---------------------|
+| 0         | PTCombustionChamber  | pressureTransducer  |
+| 1         | PTN2OSupply          | pressureTransducer  |
+| 2         | PTN2Supply           | pressureTransducer  |
+| 3         | PTPreInjector        | pressureTransducer  |
+| 4         | PTRun                | pressureTransducer  |
+| 5         | LCFill               | loadCell            |
+| 6         | LCThrust             | loadCell            |
+
+Control IDs in CONTROL packets correspond to the order controls appear in the `controls` object:
+
+| command_id | Name      |
+|------------|-----------|
+| 0          | AVFill    |
+| 1          | AVRun     |
+| 2          | AVDump    |
+| 3          | AVPurge1  |
+| 4          | AVPurge2  |
+| 5          | AVVent    |
+| 6          | Safe24    |
+| 7          | IgnPrime  |
+| 8          | Ign       |
 
 ---
 

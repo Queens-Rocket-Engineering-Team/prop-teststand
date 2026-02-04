@@ -207,11 +207,9 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                     ml.slog(f"Decoded {packet.header.packet_type.name} from {device.name}")
 
                     if packet.header.packet_type == PacketType.DATA and isinstance(device, SensorMonitor):
-                        # Use device timestamp if synced, otherwise fall back to server time
-                        if device.sync_device_ms is not None and device.sync_server_monotonic is not None:
-                            delta_ms = packet.header.timestamp - device.sync_device_ms
-                            server_monotonic = device.sync_server_monotonic + delta_ms / 1000.0
-                            t = server_monotonic - device.startTime
+                        # Device timestamps are already in server monotonic ms (locked via TIMESYNC)
+                        if device.last_sync_time is not None:
+                            t = packet.header.timestamp / 1000.0 - device.startTime
                         else:
                             ml.log(f"WARNING: {device.name} data before TIMESYNC, using server time")
                             t = time.monotonic() - device.startTime
@@ -230,10 +228,9 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
 
                     elif packet.header.packet_type == PacketType.ACK:
                         if packet.ack_packet_type == PacketType.TIMESYNC:
-                            device.sync_device_ms = packet.header.timestamp
-                            device.sync_server_monotonic = time.monotonic()
+                            device.last_sync_time = time.monotonic()
                             device._resync_pending = False
-                            ml.slog(f"{device.name} TIMESYNC completed (device_ms={device.sync_device_ms})")
+                            ml.slog(f"{device.name} TIMESYNC completed")
                         else:
                             ml.slog(f"{device.name} ACK for {packet.ack_packet_type.name} seq={packet.ack_sequence}")
 
@@ -244,8 +241,8 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
 
                     # Periodic resync check
                     if (not device._resync_pending
-                            and device.sync_server_monotonic is not None
-                            and time.monotonic() - device.sync_server_monotonic > ESPDevice.RESYNC_INTERVAL_S):
+                            and device.last_sync_time is not None
+                            and time.monotonic() - device.last_sync_time > ESPDevice.RESYNC_INTERVAL_S):
                         device._resync_pending = True
                         timesync = TimeSyncPacket.create()
                         await loop.sock_sendall(device.socket, timesync.pack())

@@ -34,9 +34,8 @@ class ESPDevice:
         self.name: str = jsonConfig["deviceName"]
         self.type = jsonConfig["deviceType"]
 
-        # Timesync state: maps device ms-since-boot <-> server monotonic time
-        self.sync_device_ms: int | None = None
-        self.sync_server_monotonic: float | None = None
+        # Timesync state: track when last sync completed for periodic resync
+        self.last_sync_time: float | None = None  # server monotonic time of last sync
         self._resync_pending: bool = False
 
         asyncio.create_task(self.heartbeat())
