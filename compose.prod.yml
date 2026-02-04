@@ -23,9 +23,17 @@ services:
     image: ghcr.io/queens-rocket-engineering-team/prop-teststand-logs:latest
     depends_on:
       - redis
+
+    # Required for consistency of shared config of redis ip
+    # Normal containers cannot access localhost, host networked containers cannot use docker internal DNS
+    network_mode: "host"
     environment:
-      REDIS_HOST: redis
+      - PROP_CONFIG=/app/config.yaml # Default config file location
+
     tty: true
+
+    volumes:
+      - ./config.yaml:/app/config.yaml  # Mount local config file for production
 
     # Always restart logs on dockerd start
     restart: always
