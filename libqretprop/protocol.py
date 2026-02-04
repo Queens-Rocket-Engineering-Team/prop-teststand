@@ -1,18 +1,13 @@
-"""Binary TCP protocol for launch panel device communication.
+"""Binary TCP protocol v2 for launch panel device communication.
 
-This module implements a binary protocol to replace string-based commands.
 All devices communicate with the central server using structured binary packets.
-
-Protocol Overview:
-- All packets start with a common header (packet_type, flags, timestamp, version)
-- Specific packet types add additional fields
-- Uses struct module for binary packing/unpacking
-- Big-endian byte order (network byte order)
+Big-endian byte order (network byte order). All packets share a 9-byte header
+with a LENGTH field for trivial TCP framing.
 """
 
 import struct
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import ClassVar
 
@@ -21,35 +16,32 @@ from typing import ClassVar
 # PROTOCOL CONSTANTS
 # ============================================================================
 
-MAGIC_NUMBER = 0x5  # 4-bit magic number (0101 binary) - used to identify QRET Propulsion packets
+PROTOCOL_VERSION = 2
 
 
 class PacketType(IntEnum):
-    """Enumeration of all packet types in the protocol."""
+    # Emergency
+    ESTOP = 0x00
 
-    # EMERGENCY - Highest priority
-    ESTOP = 0x00          # Emergency stop ALL - immediately halt all operations
+    # Server -> Device
+    DISCOVERY = 0x01
+    TIMESYNC = 0x02
+    CONTROL = 0x03
+    STATUS_REQUEST = 0x04
+    STREAM_START = 0x05
+    STREAM_STOP = 0x06
+    GET_SINGLE = 0x07
+    HEARTBEAT = 0x08
 
-    # Server -> Device Commands
-    DISCOVERY = 0x01      # Discovery request broadcast
-    TIMESYNC = 0x02       # Time synchronization
-    CONTROL = 0x03        # Control command (valve, etc.)
-    STATUS_REQUEST = 0x04 # Request device status
-    STREAM_START = 0x05   # Start streaming data
-    STREAM_STOP = 0x06    # Stop streaming data
-    GET_SINGLE = 0x07     # Request single data point
-    HEARTBEAT = 0x08      # Keep-alive heartbeat
-
-    # Device -> Server Responses
-    CONFIG = 0x10         # Device configuration (JSON payload)
-    DATA = 0x11           # Sensor data packet
-    STATUS = 0x12         # Device status response
-    ACK = 0x13            # Acknowledgment
-    NACK = 0x14           # Negative acknowledgment (error)
+    # Device -> Server
+    CONFIG = 0x10
+    DATA = 0x11
+    STATUS = 0x12
+    ACK = 0x13
+    NACK = 0x14
 
 
 class DeviceStatus(IntEnum):
-    """Device operational status codes."""
     INACTIVE = 0
     ACTIVE = 1
     ERROR = 2
@@ -57,14 +49,12 @@ class DeviceStatus(IntEnum):
 
 
 class ControlState(IntEnum):
-    """Control state for valves and other binary actuators."""
     CLOSED = 0
     OPEN = 1
     ERROR = 255
 
 
 class Unit(IntEnum):
-    """Units for sensor measurements."""
     VOLTS = 0x00
     AMPS = 0x01
     CELSIUS = 0x02
@@ -84,501 +74,424 @@ class Unit(IntEnum):
     UNITLESS = 0xFF
 
 
+class ErrorCode(IntEnum):
+    NONE = 0x00
+    UNKNOWN_TYPE = 0x01
+    INVALID_ID = 0x02
+    HARDWARE_FAULT = 0x03
+    BUSY = 0x04
+    NOT_STREAMING = 0x05
+    INVALID_PARAM = 0x06
+
+
 # ============================================================================
-# PACKET STRUCTURES
+# PACKET HEADER (9 bytes)
 # ============================================================================
 
-PROTOCOL_VERSION = 1  # Current protocol version (0-15)
+_sequence_counter = 0
+
+
+def _next_sequence() -> int:
+    global _sequence_counter
+    seq = _sequence_counter
+    _sequence_counter = (_sequence_counter + 1) & 0xFF
+    return seq
+
+
+def _get_timestamp_ms() -> int:
+    return int(time.monotonic() * 1000)
 
 
 @dataclass
 class PacketHeader:
-    """Common header present in all packets.
+    """Common 9-byte header for all packets.
 
-    Format: >BBI (6 bytes total)
-    - byte 0: magic (4 bits high) + version (4 bits low)
-    - byte 1: packet_type (1 byte)
-    - bytes 2-5: timestamp (4 bytes, milliseconds since midnight)
+    Format: >BBBHI
+    Byte 0:    version   (uint8)
+    Byte 1:    packet_type (uint8)
+    Byte 2:    sequence  (uint8)
+    Bytes 3-4: length    (uint16) - total packet size including header
+    Bytes 5-8: timestamp (uint32) - ms since boot/session
     """
-    STRUCT_FORMAT: ClassVar[str] = ">BBI"
-    SIZE: ClassVar[int] = struct.calcsize(STRUCT_FORMAT)
+    STRUCT_FORMAT: ClassVar[str] = ">BBBHI"
+    SIZE: ClassVar[int] = struct.calcsize(">BBBHI")  # 9
 
-    magic: int    # 4 bits - protocol identifier
-    version: int  # 4 bits - protocol version (0-15)
+    version: int
     packet_type: PacketType
-    timestamp: int  # ms since midnight
+    sequence: int
+    length: int
+    timestamp: int
 
     def pack(self) -> bytes:
-        """Pack header into binary format."""
-        # Combine magic (high 4 bits) and version (low 4 bits) into one byte
-        magic_version_byte = ((self.magic & 0x0F) << 4) | (self.version & 0x0F)
-
         return struct.pack(
             self.STRUCT_FORMAT,
-            magic_version_byte,
+            self.version,
             self.packet_type,
-            self.timestamp
+            self.sequence,
+            self.length,
+            self.timestamp,
         )
 
     @classmethod
     def unpack(cls, data: bytes) -> "PacketHeader":
-        """Unpack binary data into PacketHeader."""
         if len(data) < cls.SIZE:
             raise ValueError(f"Insufficient data for header: {len(data)} < {cls.SIZE}")
 
-        magic_version_byte, packet_type, timestamp = struct.unpack(cls.STRUCT_FORMAT, data[:cls.SIZE])
-
-        # Extract magic (high 4 bits) and version (low 4 bits)
-        magic = (magic_version_byte >> 4) & 0x0F
-        version = magic_version_byte & 0x0F
-
-        if magic != MAGIC_NUMBER:
-            raise ValueError(f"Invalid magic number: {magic:#x} != {MAGIC_NUMBER:#x}")
+        version, packet_type, sequence, length, timestamp = struct.unpack(
+            cls.STRUCT_FORMAT, data[:cls.SIZE]
+        )
 
         return cls(
-            magic=magic,
             version=version,
             packet_type=PacketType(packet_type),
-            timestamp=timestamp
+            sequence=sequence,
+            length=length,
+            timestamp=timestamp,
         )
 
 
+def _make_header(packet_type: PacketType, total_length: int, sequence: int | None = None) -> PacketHeader:
+    if sequence is None:
+        sequence = _next_sequence()
+    return PacketHeader(
+        version=PROTOCOL_VERSION,
+        packet_type=packet_type,
+        sequence=sequence,
+        length=total_length,
+        timestamp=_get_timestamp_ms(),
+    )
+
+
 # ============================================================================
-# SPECIFIC PACKET TYPES
+# PACKET TYPES
 # ============================================================================
 
 @dataclass
-class DiscoveryPacket:
-    """Discovery packet sent by server to find devices on network.
-
-    Total size: 10 bytes (header only)
-    """
+class SimplePacket:
+    """Header-only packet (9 bytes). Used for ESTOP, DISCOVERY, HEARTBEAT,
+    STREAM_STOP, GET_SINGLE, STATUS_REQUEST."""
     header: PacketHeader
 
     def pack(self) -> bytes:
-        """Pack discovery packet."""
         return self.header.pack()
 
     @classmethod
-    def create(cls) -> "DiscoveryPacket":
-        """Create a new discovery packet."""
-        header = PacketHeader(
-            magic=MAGIC_NUMBER,
-            version=PROTOCOL_VERSION,
-            packet_type=PacketType.DISCOVERY,
-            timestamp=_get_timestamp_ms()
-        )
+    def create(cls, packet_type: PacketType) -> "SimplePacket":
+        header = _make_header(packet_type, PacketHeader.SIZE)
         return cls(header=header)
 
     @classmethod
-    def unpack(cls, data: bytes) -> "DiscoveryPacket":
-        """Unpack binary data into DiscoveryPacket."""
+    def unpack(cls, data: bytes) -> "SimplePacket":
         header = PacketHeader.unpack(data)
         return cls(header=header)
 
 
-@dataclass
-class TimeSyncPacket:
-    """Time synchronization packet.
-
-    Format: header + >Q (8 bytes)
-    Total size: 18 bytes
-    - server_time_ms: 8 bytes (absolute time in ms since epoch)
-    """
-    PAYLOAD_FORMAT: ClassVar[str] = ">Q"
-
-    header: PacketHeader
-    server_time_ms: int  # milliseconds since Unix epoch
-
-    def pack(self) -> bytes:
-        """Pack time sync packet."""
-        return self.header.pack() + struct.pack(self.PAYLOAD_FORMAT, self.server_time_ms)
-
-    @classmethod
-    def create(cls, server_time_ms: int | None = None) -> "TimeSyncPacket":
-        """Create a new time sync packet."""
-        if server_time_ms is None:
-            server_time_ms = int(time.time() * 1000)
-
-        header = PacketHeader(
-            magic=MAGIC_NUMBER,
-            version=PROTOCOL_VERSION,
-            packet_type=PacketType.TIMESYNC,
-            timestamp=_get_timestamp_ms()
-        )
-        return cls(header=header, server_time_ms=server_time_ms)
-
-    @classmethod
-    def unpack(cls, data: bytes) -> "TimeSyncPacket":
-        """Unpack binary data into TimeSyncPacket."""
-        header = PacketHeader.unpack(data)
-        payload_start = PacketHeader.SIZE
-        server_time_ms, = struct.unpack(cls.PAYLOAD_FORMAT, data[payload_start:payload_start+8])
-        return cls(header=header, server_time_ms=server_time_ms)
-
-
-@dataclass
-class ControlPacket:
-    """Control command packet (e.g., valve open/close).
-
-    Format: header + >BB (2 bytes, no padding)
-    Total size: 8 bytes
-    - command_id: 1 byte (index in device's control array)
-    - command_state: 1 byte (ControlState enum)
-    """
-    PAYLOAD_FORMAT: ClassVar[str] = ">BB"
-
-    header: PacketHeader
-    command_id: int  # Index in device's configuration
-    command_state: ControlState
-
-    def pack(self) -> bytes:
-        """Pack control packet."""
-        return self.header.pack() + struct.pack(
-            self.PAYLOAD_FORMAT,
-            self.command_id,
-            self.command_state
-        )
-
-    @classmethod
-    def create(cls, command_id: int, command_state: ControlState) -> "ControlPacket":
-        """Create a new control packet."""
-        header = PacketHeader(
-            magic=MAGIC_NUMBER,
-            version=PROTOCOL_VERSION,
-            packet_type=PacketType.CONTROL,
-            timestamp=_get_timestamp_ms()
-        )
-        return cls(header=header, command_id=command_id, command_state=command_state)
-
-    @classmethod
-    def unpack(cls, data: bytes) -> "ControlPacket":
-        """Unpack binary data into ControlPacket."""
-        header = PacketHeader.unpack(data)
-        payload_start = PacketHeader.SIZE
-        command_id, command_state = struct.unpack(cls.PAYLOAD_FORMAT, data[payload_start:payload_start+2])
-        return cls(header=header, command_id=command_id, command_state=ControlState(command_state))
-
-
-@dataclass
-class DataPacket:
-    """Sensor data packet from device to server.
-
-    Format: header + >BBf (6 bytes, no padding)
-    Total size: 12 bytes
-    - sensor_id: 1 byte (index in device's sensor array, max 255 sensors)
-    - unit: 1 byte (Unit enum)
-    - data: 4 bytes (32-bit float)
-    """
-    PAYLOAD_FORMAT: ClassVar[str] = ">BBf"
-
-    header: PacketHeader
-    sensor_id: int  # Index in device's configuration
-    unit: Unit  # Unit of measurement
-    data: float  # 32-bit float sensor reading
-
-    def pack(self) -> bytes:
-        """Pack data packet."""
-        return self.header.pack() + struct.pack(
-            self.PAYLOAD_FORMAT,
-            self.sensor_id,
-            self.unit,
-            self.data
-        )
-
-    @classmethod
-    def create(cls, sensor_id: int, data: float, unit: Unit = Unit.UNITLESS) -> "DataPacket":
-        """Create a new data packet."""
-        header = PacketHeader(
-            magic=MAGIC_NUMBER,
-            version=PROTOCOL_VERSION,
-            packet_type=PacketType.DATA,
-            timestamp=_get_timestamp_ms()
-        )
-        return cls(header=header, sensor_id=sensor_id, unit=unit, data=data)
-
-    @classmethod
-    def unpack(cls, data: bytes) -> "DataPacket":
-        """Unpack binary data into DataPacket."""
-        header = PacketHeader.unpack(data)
-        payload_start = PacketHeader.SIZE
-        sensor_id, unit, data_value = struct.unpack(cls.PAYLOAD_FORMAT, data[payload_start:payload_start+6])
-        return cls(header=header, sensor_id=sensor_id, unit=Unit(unit), data=data_value)
+# Keep DiscoveryPacket as an alias for clarity
+DiscoveryPacket = SimplePacket
 
 
 @dataclass
 class StatusPacket:
-    """Device status packet.
-
-    Format: header + >B (1 byte, no padding)
-    Total size: 7 bytes
-    - status: 1 byte (DeviceStatus enum)
-    """
+    """Device status. Header + 1 byte status. Total: 10 bytes."""
     PAYLOAD_FORMAT: ClassVar[str] = ">B"
 
     header: PacketHeader
     status: DeviceStatus
 
     def pack(self) -> bytes:
-        """Pack status packet."""
         return self.header.pack() + struct.pack(self.PAYLOAD_FORMAT, self.status)
 
     @classmethod
     def create(cls, status: DeviceStatus) -> "StatusPacket":
-        """Create a new status packet."""
-        header = PacketHeader(
-            magic=MAGIC_NUMBER,
-            version=PROTOCOL_VERSION,
-            packet_type=PacketType.STATUS,
-            timestamp=_get_timestamp_ms()
-        )
+        header = _make_header(PacketType.STATUS, PacketHeader.SIZE + 1)
         return cls(header=header, status=status)
 
     @classmethod
     def unpack(cls, data: bytes) -> "StatusPacket":
-        """Unpack binary data into StatusPacket."""
         header = PacketHeader.unpack(data)
-        payload_start = PacketHeader.SIZE
-        status, = struct.unpack(cls.PAYLOAD_FORMAT, data[payload_start:payload_start+1])
+        s = PacketHeader.SIZE
+        status, = struct.unpack(cls.PAYLOAD_FORMAT, data[s:s + 1])
         return cls(header=header, status=DeviceStatus(status))
 
 
 @dataclass
-class ConfigPacket:
-    """Device configuration packet (contains JSON payload).
-
-    Format: header + >I + variable length JSON
-    Total size: 16 + len(config_json) bytes
-    - json_length: 4 bytes
-    - config_json: variable (UTF-8 encoded JSON string)
-    """
-    LENGTH_FORMAT: ClassVar[str] = ">I"
-
-    header: PacketHeader
-    config_json: str  # JSON configuration as string
-
-    def pack(self) -> bytes:
-        """Pack config packet."""
-        json_bytes = self.config_json.encode('utf-8')
-        json_length = len(json_bytes)
-
-        return (
-            self.header.pack() +
-            struct.pack(self.LENGTH_FORMAT, json_length) +
-            json_bytes
-        )
-
-    @classmethod
-    def create(cls, config_json: str) -> "ConfigPacket":
-        """Create a new config packet."""
-        header = PacketHeader(
-            magic=MAGIC_NUMBER,
-            version=PROTOCOL_VERSION,
-            packet_type=PacketType.CONFIG,
-            timestamp=_get_timestamp_ms()
-        )
-        return cls(header=header, config_json=config_json)
-
-    @classmethod
-    def unpack(cls, data: bytes) -> "ConfigPacket":
-        """Unpack binary data into ConfigPacket."""
-        header = PacketHeader.unpack(data)
-        payload_start = PacketHeader.SIZE
-        json_length, = struct.unpack(cls.LENGTH_FORMAT, data[payload_start:payload_start+4])
-
-        json_start = payload_start + 4
-        json_end = json_start + json_length
-        config_json = data[json_start:json_end].decode('utf-8')
-
-        return cls(header=header, config_json=config_json)
-
-
-@dataclass
 class StreamStartPacket:
-    """Start streaming data at specified frequency.
-
-    Format: header + >B (1 byte, no padding)
-    Total size: 7 bytes
-    - frequency_hz: 1 byte (samples per second, max 255 Hz)
-    """
-    PAYLOAD_FORMAT: ClassVar[str] = ">B"
+    """Start streaming. Header + 2 bytes frequency_hz (uint16). Total: 11 bytes."""
+    PAYLOAD_FORMAT: ClassVar[str] = ">H"
 
     header: PacketHeader
     frequency_hz: int
 
     def pack(self) -> bytes:
-        """Pack stream start packet."""
         return self.header.pack() + struct.pack(self.PAYLOAD_FORMAT, self.frequency_hz)
 
     @classmethod
     def create(cls, frequency_hz: int) -> "StreamStartPacket":
-        """Create a new stream start packet."""
-        header = PacketHeader(
-            magic=MAGIC_NUMBER,
-            version=PROTOCOL_VERSION,
-            packet_type=PacketType.STREAM_START,
-            timestamp=_get_timestamp_ms()
-        )
+        header = _make_header(PacketType.STREAM_START, PacketHeader.SIZE + 2)
         return cls(header=header, frequency_hz=frequency_hz)
 
     @classmethod
     def unpack(cls, data: bytes) -> "StreamStartPacket":
-        """Unpack binary data into StreamStartPacket."""
         header = PacketHeader.unpack(data)
-        payload_start = PacketHeader.SIZE
-        frequency_hz, = struct.unpack(cls.PAYLOAD_FORMAT, data[payload_start:payload_start+1])
+        s = PacketHeader.SIZE
+        frequency_hz, = struct.unpack(cls.PAYLOAD_FORMAT, data[s:s + 2])
         return cls(header=header, frequency_hz=frequency_hz)
 
 
 @dataclass
-class SimplePacket:
-    """Simple packet with no additional payload (heartbeat, stop, etc.).
+class ControlPacket:
+    """Control command. Header + command_id (1B) + command_state (1B). Total: 11 bytes."""
+    PAYLOAD_FORMAT: ClassVar[str] = ">BB"
 
-    Total size: 10 bytes (header only)
-    """
     header: PacketHeader
+    command_id: int
+    command_state: ControlState
 
     def pack(self) -> bytes:
-        """Pack simple packet."""
-        return self.header.pack()
-
-    @classmethod
-    def create(cls, packet_type: PacketType) -> "SimplePacket":
-        """Create a new simple packet of the specified type."""
-        header = PacketHeader(
-            magic=MAGIC_NUMBER,
-            version=PROTOCOL_VERSION,
-            packet_type=packet_type,
-            timestamp=_get_timestamp_ms()
+        return self.header.pack() + struct.pack(
+            self.PAYLOAD_FORMAT, self.command_id, self.command_state
         )
-        return cls(header=header)
 
     @classmethod
-    def unpack(cls, data: bytes) -> "SimplePacket":
-        """Unpack binary data into SimplePacket."""
+    def create(cls, command_id: int, command_state: ControlState) -> "ControlPacket":
+        header = _make_header(PacketType.CONTROL, PacketHeader.SIZE + 2)
+        return cls(header=header, command_id=command_id, command_state=command_state)
+
+    @classmethod
+    def unpack(cls, data: bytes) -> "ControlPacket":
         header = PacketHeader.unpack(data)
-        return cls(header=header)
+        s = PacketHeader.SIZE
+        command_id, command_state = struct.unpack(cls.PAYLOAD_FORMAT, data[s:s + 2])
+        return cls(header=header, command_id=command_id, command_state=ControlState(command_state))
 
 
 @dataclass
 class AckPacket:
-    """Acknowledgment packet with optional error code.
-
-    Format: header + >B (1 byte, no padding)
-    Total size: 7 bytes
-    - ack_packet_type: 1 byte (type of packet being acknowledged)
-    """
-    PAYLOAD_FORMAT: ClassVar[str] = ">B"
+    """ACK packet. Header + ack_packet_type (1B) + ack_sequence (1B) + error_code (1B).
+    Total: 12 bytes. error_code is always 0x00 for ACK."""
+    PAYLOAD_FORMAT: ClassVar[str] = ">BBB"
 
     header: PacketHeader
-    ack_packet_type: PacketType  # Which packet type is being acknowledged
+    ack_packet_type: PacketType
+    ack_sequence: int
+    error_code: ErrorCode
 
     def pack(self) -> bytes:
-        """Pack ACK packet."""
-        return self.header.pack() + struct.pack(self.PAYLOAD_FORMAT, self.ack_packet_type)
+        return self.header.pack() + struct.pack(
+            self.PAYLOAD_FORMAT, self.ack_packet_type, self.ack_sequence, self.error_code
+        )
 
     @classmethod
-    def create(cls, ack_packet_type: PacketType, is_nack: bool = False) -> "AckPacket":
-        """Create a new ACK or NACK packet."""
-        pkt_type = PacketType.NACK if is_nack else PacketType.ACK
-        header = PacketHeader(
-            magic=MAGIC_NUMBER,
-            version=PROTOCOL_VERSION,
-            packet_type=pkt_type,
-            timestamp=_get_timestamp_ms()
+    def create(cls, ack_packet_type: PacketType, ack_sequence: int = 0) -> "AckPacket":
+        header = _make_header(PacketType.ACK, PacketHeader.SIZE + 3)
+        return cls(
+            header=header,
+            ack_packet_type=ack_packet_type,
+            ack_sequence=ack_sequence,
+            error_code=ErrorCode.NONE,
         )
-        return cls(header=header, ack_packet_type=ack_packet_type)
 
     @classmethod
     def unpack(cls, data: bytes) -> "AckPacket":
-        """Unpack binary data into AckPacket."""
         header = PacketHeader.unpack(data)
-        payload_start = PacketHeader.SIZE
-        ack_packet_type, = struct.unpack(cls.PAYLOAD_FORMAT, data[payload_start:payload_start+1])
-        return cls(header=header, ack_packet_type=PacketType(ack_packet_type))
+        s = PacketHeader.SIZE
+        ack_type, ack_seq, err = struct.unpack(cls.PAYLOAD_FORMAT, data[s:s + 3])
+        return cls(
+            header=header,
+            ack_packet_type=PacketType(ack_type),
+            ack_sequence=ack_seq,
+            error_code=ErrorCode(err),
+        )
+
+
+@dataclass
+class NackPacket:
+    """NACK packet. Header + nack_packet_type (1B) + nack_sequence (1B) + error_code (1B).
+    Total: 12 bytes."""
+    PAYLOAD_FORMAT: ClassVar[str] = ">BBB"
+
+    header: PacketHeader
+    nack_packet_type: PacketType
+    nack_sequence: int
+    error_code: ErrorCode
+
+    def pack(self) -> bytes:
+        return self.header.pack() + struct.pack(
+            self.PAYLOAD_FORMAT, self.nack_packet_type, self.nack_sequence, self.error_code
+        )
+
+    @classmethod
+    def create(cls, nack_packet_type: PacketType, nack_sequence: int = 0,
+               error_code: ErrorCode = ErrorCode.UNKNOWN_TYPE) -> "NackPacket":
+        header = _make_header(PacketType.NACK, PacketHeader.SIZE + 3)
+        return cls(
+            header=header,
+            nack_packet_type=nack_packet_type,
+            nack_sequence=nack_sequence,
+            error_code=error_code,
+        )
+
+    @classmethod
+    def unpack(cls, data: bytes) -> "NackPacket":
+        header = PacketHeader.unpack(data)
+        s = PacketHeader.SIZE
+        nack_type, nack_seq, err = struct.unpack(cls.PAYLOAD_FORMAT, data[s:s + 3])
+        return cls(
+            header=header,
+            nack_packet_type=PacketType(nack_type),
+            nack_sequence=nack_seq,
+            error_code=ErrorCode(err),
+        )
+
+
+@dataclass
+class TimeSyncPacket:
+    """Time synchronization. Header + server_time_ms (8B uint64). Total: 17 bytes."""
+    PAYLOAD_FORMAT: ClassVar[str] = ">Q"
+
+    header: PacketHeader
+    server_time_ms: int
+
+    def pack(self) -> bytes:
+        return self.header.pack() + struct.pack(self.PAYLOAD_FORMAT, self.server_time_ms)
+
+    @classmethod
+    def create(cls, server_time_ms: int | None = None) -> "TimeSyncPacket":
+        if server_time_ms is None:
+            server_time_ms = int(time.time() * 1000)
+        header = _make_header(PacketType.TIMESYNC, PacketHeader.SIZE + 8)
+        return cls(header=header, server_time_ms=server_time_ms)
+
+    @classmethod
+    def unpack(cls, data: bytes) -> "TimeSyncPacket":
+        header = PacketHeader.unpack(data)
+        s = PacketHeader.SIZE
+        server_time_ms, = struct.unpack(cls.PAYLOAD_FORMAT, data[s:s + 8])
+        return cls(header=header, server_time_ms=server_time_ms)
+
+
+@dataclass
+class SensorReading:
+    """A single sensor reading within a batched DATA packet."""
+    sensor_id: int
+    unit: Unit
+    value: float
+
+
+@dataclass
+class DataPacket:
+    """Batched sensor data. Header + count (1B) + [sensor_id (1B) + unit (1B) + value (4B float)] * N.
+    Total: 10 + 6*N bytes."""
+    READING_FORMAT: ClassVar[str] = ">BBf"
+    READING_SIZE: ClassVar[int] = 6
+
+    header: PacketHeader
+    readings: list[SensorReading] = field(default_factory=list)
+
+    def pack(self) -> bytes:
+        payload = struct.pack(">B", len(self.readings))
+        for r in self.readings:
+            payload += struct.pack(self.READING_FORMAT, r.sensor_id, r.unit, r.value)
+        return self.header.pack() + payload
+
+    @classmethod
+    def create(cls, readings: list[SensorReading] | None = None, *,
+               sensor_id: int | None = None, data: float | None = None,
+               unit: Unit = Unit.UNITLESS) -> "DataPacket":
+        if readings is None:
+            if sensor_id is not None and data is not None:
+                readings = [SensorReading(sensor_id=sensor_id, unit=unit, value=data)]
+            else:
+                readings = []
+        total = PacketHeader.SIZE + 1 + cls.READING_SIZE * len(readings)
+        header = _make_header(PacketType.DATA, total)
+        return cls(header=header, readings=readings)
+
+    @classmethod
+    def unpack(cls, data: bytes) -> "DataPacket":
+        header = PacketHeader.unpack(data)
+        s = PacketHeader.SIZE
+        count, = struct.unpack(">B", data[s:s + 1])
+        s += 1
+        readings = []
+        for _ in range(count):
+            sid, unit_val, value = struct.unpack(cls.READING_FORMAT, data[s:s + cls.READING_SIZE])
+            readings.append(SensorReading(sensor_id=sid, unit=Unit(unit_val), value=value))
+            s += cls.READING_SIZE
+        return cls(header=header, readings=readings)
+
+
+@dataclass
+class ConfigPacket:
+    """Device configuration (JSON payload).
+    Header + json_length (4B uint32) + json_data (UTF-8).
+    Total: 13 + json_len bytes."""
+    LENGTH_FORMAT: ClassVar[str] = ">I"
+
+    header: PacketHeader
+    config_json: str
+
+    def pack(self) -> bytes:
+        json_bytes = self.config_json.encode('utf-8')
+        return (
+            self.header.pack() +
+            struct.pack(self.LENGTH_FORMAT, len(json_bytes)) +
+            json_bytes
+        )
+
+    @classmethod
+    def create(cls, config_json: str) -> "ConfigPacket":
+        json_bytes = config_json.encode('utf-8')
+        total = PacketHeader.SIZE + 4 + len(json_bytes)
+        header = _make_header(PacketType.CONFIG, total)
+        return cls(header=header, config_json=config_json)
+
+    @classmethod
+    def unpack(cls, data: bytes) -> "ConfigPacket":
+        header = PacketHeader.unpack(data)
+        s = PacketHeader.SIZE
+        json_length, = struct.unpack(cls.LENGTH_FORMAT, data[s:s + 4])
+        s += 4
+        config_json = data[s:s + json_length].decode('utf-8')
+        return cls(header=header, config_json=config_json)
 
 
 # ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
 
-def _get_timestamp_ms() -> int:
-    """Get milliseconds since midnight (local time).
-
-    Returns:
-        Milliseconds since midnight as integer.
-    """
-    now = time.time()
-    midnight = now - (now % 86400)  # 86400 seconds in a day
-    return int((now - midnight) * 1000)
-
-
 def decode_packet(data: bytes):
-    """Decode a binary packet into the appropriate packet object.
-
-    Args:
-        data: Binary packet data
-
-    Returns:
-        Appropriate packet object based on packet type
-
-    Raises:
-        ValueError: If packet type is unknown or data is invalid
-    """
+    """Decode a binary packet from data. Uses the LENGTH field in the header
+    to determine packet boundaries."""
     if len(data) < PacketHeader.SIZE:
         raise ValueError(f"Packet too small: {len(data)} bytes")
 
     header = PacketHeader.unpack(data)
 
-    # Map packet types to their classes
+    if len(data) < header.length:
+        raise ValueError(f"Incomplete packet: have {len(data)}, need {header.length}")
+
+    packet_data = data[:header.length]
+
     packet_map = {
         PacketType.ESTOP: SimplePacket,
-        PacketType.DISCOVERY: DiscoveryPacket,
-        PacketType.TIMESYNC: TimeSyncPacket,
-        PacketType.CONTROL: ControlPacket,
-        PacketType.DATA: DataPacket,
-        PacketType.STATUS: StatusPacket,
-        PacketType.CONFIG: ConfigPacket,
-        PacketType.STREAM_START: StreamStartPacket,
+        PacketType.DISCOVERY: SimplePacket,
+        PacketType.HEARTBEAT: SimplePacket,
         PacketType.STREAM_STOP: SimplePacket,
         PacketType.GET_SINGLE: SimplePacket,
-        PacketType.HEARTBEAT: SimplePacket,
         PacketType.STATUS_REQUEST: SimplePacket,
+        PacketType.STATUS: StatusPacket,
+        PacketType.STREAM_START: StreamStartPacket,
+        PacketType.CONTROL: ControlPacket,
         PacketType.ACK: AckPacket,
-        PacketType.NACK: AckPacket,
+        PacketType.NACK: NackPacket,
+        PacketType.TIMESYNC: TimeSyncPacket,
+        PacketType.DATA: DataPacket,
+        PacketType.CONFIG: ConfigPacket,
     }
 
     packet_class = packet_map.get(header.packet_type)
     if packet_class is None:
         raise ValueError(f"Unknown packet type: {header.packet_type}")
 
-    return packet_class.unpack(data)
-
-
-def get_packet_size(packet_type: PacketType) -> int:
-    """Get the expected size of a packet type.
-
-    Args:
-        packet_type: Type of packet
-
-    Returns:
-        Expected packet size in bytes (0 for variable-length packets like CONFIG)
-    """
-    sizes = {
-        PacketType.ESTOP: 6,              # Header only - EMERGENCY
-        PacketType.DISCOVERY: 6,          # Header only
-        PacketType.TIMESYNC: 14,          # Header + 8 bytes
-        PacketType.CONTROL: 8,            # Header + 2 bytes
-        PacketType.DATA: 12,              # Header + 6 bytes
-        PacketType.STATUS: 7,             # Header + 1 byte
-        PacketType.CONFIG: 0,             # Variable length
-        PacketType.STREAM_START: 7,       # Header + 1 byte
-        PacketType.STREAM_STOP: 6,        # Header only
-        PacketType.GET_SINGLE: 6,         # Header only
-        PacketType.HEARTBEAT: 6,          # Header only
-        PacketType.STATUS_REQUEST: 6,     # Header only
-        PacketType.ACK: 7,                # Header + 1 byte
-        PacketType.NACK: 7,               # Header + 1 byte
-    }
-    return sizes.get(packet_type, 0)
-
+    return packet_class.unpack(packet_data)
