@@ -18,6 +18,9 @@ dependencies = [
     "fastapi>=0.116.1",
     "uvicorn[standard]>=0.35.0", # Essential for websockets
     "aioconsole>=0.8.1",
+    "aiohttp>=3.13.2",
+    "pyyaml>=6.0.3",
+    "onvif-zeep-async>=4.0.4",
 ]
 
 [dependency-groups]

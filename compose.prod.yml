@@ -6,10 +6,15 @@ services:
       - redis
       - logs
     network_mode: "host"  # Use host networking for SSDP
+    environment:
+      - PROP_CONFIG=/app/config.yaml # Default config file location
 
     # Allow manual interaction with the container (cli)
     stdin_open: true
     tty: true
+
+    volumes:
+      - ./config.yaml:/app/config.yaml  # Mount local config file for production
 
     # Always restart server on dockerd start
     restart: always
@@ -24,6 +29,19 @@ services:
 
     # Always restart logs on dockerd start
     restart: always
+
+  media:
+    image: "bluenviron/mediamtx:latest"
+    network_mode: "host"
+    ports:
+      - "8889:8889"
+    depends_on:
+      - server
+    environment:
+    # Use a different RTSP port to avoid conflicts with local testing
+    # This port isn't being accessed externally, changing it is fine
+      - MTX_RTSPADDRESS=:8558
+      - MTX_API=yes
 
   redis:
     image: "redis:latest"

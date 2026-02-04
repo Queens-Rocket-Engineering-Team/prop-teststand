@@ -1,13 +1,14 @@
 import asyncio
 from enum import Enum
-
-import redis
 import os
 
+import redis
+
+import libqretprop.configManager as config
 import libqretprop.mylogging as ml
 from libqretprop.API import fastAPI
 from libqretprop.daemons.cliTerminal import commandProcessor
-from libqretprop.DeviceControllers import deviceTools
+from libqretprop.DeviceControllers import cameraTools, deviceTools
 
 
 PI_IP = "192.168.1.100"
@@ -30,15 +31,19 @@ async def main(directIP: str | None = None,
     # INITIALIZATION
     # -------
 
+    # Load server configuration
+    configPath = os.getenv("PROP_CONFIG", "./config.yaml")
+    config.loadConfig(configPath)
+
     # Read Redis host from environment variable (for docker compose) or default to localhost
     REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 
     # Initialize Redis client for logging
     redisClient = redis.Redis(host=REDIS_HOST,
-                              port=6379,
+                              port=config.serverConfig["services"]["redis"]["port"],
                               db=0,
-                              username="server",
-                              password="propteambestteam",
+                              username=config.serverConfig["accounts"]["redis"]["username"],
+                              password=config.serverConfig["accounts"]["redis"]["password"],
                               decode_responses=True,
                               )
 
@@ -63,6 +68,10 @@ async def main(directIP: str | None = None,
         # Send a multicast discovery request immediately
         await asyncio.sleep(0.1)  # Give the listener time to start
         deviceTools.sendMulticastDiscovery()
+
+    # Connect to all cameras
+    daemons["cameraConnector"] = loop.create_task(cameraTools.connectAllCameras())
+    ml.slog("Started cameraConnector daemon task.")
 
     # Command line interface daemon
     if cmdLine: daemons["commandProcessor"] = loop.create_task(commandProcessor())
