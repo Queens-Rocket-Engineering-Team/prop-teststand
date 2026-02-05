@@ -49,7 +49,7 @@ async def main(noDiscovery: bool = False,
 
     # Fire up the FastAPI app and add it as a daemon task
     # DISABLED FOR CLI TESTING - uncomment if you need the web API
-    # daemons["fastAPI"] = loop.create_task(fastAPI.startAPI())
+    daemons["fastAPI"] = loop.create_task(fastAPI.startAPI())
 
     # -------
     # CONFIG OPTIONS

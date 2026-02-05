@@ -101,7 +101,7 @@ async def sendDeviceCommand(
 
     # Run the command in the background to not block the API
     for device in devices.values():
-        bgTasks.add_task(run_in_threadpool, func, device, *cmd.args)
+        bgTasks.add_task(func, device, *cmd.args)
 
     return CommandResponse(
         status="sent",
