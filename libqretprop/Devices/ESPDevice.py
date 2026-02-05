@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 if TYPE_CHECKING:
     from libqretprop.Devices.SensorMonitor import SensorMonitor
 
+
 class ESPDevice:
     """A top level class representing the configuration of a connected ESP32 device.
 
@@ -20,12 +21,12 @@ class ESPDevice:
 
     RESYNC_INTERVAL_S: ClassVar[float] = 600.0  # 10 minutes
 
-    def __init__(self,
-                 socket: socket.socket,
-                 address: str,
-                 jsonConfig: dict[str, Any],
-                 ) -> None:
-
+    def __init__(
+        self,
+        socket: socket.socket,
+        address: str,
+        jsonConfig: dict[str, Any],
+    ) -> None:
         self.socket = socket
         self.address = address
         self.jsonConfig = jsonConfig
@@ -38,6 +39,9 @@ class ESPDevice:
         self.last_sync_time: float | None = None  # server monotonic time of last sync
         self._resync_pending: bool = False
 
+        # Pending control commands awaiting ACK (sequence -> (control_name, state))
+        self._pending_controls: dict[int, tuple[str, str]] = {}
+
         asyncio.create_task(self.heartbeat())
 
     async def heartbeat(self) -> None:
@@ -46,6 +50,7 @@ class ESPDevice:
             if self.socket:
                 import contextlib
                 from libqretprop.protocol import SimplePacket, PacketType
+
                 with contextlib.suppress(BrokenPipeError, ConnectionResetError):
                     packet = SimplePacket.create(PacketType.HEARTBEAT)
                     loop = asyncio.get_event_loop()
