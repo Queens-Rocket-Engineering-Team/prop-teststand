@@ -206,7 +206,6 @@ async def discoverKasaDevices(user: Annotated[str, Depends(authUser)]) -> list[K
 async def controlKasaDevice(
     host: str,
     active: bool,
-    bgTasks: BackgroundTasks,
     user: Annotated[str, Depends(authUser)],
 ) -> KasaDeviceInfo:
 
