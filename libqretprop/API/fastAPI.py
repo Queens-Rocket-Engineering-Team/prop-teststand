@@ -9,9 +9,10 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from libqretprop import mylogging as ml
-from libqretprop.DeviceControllers import cameraTools, deviceTools
+from libqretprop.DeviceControllers import cameraTools, deviceTools, kasaTools
 from libqretprop.Devices.SensorMonitor import SensorMonitor
 from libqretprop.GuiDataStream import router as log_router
+
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -77,6 +78,12 @@ class CameraInfo(BaseModel):
 
 class CameraList(BaseModel):
     cameras: list[CameraInfo]
+
+class KasaDeviceInfo(BaseModel):
+    alias: str
+    host: str
+    model: str
+    active: bool
 
 # API Endpoints
 # ------------------------
@@ -173,6 +180,49 @@ async def controlCamera(
         status="sent",
         message=f"User {user} sent camera move command to {ip}: <{x_movement}, {y_movement}>",
     )
+
+@app.get("/v1/kasa", summary="Get the list of discovered Kasa devices", dependencies=[Depends(authUser)])
+async def getKasaDevices() -> list[KasaDeviceInfo]:
+    devices = kasaTools.kasaRegistry
+
+    deviceDataList = []
+
+    for dev in devices.values():
+        await dev.update()  # Update device info before reporting
+        alias = dev.alias if dev.alias is not None else ""
+        deviceDataList.append(KasaDeviceInfo(alias=alias, host=dev.host, model=dev.model, active=dev.is_on))
+
+    return deviceDataList
+
+@app.get("/v1/kasa/discover", summary="Discover Kasa devices on the network", dependencies=[Depends(authUser)])
+async def discoverKasaDevices(user: Annotated[str, Depends(authUser)]) -> list[KasaDeviceInfo]:
+    ml.slog(f"User {user} sent Kasa discover command")
+    await kasaTools.discoverKasaDevices()
+
+    return await getKasaDevices()
+
+@app.post("/v1/kasa", summary="Control a Kasa device's power state",
+            dependencies=[Depends(authUser)])
+async def controlKasaDevice(
+    host: str,
+    active: bool,
+    bgTasks: BackgroundTasks,
+    user: Annotated[str, Depends(authUser)],
+) -> KasaDeviceInfo:
+
+    ml.slog(f"User {user} sent Kasa control command to {host}: active={active}")
+
+    if host not in kasaTools.kasaRegistry:
+        raise HTTPException(404, f"No Kasa device found at {host}")
+
+    try:
+        await kasaTools.setKasaDeviceState(host, active)
+
+        dev = kasaTools.kasaRegistry[host]
+        alias = dev.alias if dev.alias is not None else ""
+        return KasaDeviceInfo(alias=alias, host=dev.host, model=dev.model, active=dev.is_on)
+    except Exception as e:
+        raise HTTPException(500, f"Failed to control Kasa device at {host}: {e}")
 
 
 class ConfigsResponse(BaseModel):
