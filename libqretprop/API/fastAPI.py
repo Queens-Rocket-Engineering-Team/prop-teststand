@@ -187,12 +187,16 @@ async def getKasaDevices() -> list[KasaDeviceInfo]:
 
     deviceDataList = []
 
-    for dev in devices:
-        await dev.update()  # Update device info before reporting
-        alias = dev.alias if dev.alias is not None else ""
-        deviceDataList.append(KasaDeviceInfo(alias=alias, host=dev.host, model=dev.model, active=dev.is_on))
+    try:
+        for dev in devices:
+            await dev.update()  # Update device info before reporting
+            alias = dev.alias if dev.alias is not None else ""
+            deviceDataList.append(KasaDeviceInfo(alias=alias, host=dev.host, model=dev.model, active=dev.is_on))
 
-    return deviceDataList
+        return deviceDataList
+    except Exception as e:
+        ml.elog(f"Failed to get Kasa device info: {e}")
+        raise HTTPException(500, "Failed to get Kasa device info")
 
 @app.get("/v1/kasa/discover", summary="Discover Kasa devices on the network", dependencies=[Depends(authUser)])
 async def discoverKasaDevices(user: Annotated[str, Depends(authUser)]) -> list[KasaDeviceInfo]:
