@@ -42,13 +42,12 @@ async def main(noDiscovery: bool = False,
                               )
 
     ml.initLogger(redisClient)
-    ml.log("Starting server...")
+    ml.slog("Starting server...")
 
     loop = asyncio.get_event_loop()
     daemons: dict[str, asyncio.Task[None]] = {}
 
     # Fire up the FastAPI app and add it as a daemon task
-    # DISABLED FOR CLI TESTING - uncomment if you need the web API
     daemons["fastAPI"] = loop.create_task(fastAPI.startAPI())
 
     # -------

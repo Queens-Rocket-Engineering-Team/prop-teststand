@@ -2,7 +2,6 @@ import asyncio
 import contextlib
 import csv
 import socket
-import struct
 import time
 
 import libqretprop.mylogging as ml
@@ -94,8 +93,9 @@ async def tcpListener() -> None:
             ml.slog(f"Accepted TCP connection from {deviceIP}")
 
             # Read header first (9 bytes) to get packet length
-            from libqretprop.protocol import PacketHeader, decode_packet, PacketType
             import json
+
+            from libqretprop.protocol import PacketHeader, PacketType, decode_packet
 
             header_bytes = b""
             while len(header_bytes) < PacketHeader.SIZE:
@@ -191,7 +191,7 @@ def closeDeviceConnections() -> None:
 async def _monitorSingleDevice(device: ESPDevice) -> None:
     """Monitor a single device using LENGTH-based framing from v2 header."""
     loop = asyncio.get_event_loop()
-    from libqretprop.protocol import PacketHeader, decode_packet, PacketType, TimeSyncPacket
+    from libqretprop.protocol import PacketHeader, PacketType, TimeSyncPacket, decode_packet
 
     buffer = b""
 
@@ -222,7 +222,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                         if device.last_sync_time is not None:
                             t = packet.header.timestamp / 1000.0 - device.startTime
                         else:
-                            ml.log(f"WARNING: {device.name} data before TIMESYNC, using server time")
+                            ml.slog(f"WARNING: {device.name} data before TIMESYNC, using server time")
                             t = time.monotonic() - device.startTime
 
                         sensor_names = list(device.sensors.keys())
@@ -235,7 +235,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                 ml.log(f"{device.name} {t:.3f} {sensor_name}:{reading.value:.2f}")
 
                     elif packet.header.packet_type == PacketType.STATUS:
-                        ml.log(f"{device.name} status: {packet.status.name}")
+                        ml.slog(f"{device.name} status: {packet.status.name}")
 
                     elif packet.header.packet_type == PacketType.ACK:
                         if packet.ack_packet_type == PacketType.TIMESYNC:
@@ -266,7 +266,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                         device._resync_pending = True
                         timesync = TimeSyncPacket.create()
                         await loop.sock_sendall(device.socket, timesync.pack())
-                        ml.log(f"{device.name} resync sent (stale >{ESPDevice.RESYNC_INTERVAL_S / 60:.0f} min)")
+                        ml.slog(f"{device.name} resync sent (stale >{ESPDevice.RESYNC_INTERVAL_S / 60:.0f} min)")
 
                 except ValueError:
                     break
@@ -276,9 +276,6 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
 
     except Exception as e:
         ml.elog(f"Error receiving response from {device.name}: {e}")
-        if device.address in deviceRegistry:
-            _removed = deviceRegistry.pop(device.address)
-            ml.slog(f"{device.name} removed from registry")
 
 
 # ---------------------- #
@@ -287,7 +284,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
 
 
 async def getSingle(device: ESPDevice) -> None:
-    from libqretprop.protocol import SimplePacket, PacketType
+    from libqretprop.protocol import PacketType, SimplePacket
 
     if device.socket:
         try:
@@ -302,6 +299,7 @@ async def getSingle(device: ESPDevice) -> None:
                 ml.slog(f"{_removed.name} removed from registry")
     else:
         ml.elog(f"No socket available for {device.name} to send GET_SINGLE command.")
+        _removeDevice(device)
 
 
 async def startStreaming(device: ESPDevice, Hz: int) -> None:
@@ -324,10 +322,11 @@ async def startStreaming(device: ESPDevice, Hz: int) -> None:
                 ml.slog(f"{device.name} removed from registry")
     else:
         ml.elog(f"No socket available for {device.name} to send STREAM_START command.")
+        _removeDevice(device)
 
 
 async def stopStreaming(device: ESPDevice) -> None:
-    from libqretprop.protocol import SimplePacket, PacketType
+    from libqretprop.protocol import PacketType, SimplePacket
 
     if device.socket:
         try:
@@ -342,10 +341,12 @@ async def stopStreaming(device: ESPDevice) -> None:
                 ml.slog(f"{device.name} removed from registry")
     else:
         ml.elog(f"No socket available for {device.name} to send STREAM_STOP command.")
+        _removeDevice(device)
 
 
 async def setControl(device: SensorMonitor, controlName: str, controlState: str) -> None:
-    from libqretprop.protocol import ControlPacket, ControlState as CS
+    from libqretprop.protocol import ControlPacket
+    from libqretprop.protocol import ControlState as CS
 
     controlName = controlName.upper()
     controlState = controlState.upper()
@@ -386,7 +387,7 @@ async def setControl(device: SensorMonitor, controlName: str, controlState: str)
 
 
 async def getStatus(device: ESPDevice) -> None:
-    from libqretprop.protocol import SimplePacket, PacketType
+    from libqretprop.protocol import PacketType, SimplePacket
 
     if device.socket:
         try:
@@ -398,6 +399,11 @@ async def getStatus(device: ESPDevice) -> None:
             ml.elog(f"Error sending STATUS_REQUEST to {device.name}: {e}")
     else:
         ml.elog(f"No socket available for {device.name} to send STATUS_REQUEST.")
+
+def _removeDevice(device: ESPDevice) -> None:
+    if device.address in deviceRegistry:
+        _removed = deviceRegistry.pop(device.address)
+        ml.slog(f"{device.name} removed from registry.")
 
 
 # ---------------------- #
