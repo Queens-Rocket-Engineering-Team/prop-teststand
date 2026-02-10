@@ -41,7 +41,7 @@ async def setKasaDeviceState(host: str, active: bool) -> None:
         ml.elog(f"Kasa error controlling device at {host}: {ke}")
         if host in kasaRegistry:
             del kasaRegistry[host]  # Remove from registry if it becomes unresponsive
-        raise ke # Re-raise to be handled by API layer
+        raise  # Re-raise to be handled by API layer
     except Exception as e:
         ml.elog(f"Failed to control Kasa device at {host}: {e}")
-        raise e # Re-raise to be handled by API layer
+        raise  # Re-raise to be handled by API layer

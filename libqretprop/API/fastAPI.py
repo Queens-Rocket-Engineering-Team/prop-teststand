@@ -183,11 +183,11 @@ async def controlCamera(
 
 @app.get("/v1/kasa", summary="Get the list of discovered Kasa devices", dependencies=[Depends(authUser)])
 async def getKasaDevices() -> list[KasaDeviceInfo]:
-    devices = kasaTools.kasaRegistry
+    devices = list(kasaTools.kasaRegistry.values())
 
     deviceDataList = []
 
-    for dev in devices.values():
+    for dev in devices:
         await dev.update()  # Update device info before reporting
         alias = dev.alias if dev.alias is not None else ""
         deviceDataList.append(KasaDeviceInfo(alias=alias, host=dev.host, model=dev.model, active=dev.is_on))
@@ -221,7 +221,8 @@ async def controlKasaDevice(
         alias = dev.alias if dev.alias is not None else ""
         return KasaDeviceInfo(alias=alias, host=dev.host, model=dev.model, active=dev.is_on)
     except Exception as e:
-        raise HTTPException(500, f"Failed to control Kasa device at {host}: {e}")
+        ml.slog(f"Error while controlling Kasa device at {host} (active={active}): {repr(e)}")
+        raise HTTPException(500, f"Failed to control Kasa device at {host}")
 
 
 class ConfigsResponse(BaseModel):
