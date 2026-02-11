@@ -19,6 +19,7 @@ SERVERCOMMANDS = [
     "SENSORS",
     "CONTROLS",
     "WATCH",
+    "REMOVE",
     ]
 
 DEVICECOMMANDS = [
@@ -52,6 +53,22 @@ async def handleServerCommand(command: str, args: list) -> None:
                 ml.slog(f"  {device.name} ({device.type}) - {device.address}")
                 if isinstance(device, SensorMonitor):
                     ml.slog(f"    Sensors: {len(device.sensors)}, Controls: {len(device.controls)}")
+    elif cmd == "REMOVE":
+        if not args:
+            ml.slog("Usage: remove <device_name>")
+            return
+        devices = deviceTools.getRegisteredDevices()
+        device = None
+        for d in devices.values():
+            if d.name.upper() == args[0].upper():
+                device = d
+                break
+        if not device:
+            ml.slog(f"Device '{args[0]}' not currently registered. Use \"LIST\" to see devices.")
+            return
+        deviceTools.removeDevice(device)
+        ml.slog(f"Removed device '{device.name}'")
+
     elif cmd == "INFO":
         if not args:
             ml.slog("Usage: info <device_name>")
@@ -59,7 +76,7 @@ async def handleServerCommand(command: str, args: list) -> None:
         devices = deviceTools.getRegisteredDevices()
         device = None
         for d in devices.values():
-            if d.name.lower() == args[0].lower():
+            if d.name.upper() == args[0].upper():
                 device = d
                 break
         if not device:

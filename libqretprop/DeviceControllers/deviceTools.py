@@ -299,7 +299,7 @@ async def getSingle(device: ESPDevice) -> None:
                 ml.slog(f"{_removed.name} removed from registry")
     else:
         ml.elog(f"No socket available for {device.name} to send GET_SINGLE command.")
-        _removeDevice(device)
+        removeDevice(device)
 
 
 async def startStreaming(device: ESPDevice, Hz: int) -> None:
@@ -322,7 +322,7 @@ async def startStreaming(device: ESPDevice, Hz: int) -> None:
                 ml.slog(f"{device.name} removed from registry")
     else:
         ml.elog(f"No socket available for {device.name} to send STREAM_START command.")
-        _removeDevice(device)
+        removeDevice(device)
 
 
 async def stopStreaming(device: ESPDevice) -> None:
@@ -341,7 +341,7 @@ async def stopStreaming(device: ESPDevice) -> None:
                 ml.slog(f"{device.name} removed from registry")
     else:
         ml.elog(f"No socket available for {device.name} to send STREAM_STOP command.")
-        _removeDevice(device)
+        removeDevice(device)
 
 
 async def setControl(device: SensorMonitor, controlName: str, controlState: str) -> None:
@@ -400,7 +400,7 @@ async def getStatus(device: ESPDevice) -> None:
     else:
         ml.elog(f"No socket available for {device.name} to send STATUS_REQUEST.")
 
-def _removeDevice(device: ESPDevice) -> None:
+def removeDevice(device: ESPDevice) -> None:
     if device.address in deviceRegistry:
         _removed = deviceRegistry.pop(device.address)
         ml.slog(f"{device.name} removed from registry.")
