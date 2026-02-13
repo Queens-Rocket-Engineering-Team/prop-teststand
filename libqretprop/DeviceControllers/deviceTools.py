@@ -2,39 +2,35 @@ import asyncio
 import contextlib
 import csv
 import socket
-import struct
 import time
 
 import libqretprop.mylogging as ml
 from libqretprop.Devices.ESPDevice import ESPDevice
 from libqretprop.Devices.SensorMonitor import SensorMonitor
-from libqretprop.Devices.sensors.LoadCell import LoadCell
-from libqretprop.Devices.sensors.PressureTransducer import PressureTransducer
-from libqretprop.Devices.sensors.Thermocouple import Thermocouple
 
 
 MULTICAST_ADDRESS = "239.255.255.250"
 MULTICAST_PORT = 1900
 
-TCP_PORT = 50000  # Default TCP port for direct device communication
+TCP_PORT = 50000
 
 # Searching Globals #
-ssdpSearchSocket : socket.socket | None = None
+ssdpSearchSocket: socket.socket | None = None
 
 # Listening Globals #
 tcpListenerSocket: socket.socket | None = None
-deviceRegistry   : dict[str, ESPDevice] = {}  # Registry to keep track of discovered devices
+deviceRegistry: dict[str, ESPDevice] = {}
 
 # ---------------------- #
 # Active Searching Tools #
 # ---------------------- #
 
-def sendMulticastDiscovery() -> None:
+
+def sendDiscoveryBroadcast() -> None:
     global ssdpSearchSocket
 
     if ssdpSearchSocket is None:
-        ml.elog("The device listener is not running. Start the listener before sending discovery requests.")
-        return
+        ssdpSearchSocket = _createSSDPSocket()
 
     ml.dlog("Sending SSDP multicast discovery request.")
 
@@ -42,141 +38,142 @@ def sendMulticastDiscovery() -> None:
         "M-SEARCH * HTTP/1.1\r\n"
         f"HOST: {MULTICAST_ADDRESS}:{MULTICAST_PORT}\r\n"
         'MAN: "ssdp:discover"\r\n'
-        "MX: 2\r\n"                         # Maximum wait time in seconds
-        "ST: urn:qretprop:espdevice:1\r\n"     # Search target - custom for your devices
-        "USER-AGENT: QRET/1.0\r\n"          # Identify your application
+        "MX: 2\r\n"
+        "ST: urn:qretprop:espdevice:1\r\n"
+        "USER-AGENT: QRET/1.0\r\n"
         "\r\n"
     )
 
     ssdpSearchSocket.sendto(ssdpRequest.encode(), (MULTICAST_ADDRESS, MULTICAST_PORT))
 
-async def continuousMulticastDiscovery() -> None:
-    """Send out a search request every 5 seconds."""
-    while True:
-        sendMulticastDiscovery()
-        await asyncio.sleep(5)  # Wait for 5 seconds before sending the next request
-
-async def connectToDevice(deviceIP: str) -> None:
-
-    if deviceIP in deviceRegistry:
-        ml.elog(f"Device {deviceIP} is already registered.")
-        return
-
-    loop = asyncio.get_event_loop()
-
-    # Create TCP connection to device
-    deviceSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    await loop.sock_connect(deviceSocket, (deviceIP, TCP_PORT))
-    deviceSocket.setblocking(False)
-
-    ml.slog(f"Established TCP connection to device at {deviceIP}:{TCP_PORT}")
-
-    # After initial connection a device should send its config file so that the server can configure
-    # the device and add it to the registry.
-    config = await loop.sock_recv(deviceSocket, 2048)  # Config files are generally less han 2kB. Change if needed
-    if config[:4].decode("utf-8") != "CONF":
-        ml.elog("First message received from device was not a config file."
-                f"Expected 'CONF' prefix and got {config[:4].decode('utf-8', errors='ignore')}")
-
-    # Create new ESPDevice instance and add to registry
-    newDevice = ESPDevice.fromConfigBytes(deviceSocket, deviceIP, config[4:])  # Skip the "CONF" prefix
-    deviceRegistry[deviceIP] = newDevice
-
-    # If we successfully connect to the device, start monitoring it
-    listenerTask = loop.create_task(_monitorSingleDevice(deviceRegistry[deviceIP]))
-    deviceRegistry[deviceIP].listenerTask = listenerTask
 
 def _createSSDPSocket() -> socket.socket:
+    """Create a send-only SSDP socket for broadcasting discovery."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     with contextlib.suppress(OSError):
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
-    # Receive on all interfaces, SSDP port
-    sock.bind(("", MULTICAST_PORT))
-
-    # Join the SSDP group on eth0 (your LAN IP)
-    membershipRequest = socket.inet_aton(MULTICAST_ADDRESS) + socket.INADDR_ANY.to_bytes(4, "big")
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membershipRequest)
-
-    # >>> CRITICAL FOR SENDING: choose outbound interface <<<
+    # Choose outbound interface
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.INADDR_ANY)
-
-    # Optional but helpful
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 1)
 
     sock.setblocking(False)
-    ml.slog(f"SSDP Listener socket initialized on {MULTICAST_ADDRESS}:{MULTICAST_PORT}")
+    ml.slog(f"SSDP broadcast socket initialized for {MULTICAST_ADDRESS}:{MULTICAST_PORT}")
     return sock
+
+
 # ---------------------- #
-# Discovery Listener Tools
+# TCP Listener
 # ---------------------- #
 
-async def deviceListener() -> None:
-    """Listen for SSDP responses from devices."""
-    global ssdpSearchSocket, deviceRegistry
 
-    ssdpSearchSocket = _createSSDPSocket()
+async def tcpListener() -> None:
+    """Listen for incoming TCP connections from devices on port 50000."""
+    global deviceRegistry
 
-    ml.slog("Starting SSDP listener...")
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_socket.bind(("0.0.0.0", TCP_PORT))
+    server_socket.listen(5)
+    server_socket.setblocking(False)
+
+    ml.slog(f"TCP listener started on port {TCP_PORT}")
+
+    loop = asyncio.get_event_loop()
 
     while True:
         try:
-            # Use asyncio to handle non-blocking socket
-            loop = asyncio.get_event_loop()
-            data, addr = await loop.sock_recvfrom(ssdpSearchSocket, 1024)
-            response = data.decode("utf-8", errors="ignore")
+            client_socket, addr = await loop.sock_accept(server_socket)
+            client_socket.setblocking(False)
+            deviceIP = addr[0]
 
-            # Validate SSDP response
-            if all(required in response for required in [
-                "HTTP/1.1 200 OK",
-                "EXT:",
-                "SERVER: ESP32/1.0 UPnP/1.0",
-                "ST: urn:qretprop:espdevice:1",
-            ]):
-                deviceIP = addr[0]
+            ml.slog(f"Accepted TCP connection from {deviceIP}")
 
-                # Check if device is already registered
-                if deviceIP in deviceRegistry:
-                    ml.slog(f"Device {deviceIP} is already registered as {deviceRegistry[deviceIP].name}.")
-                    continue
+            # Read header first (9 bytes) to get packet length
+            import json
 
-                ml.slog(f"New device discovered at {deviceIP}, attempting to connect...")
+            from libqretprop.protocol import PacketHeader, PacketType, decode_packet
 
-                try:
-                    await connectToDevice(deviceIP)
+            header_bytes = b""
+            while len(header_bytes) < PacketHeader.SIZE:
+                chunk = await loop.sock_recv(client_socket, PacketHeader.SIZE - len(header_bytes))
+                if not chunk:
+                    ml.elog(f"Device {deviceIP} disconnected during config.")
+                    client_socket.close()
+                    break
+                header_bytes += chunk
+            else:
+                header = PacketHeader.unpack(header_bytes)
+                remaining = header.length - PacketHeader.SIZE
+                payload_bytes = b""
+                while len(payload_bytes) < remaining:
+                    chunk = await loop.sock_recv(client_socket, remaining - len(payload_bytes))
+                    if not chunk:
+                        ml.elog(f"Device {deviceIP} disconnected during config payload.")
+                        client_socket.close()
+                        break
+                    payload_bytes += chunk
+                else:
+                    full_packet = header_bytes + payload_bytes
+                    packet = decode_packet(full_packet)
 
-                except Exception as e:
-                    ml.elog(f"Failed to establish TCP connection to {deviceIP}: {e}")
+                    if packet.header.packet_type == PacketType.CONFIG:
+                        config_dict = json.loads(packet.config_json)
 
+                        if config_dict.get("deviceType") in {"Sensor Monitor", "Simulated Sensor Monitor"}:
+                            newDevice = SensorMonitor(client_socket, deviceIP, config_dict)
+                        else:
+                            newDevice = ESPDevice(client_socket, deviceIP, config_dict)
+
+                        deviceRegistry[deviceIP] = newDevice
+
+                        listenerTask = loop.create_task(_monitorSingleDevice(newDevice))
+                        deviceRegistry[deviceIP].listenerTask = listenerTask
+
+                        ml.slog(f"Device {newDevice.name} registered from {deviceIP}")
+
+                        # ACK the CONFIG, then send initial TIMESYNC
+                        from libqretprop.protocol import AckPacket, SimplePacket
+
+                        ack = AckPacket.create(PacketType.CONFIG, packet.header.sequence)
+                        await loop.sock_sendall(client_socket, ack.pack())
+
+                        timesync = SimplePacket.create(PacketType.TIMESYNC)
+                        await loop.sock_sendall(client_socket, timesync.pack())
+                        ml.slog(f"Sent initial TIMESYNC to {newDevice.name}")
 
         except asyncio.CancelledError:
-            ml.slog("SSDP listener cancelled")
+            ml.slog("TCP listener cancelled")
+            server_socket.close()
             raise
         except Exception as e:
-            ml.elog(f"Error in SSDP listener: {e}")
-            await asyncio.sleep(1)  # Prevent tight loop on errors
+            ml.elog(f"Error in TCP listener: {e}")
+            await asyncio.sleep(0.1)
+
 
 def getRegisteredDevices() -> dict[str, ESPDevice]:
     return deviceRegistry.copy()
 
+
 def getDeviceByName(name: str) -> ESPDevice | None:
     return deviceRegistry.get(name)
 
+
 # ---------------------- #
-# Socket Management      #
+# Socket Management
 # ---------------------- #
 
+
 def closeDeviceConnections() -> None:
-    """Close all device sockets."""
     global deviceRegistry
 
     for device in deviceRegistry.values():
         if device.socket:
             try:
-                device.listenerTask.cancel()  # Cancel the listener task if it exists
+                device.listenerTask.cancel()
                 device.socket.close()
                 ml.slog(f"Closed socket for device {device.name}")
             except OSError as e:
@@ -185,209 +182,238 @@ def closeDeviceConnections() -> None:
     deviceRegistry.clear()
     ml.slog("Closed all device sockets and cleared registry.")
 
+
 # ---------------------- #
-# Device Monitoring Tools
+# Device Monitoring
 # ---------------------- #
+
 
 async def _monitorSingleDevice(device: ESPDevice) -> None:
-    """Monitor a single device for responses.
-
-    This is called after a device is connected to continuously monitor the data it sends out.
-    """
+    """Monitor a single device using LENGTH-based framing from v2 header."""
     loop = asyncio.get_event_loop()
+    from libqretprop.protocol import PacketHeader, PacketType, SimplePacket, decode_packet
 
-    buffer = ""
+    buffer = b""
 
     try:
         while True:
-            data = await loop.sock_recv(device.socket, 1024)
+            data = await loop.sock_recv(device.socket, 4096)
             if not data:
                 ml.elog(f"Device {device.name} disconnected.")
                 break
 
-            chunk = data.decode("utf-8", errors="ignore")
-            buffer += chunk
+            buffer += data
 
-            while "\n" in buffer:
-                line, buffer = buffer.split("\n", 1) # Grab the first line and keep the rest in the buffer
+            # Use LENGTH field for framing
+            while len(buffer) >= PacketHeader.SIZE:
+                try:
+                    header = PacketHeader.unpack(buffer)
 
-                if (line.startswith(("STRM", "GETS"))) and isinstance(device, SensorMonitor):
-                    publishSensorData(line[4:], device)  # Strip the "STRM" prefix
+                    if len(buffer) < header.length:
+                        break  # Need more data
 
-                elif line.startswith("CONTROL") and isinstance(device, SensorMonitor):
-                    # Handle valve commands if applicable
-                    ml.log(f"{device.name}: {line}")
-                elif line.startswith("STATUS") and isinstance(device, SensorMonitor):
-                    ml.log(f"{device.name}: {line}")
+                    packet_data = buffer[: header.length]
+                    packet = decode_packet(packet_data)
+
+                    ml.slog(f"Decoded {packet.header.packet_type.name} from {device.name}")
+
+                    if packet.header.packet_type == PacketType.DATA and isinstance(device, SensorMonitor):
+                        # Device timestamps are already in server monotonic ms (locked via TIMESYNC)
+                        if device.last_sync_time is not None:
+                            t = packet.header.timestamp / 1000.0 - device.startTime
+                        else:
+                            ml.slog(f"WARNING: {device.name} data before TIMESYNC, using server time")
+                            t = time.monotonic() - device.startTime
+
+                        sensor_names = list(device.sensors.keys())
+                        for reading in packet.readings:
+                            if reading.sensor_id < len(sensor_names):
+                                sensor_name = sensor_names[reading.sensor_id]
+                                device.sensors[sensor_name].data.append(reading.value)
+                                if not device.times or len(device.times) < len(device.sensors[sensor_name].data):
+                                    device.times.append(t)
+                                ml.log(f"{device.name} {t:.3f} {sensor_name}:{reading.value:.2f}")
+
+                    elif packet.header.packet_type == PacketType.STATUS:
+                        ml.slog(f"{device.name} status: {packet.status.name}")
+
+                    elif packet.header.packet_type == PacketType.ACK:
+                        if packet.ack_packet_type == PacketType.TIMESYNC:
+                            device.last_sync_time = time.monotonic()
+                            device._resync_pending = False
+                            ml.slog(f"{device.name} TIMESYNC completed")
+                        elif packet.ack_packet_type == PacketType.CONTROL:
+                            # Check for pending control command
+                            if packet.ack_sequence in device._pending_controls:
+                                control_name, state = device._pending_controls.pop(packet.ack_sequence)
+                                ml.log(f"{device.name} CONTROL {control_name} {state}")
+                            else:
+                                ml.slog(f"{device.name} ACK for CONTROL seq={packet.ack_sequence}")
+                        else:
+                            ml.slog(f"{device.name} ACK for {packet.ack_packet_type.name} seq={packet.ack_sequence}")
+
+                    elif packet.header.packet_type == PacketType.NACK:
+                        ml.elog(f"{device.name} NACK for {packet.nack_packet_type.name} error={packet.error_code.name}")
+
+                    buffer = buffer[header.length :]
+
+                    # Periodic resync check
+                    if (
+                        not device._resync_pending
+                        and device.last_sync_time is not None
+                        and time.monotonic() - device.last_sync_time > ESPDevice.RESYNC_INTERVAL_S
+                    ):
+                        device._resync_pending = True
+                        timesync = SimplePacket.create(PacketType.TIMESYNC)
+                        await loop.sock_sendall(device.socket, timesync.pack())
+                        ml.slog(f"{device.name} resync sent (stale >{ESPDevice.RESYNC_INTERVAL_S / 60:.0f} min)")
+
+                except ValueError:
+                    break
+                except Exception as e:
+                    ml.elog(f"Error decoding packet from {device.name}: {e}")
+                    buffer = buffer[1:]
 
     except Exception as e:
         ml.elog(f"Error receiving response from {device.name}: {e}")
-        # Remove the device from the device registry if there is an exception
-        _removed = deviceRegistry.pop(device.name)
-        ml.slog(f"{device.name} removed from registry")
-
-def publishSensorData(message: str, device: SensorMonitor) -> None:
-    """Parse a stream data message from the device and publish the sensor data.
-
-    Args:
-        message (str): The message received from the device.
-        device (ESPDevice): The device that sent the message.
-    """
-    message = message.strip()
-
-    parts = message.split(" ")
-
-    if len(parts) != len(device.sensors) + 1:
-        ml.elog(f"Not enough data points received from {device.name}: {message}")
-        ml.elog(f"Expected {len(device.sensors)} data points, got {len(parts)}. Stopping streaming.")
-        stopStreaming(device)
-
-    sensorValues: dict[str, float] = {}
-
-    # Sensor data is expected to be in the format "time:timevalue sensor1:value1 sensor2:value2 ..."
-    for val in parts:
-        if ":" not in val:
-            ml.elog(f"Invalid sensor data format from {device.name}: {val}")
-            continue
-
-        key, value = val.strip().split(":", 1)
-
-        if key == "time":
-            pass # Time is handled by the server! Maybe change this later #FIXME
-
-        if key in device.sensors:
-            sensorValues[key] = float(value)
-
-    device.addDataPoints(sensorValues)
-    time = device.times[-1]
-
-    # Publish the sensor data to the redis log
-    for sense, reading in sensorValues.items():
-        ml.log(f"{device.name} {time:.2f} {sense}:{reading}")
 
 
 # ---------------------- #
-# Device Control Tools   #
+# Device Control Tools
 # ---------------------- #
 
-def getSingle(device: ESPDevice) -> None:
-    """Request a single data point from the device.
 
-    Args:
-        device (ESPDevice): The device to request data from.
-    """
+async def getSingle(device: ESPDevice) -> None:
+    from libqretprop.protocol import PacketType, SimplePacket
+
     if device.socket:
         try:
-            device.socket.sendall(b"GETS\n")
-            ml.slog(f"Sent GETS command to {device.name}")
+            packet = SimplePacket.create(PacketType.GET_SINGLE)
+            loop = asyncio.get_event_loop()
+            await loop.sock_sendall(device.socket, packet.pack())
+            ml.slog(f"Sent GET_SINGLE command to {device.name}")
         except Exception as e:
-            ml.elog(f"Error sending GETS command to {device.name}: {e}")
-            _removed = deviceRegistry.pop(device.name)
-            ml.slog(f"{_removed.name} removed from registry")
+            ml.elog(f"Error sending GET_SINGLE command to {device.name}: {e}")
+            if device.address in deviceRegistry:
+                _removed = deviceRegistry.pop(device.address)
+                ml.slog(f"{_removed.name} removed from registry")
     else:
-        ml.elog(f"No socket available for {device.name} to send GETS command.")
+        ml.elog(f"No socket available for {device.name} to send GET_SINGLE command.")
+        removeDevice(device)
 
 
-def startStreaming(device: ESPDevice,
-                   Hz: int) -> None:
-    """Start streaming data from a device.
+async def startStreaming(device: ESPDevice, Hz: int) -> None:
+    from libqretprop.protocol import StreamStartPacket
 
-    Args:
-        device (ESPDevice): The device to start streaming from.
-        args (list[str]): Optional arguments to include in the streaming command.
-
-    """
-
-    # Default command if no arguments are provided
-    command = "STREAM\n"
-
-    if Hz:
-        command = f"STREAM {Hz}\n"
-    else:
-        ml.elog(f"Incorrect arguments provided for STREAM command: {Hz}. Expected a single numeric argument.")
+    if not Hz or Hz < 1 or Hz > 65535:
+        ml.elog(f"Invalid frequency: {Hz}. Must be between 1-65535 Hz.")
         return
 
     if device.socket:
         try:
-            device.socket.sendall(command.encode("utf-8"))
-            ml.slog(f"Sent '{command}' command to {device.name}")
-
+            packet = StreamStartPacket.create(frequency_hz=Hz)
+            loop = asyncio.get_event_loop()
+            await loop.sock_sendall(device.socket, packet.pack())
+            ml.slog(f"Sent STREAM_START ({Hz} Hz) to {device.name}")
         except Exception as e:
-            ml.elog(f"Error sending '{command}' command to {device.name}: {e}")
-            _removed = deviceRegistry.pop(device.name)
-            ml.slog(f"{device.name} removed from registry")
+            ml.elog(f"Error sending STREAM_START command to {device.name}: {e}")
+            if device.address in deviceRegistry:
+                _removed = deviceRegistry.pop(device.address)
+                ml.slog(f"{device.name} removed from registry")
     else:
-        ml.elog(f"No socket available for {device.name} to send STRM command.")
+        ml.elog(f"No socket available for {device.name} to send STREAM_START command.")
+        removeDevice(device)
 
-def stopStreaming(device: ESPDevice) -> None:
-    """Stop streaming data from a device.
 
-    Args:
-        device (ESPDevice): The device to stop streaming from.
-    """
+async def stopStreaming(device: ESPDevice) -> None:
+    from libqretprop.protocol import PacketType, SimplePacket
+
     if device.socket:
         try:
-            device.socket.sendall(b"STOP\n")
-            ml.slog(f"Sent STOP command to {device.name}")
+            packet = SimplePacket.create(PacketType.STREAM_STOP)
+            loop = asyncio.get_event_loop()
+            await loop.sock_sendall(device.socket, packet.pack())
+            ml.slog(f"Sent STREAM_STOP command to {device.name}")
         except Exception as e:
-            ml.elog(f"Error sending STOP command to {device.name}: {e}")
-            _removed = deviceRegistry.pop(device.name)
-            ml.slog(f"{device.name} removed from registry")
+            ml.elog(f"Error sending STREAM_STOP command to {device.name}: {e}")
+            if device.address in deviceRegistry:
+                _removed = deviceRegistry.pop(device.address)
+                ml.slog(f"{device.name} removed from registry")
     else:
-        ml.elog(f"No socket available for {device.name} to send STOP command.")
+        ml.elog(f"No socket available for {device.name} to send STREAM_STOP command.")
+        removeDevice(device)
 
-def setControl(device: SensorMonitor, controlName: str, controlState: str,) -> None:
-    """Set the valve state on a device.
 
-    Args:
-        device (ESPDevice): The device to set the valve state on.
-        args (list[str]): Arguments for the valve command, expected to be a single numeric value.
-    """
-
-    command = "BADCOMMAND\n" # Default fail state
+async def setControl(device: SensorMonitor, controlName: str, controlState: str) -> None:
+    from libqretprop.protocol import ControlPacket
+    from libqretprop.protocol import ControlState as CS
 
     controlName = controlName.upper()
     controlState = controlState.upper()
 
     if controlName not in device.controls:
-        ml.elog(f"Invalid control name. Valid names are {device.controls}")
+        ml.elog(f"Invalid control name '{controlName}'. Valid: {list(device.controls.keys())}")
+        return
 
     if controlState not in ["OPEN", "CLOSE"]:
-        ml.elog(f"Invalid state. Valid states are {['OPEN', 'CLOSE']}")
+        ml.elog(f"Invalid state '{controlState}'. Valid: OPEN, CLOSE")
+        return
+
+    control_names = list(device.controls.keys())
+    command_id = control_names.index(controlName)
+
+    state = CS.OPEN if controlState == "OPEN" else CS.CLOSED
 
     if device.socket:
         try:
-            command = f"CONTROL {controlName} {controlState}\n"
-            device.socket.sendall(command.encode("utf-8"))
-            ml.slog(f"Sent '{command.strip()}' command to {device.name}")
+            packet = ControlPacket.create(command_id=command_id, command_state=state)
 
+            # Store pending control BEFORE sending (to avoid race condition)
+            device._pending_controls[packet.header.sequence] = (controlName, controlState.upper())
+
+            loop = asyncio.get_event_loop()
+            await loop.sock_sendall(device.socket, packet.pack())
+            ml.slog(f"Sent CONTROL command (id={command_id}, {controlName} {controlState}) to {device.name}")
         except Exception as e:
-            ml.elog(f"Error sending {command} command to {device.name}: {e}")
-            _removed = deviceRegistry.pop(device.name)
-            ml.slog(f"{device.name} removed from registry.")
-
+            ml.elog(f"Error sending CONTROL command to {device.name}: {e}")
+            # Clean up pending control on send failure
+            if packet.header.sequence in device._pending_controls:
+                device._pending_controls.pop(packet.header.sequence)
+            if device.address in deviceRegistry:
+                _removed = deviceRegistry.pop(device.address)
+                ml.slog(f"{device.name} removed from registry.")
     else:
-        ml.elog(f"No socket available for {device.name} to send {command} command.")
+        ml.elog(f"No socket available for {device.name} to send CONTROL command.")
 
-def getStatus(device: ESPDevice) -> None:
-    command = "STATUS"
-    device.socket.sendall(command.encode("utf-8"))
-    ml.slog(f"Sent '{command}' command to {device.name}")
+
+async def getStatus(device: ESPDevice) -> None:
+    from libqretprop.protocol import PacketType, SimplePacket
+
+    if device.socket:
+        try:
+            packet = SimplePacket.create(PacketType.STATUS_REQUEST)
+            loop = asyncio.get_event_loop()
+            await loop.sock_sendall(device.socket, packet.pack())
+            ml.slog(f"Sent STATUS_REQUEST to {device.name}")
+        except Exception as e:
+            ml.elog(f"Error sending STATUS_REQUEST to {device.name}: {e}")
+    else:
+        ml.elog(f"No socket available for {device.name} to send STATUS_REQUEST.")
+
+def removeDevice(device: ESPDevice) -> None:
+    if device.address in deviceRegistry:
+        _removed = deviceRegistry.pop(device.address)
+        ml.slog(f"{device.name} removed from registry.")
+
 
 # ---------------------- #
-# Data Export Tools      #
+# Data Export Tools
 # ---------------------- #
+
 
 def exportDataToCSV() -> None:
-    """Export sensor data to a CSV file.
-
-    Args:
-        device (SensorMonitor): The device to export data from.
-        filename (str): The name of the file to save the data to.
-    """
     testTime = time.strftime("%Y%m%d-%H%M%S")
 
-    # Export data for each SensorMonitor device to a separate CSV file
     for device in deviceRegistry.values():
         if isinstance(device, SensorMonitor):
             testTime = time.strftime("%Y%m%d-%H:%M:%S")
@@ -395,7 +421,7 @@ def exportDataToCSV() -> None:
 
             sensorNames = [sensor.name for sensor in device.sensors.values()]
 
-            with open(deviceFilename, mode='w', newline='') as csvfile:
+            with open(deviceFilename, mode="w", newline="") as csvfile:
                 writer = csv.writer(csvfile)
                 header = ["Time", *sensorNames]
                 writer.writerow(header)

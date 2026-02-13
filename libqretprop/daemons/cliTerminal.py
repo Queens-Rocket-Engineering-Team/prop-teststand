@@ -11,10 +11,15 @@ from libqretprop.Devices.SensorMonitor import SensorMonitor
 SERVERCOMMANDS = [
     "QUIT",
     "EXIT",
-    "CONN",
+    "DISCOVER",
     "LIST",
-    "SCAN",
     "EXPO",
+    "HELP",
+    "INFO",
+    "SENSORS",
+    "CONTROLS",
+    "WATCH",
+    "REMOVE",
     ]
 
 DEVICECOMMANDS = [
@@ -22,6 +27,8 @@ DEVICECOMMANDS = [
     "STREAM",
     "STOP",
     "CONTROL",
+    "OPEN",
+    "CLOSE",
     ]
 
 
@@ -31,55 +38,134 @@ async def handleServerCommand(command: str, args: list) -> None:
     if cmd in ("QUIT", "EXIT"):
         ml.slog("Shutting down server...")
         await asyncio.sleep(0.1)
-    elif cmd == "SCAN":
-        ml.slog("Sending multicast discovery request.")
-        deviceTools.sendMulticastDiscovery()
-    elif cmd == "CONN":
-        if not args:
-            ml.slog("No IP address provided for direct connection.")
-            return
-        deviceIP = args[0]
-        await deviceTools.connectToDevice(deviceIP)
+    elif cmd == "DISCOVER":
+        ml.slog("Sending discovery broadcast...")
+        deviceTools.sendDiscoveryBroadcast()
+        ml.slog("Discovery sent. Devices will auto-connect.")
     elif cmd == "LIST":
         devices = deviceTools.getRegisteredDevices()
         if not devices:
-            ml.log("No devices connected.")
+            ml.slog("No devices connected.")
+            ml.slog("  Try: discover")
         else:
-            ml.log("Connected devices:")
+            ml.slog(f"Connected devices ({len(devices)}):")
             for device in devices.values():
-                ml.log(f"{device.name} ({device.type}) - {device.address}")
+                ml.slog(f"  {device.name} ({device.type}) - {device.address}")
+                if isinstance(device, SensorMonitor):
+                    ml.slog(f"    Sensors: {len(device.sensors)}, Controls: {len(device.controls)}")
+    elif cmd == "REMOVE":
+        if not args:
+            ml.slog("Usage: remove <device_name>")
+            return
+        devices = deviceTools.getRegisteredDevices()
+        device = None
+        for d in devices.values():
+            if d.name.upper() == args[0].upper():
+                device = d
+                break
+        if not device:
+            ml.slog(f"Device '{args[0]}' not currently registered. Use \"LIST\" to see devices.")
+            return
+        deviceTools.removeDevice(device)
+        ml.slog(f"Removed device '{device.name}'")
+
+    elif cmd == "INFO":
+        if not args:
+            ml.slog("Usage: info <device_name>")
+            return
+        devices = deviceTools.getRegisteredDevices()
+        device = None
+        for d in devices.values():
+            if d.name.upper() == args[0].upper():
+                device = d
+                break
+        if not device:
+            ml.slog(f"Device '{args[0]}' not found")
+            return
+        ml.slog(f"Device: {device.name}")
+        ml.slog(f"  Type: {device.type}")
+        ml.slog(f"  Address: {device.address}")
+        if isinstance(device, SensorMonitor):
+            ml.slog(f"  Sensors ({len(device.sensors)}):")
+            for idx, name in enumerate(device.sensors.keys()):
+                ml.slog(f"    [{idx}] {name}")
+            ml.slog(f"  Controls ({len(device.controls)}):")
+            for idx, name in enumerate(device.controls.keys()):
+                ml.slog(f"    [{idx}] {name}")
+    elif cmd == "HELP":
+        ml.slog("Available commands:")
+        ml.slog("  discover           - Discover devices")
+        ml.slog("  list               - Show connected devices")
+        ml.slog("  info <device>      - Show device details")
+        ml.slog("  stream <dev> <hz>  - Start streaming")
+        ml.slog("  stop <device>      - Stop streaming")
+        ml.slog("  open <dev> <ctrl>  - Open valve/control")
+        ml.slog("  close <dev> <ctrl> - Close valve/control")
+        ml.slog("  expo               - Export data to CSV")
+        ml.slog("  quit               - Exit")
     elif cmd == "EXPO":
         deviceTools.exportDataToCSV()
+        ml.slog("Data exported to test_data/")
 
 async def handleDeviceCommand(command: str, args: list) -> None:
-    devices = deviceTools.getRegisteredDevices()
-    if not devices:
-        ml.slog("No devices connected to send command to")
+    if not args:
+        ml.slog(f"Usage: {command.lower()} <device_name> [args...]")
         return
+
+    device_name = args[0]
+    devices = deviceTools.getRegisteredDevices()
+    device = None
+    for d in devices.values():
+        if d.name.lower() == device_name.lower():
+            device = d
+            break
+
+    if not device:
+        ml.slog(f"Device '{device_name}' not found. Use 'list' to see devices.")
+        return
+
+    if not isinstance(device, SensorMonitor):
+        ml.slog(f"Device is not a sensor monitor")
+        return
+
     cmd = command.upper()
-    for device in devices.values():
-        if isinstance(device, SensorMonitor):
-            try:
-                if cmd == "GETS":
-                    deviceTools.getSingle(device)
-                elif cmd == "STREAM":
-                    deviceTools.startStreaming(device, *args)
-                elif cmd == "STOP":
-                    deviceTools.stopStreaming(device)
-                elif cmd == "CONTROL":
-                    deviceTools.setControl(device, *args)
-            except Exception as e:
-                ml.elog(f"Error sending command to {device.name}: {e}")
+    try:
+        if cmd == "GETS":
+            await deviceTools.getSingle(device)
+            ml.slog(f"Requested data from {device.name}")
+        elif cmd == "STREAM":
+            if len(args) < 2:
+                ml.slog("Usage: stream <device> <frequency_hz>")
+                return
+            freq = int(args[1])
+            await deviceTools.startStreaming(device, freq)
+            ml.slog(f"Streaming from {device.name} at {freq} Hz")
+        elif cmd == "STOP":
+            await deviceTools.stopStreaming(device)
+            ml.slog(f"Stopped streaming from {device.name}")
+        elif cmd == "CONTROL":
+            if len(args) < 3:
+                ml.slog("Usage: control <device> <name> <open|close>")
+                return
+            await deviceTools.setControl(device, args[1], args[2])
+            ml.slog(f"Sent {args[2]} to {args[1]} on {device.name}")
+        elif cmd == "OPEN":
+            if len(args) < 2:
+                ml.slog("Usage: open <device> <control_name>")
+                return
+            await deviceTools.setControl(device, args[1], "OPEN")
+            ml.slog(f"Opened {args[1]} on {device.name}")
+        elif cmd == "CLOSE":
+            if len(args) < 2:
+                ml.slog("Usage: close <device> <control_name>")
+                return
+            await deviceTools.setControl(device, args[1], "CLOSE")
+            ml.slog(f"Closed {args[1]} on {device.name}")
+    except Exception as e:
+        ml.elog(f"Error: {e}")
 
 async def processCommand(command: str) -> None:
-    """Process a command and send it to all connected devices.
-
-    These commands can be device level commands or server level commands.
-
-    Args:
-        command: The command string to process and send
-
-    """
+    """Process a command and send it to all connected devices."""
     fullCommand = command.strip()
     cmd = fullCommand.split(" ")[0]
     args = fullCommand.split(" ")[1:]
@@ -113,4 +199,3 @@ async def commandProcessor() -> None:
     except KeyboardInterrupt:
         ml.slog("Command processor stopped by user")
         raise
-
