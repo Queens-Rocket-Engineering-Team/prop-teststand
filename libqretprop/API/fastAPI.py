@@ -1,19 +1,34 @@
 import json
-from collections.abc import Callable
-from typing import Annotated, Literal, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import uvicorn
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
 from libqretprop import mylogging as ml
-from libqretprop.DeviceControllers import deviceTools
+from libqretprop.DeviceControllers import cameraTools, deviceTools
 from libqretprop.Devices.SensorMonitor import SensorMonitor
+from libqretprop.GuiDataStream import router as log_router
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 app = FastAPI()
+app.include_router(log_router)
 security = HTTPBasic()
+
+# Server runs exclusively on propnet and is not publicly available
+# CSRF is not a concern here
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Hardcoded creds
 ALLOWED_USERS = {
@@ -58,6 +73,13 @@ class CommandResponse(BaseModel):
     status: str
     message: str
 
+class CameraInfo(BaseModel):
+    ip: str
+    hostname: str
+    stream_path: str
+
+class CameraList(BaseModel):
+    cameras: list[CameraInfo]
 
 # API Endpoints
 # ------------------------
@@ -129,6 +151,49 @@ async def sendDeviceCommand(
     return CommandResponse(
         status="sent",
         message=f"User {user} sent command '{cmd.command}' with args: {cmd.args} to {', '.join(device.name for device in devices.values())} devices.",
+    )
+
+@app.get("/v1/cameras", summary="Get the list of connected cameras", dependencies=[Depends(authUser)])
+async def getCameras() -> CameraList:
+    cameras = cameraTools.cameraRegistry
+
+    cameraDataList = []
+
+    for cam in cameras.values():
+        cameraData = CameraInfo(ip=cam.address, hostname=cam.hostname, stream_path=f"/{cam.address}")
+        cameraDataList.append(cameraData)
+
+    return CameraList(cameras=cameraDataList)
+
+@app.post("/v1/cameras/reconnect", summary="Reconnect all cameras", dependencies=[Depends(authUser)])
+async def reconnectCameras(user: Annotated[str, Depends(authUser)]) -> CameraList:
+    ml.slog(f"User {user} sent camera reconnect")
+    await cameraTools.connectAllCameras()
+    return await getCameras()
+
+
+@app.post("/v1/camera", summary="Control a camera's movement",
+          dependencies=[Depends(authUser)])
+async def controlCamera(
+    ip: str,
+    x_movement: float,
+    y_movement: float,
+    bgTasks: BackgroundTasks,
+    user: Annotated[str, Depends(authUser)],
+) -> CommandResponse:
+
+    ml.slog(f"User {user} sent camera move command to {ip}: <{x_movement}, {y_movement}>")
+
+    bgTasks.add_task(
+        cameraTools.moveCamera,
+        ip,
+        x_movement,
+        y_movement,
+    )
+
+    return CommandResponse(
+        status="sent",
+        message=f"User {user} sent camera move command to {ip}: <{x_movement}, {y_movement}>",
     )
 
 
