@@ -24,7 +24,6 @@ from libqretprop.protocol import (
     SimplePacket,
     StatusPacket,
     StreamStartPacket,
-    TimeSyncPacket,
     Unit,
 )
 
@@ -110,19 +109,17 @@ def test_discovery_packet() -> bool:
 
 
 def test_timesync_packet() -> bool:
-    """Test TimeSyncPacket encoding and decoding."""
-    print_test("TimeSyncPacket")
+    """Test TIMESYNC as a header-only packet."""
+    print_test("TIMESYNC (header-only)")
 
-    test_time_ms = int(time.time() * 1000)
-    packet = TimeSyncPacket.create(server_time_ms=test_time_ms)
+    packet = SimplePacket.create(PacketType.TIMESYNC)
 
     packed = packet.pack()
-    unpacked = TimeSyncPacket.unpack(packed)
+    unpacked = SimplePacket.unpack(packed)
 
     passed = True
-    passed &= assert_equal(len(packed), 17, "Packet size is 17 bytes")
+    passed &= assert_equal(len(packed), 9, "Packet size is 9 bytes")
     passed &= assert_equal(unpacked.header.packet_type, PacketType.TIMESYNC, "Packet type correct")
-    passed &= assert_equal(unpacked.server_time_ms, test_time_ms, "Server time preserved")
 
     return passed
 
@@ -402,7 +399,7 @@ def test_decode_packet() -> bool:
 
     packets = [
         (SimplePacket.create(PacketType.DISCOVERY), SimplePacket, "Discovery"),
-        (TimeSyncPacket.create(12345), TimeSyncPacket, "TimeSyncPacket"),
+        (SimplePacket.create(PacketType.TIMESYNC), SimplePacket, "TIMESYNC"),
         (ControlPacket.create(0, ControlState.OPEN), ControlPacket, "ControlPacket"),
         (DataPacket.create(sensor_id=0, data=23.45), DataPacket, "DataPacket"),
         (StatusPacket.create(DeviceStatus.ACTIVE), StatusPacket, "StatusPacket"),
@@ -529,9 +526,9 @@ def test_roundtrip_all_packets() -> bool:
     )
 
     # TimeSync
-    p2 = TimeSyncPacket.create(99999)
+    p2 = SimplePacket.create(PacketType.TIMESYNC)
     decoded_p2 = decode_packet(p2.pack())
-    passed &= assert_equal(decoded_p2.server_time_ms, 99999, "TimeSync roundtrip")
+    passed &= assert_equal(decoded_p2.header.packet_type, PacketType.TIMESYNC, "TimeSync roundtrip")
 
     # Control
     p3 = ControlPacket.create(7, ControlState.OPEN)
@@ -636,7 +633,7 @@ def test_realistic_scenario() -> bool:
     print_info(f"3. Server sends ACK ({len(ack.pack())} bytes)")
 
     # 4. Server syncs time
-    timesync = TimeSyncPacket.create()
+    timesync = SimplePacket.create(PacketType.TIMESYNC)
     print_info(f"4. Server sends TIMESYNC ({len(timesync.pack())} bytes)")
 
     # 5. Device acknowledges

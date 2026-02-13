@@ -136,12 +136,12 @@ async def tcpListener() -> None:
                         ml.slog(f"Device {newDevice.name} registered from {deviceIP}")
 
                         # ACK the CONFIG, then send initial TIMESYNC
-                        from libqretprop.protocol import AckPacket, TimeSyncPacket
+                        from libqretprop.protocol import AckPacket, SimplePacket
 
                         ack = AckPacket.create(PacketType.CONFIG, packet.header.sequence)
                         await loop.sock_sendall(client_socket, ack.pack())
 
-                        timesync = TimeSyncPacket.create()
+                        timesync = SimplePacket.create(PacketType.TIMESYNC)
                         await loop.sock_sendall(client_socket, timesync.pack())
                         ml.slog(f"Sent initial TIMESYNC to {newDevice.name}")
 
@@ -191,7 +191,7 @@ def closeDeviceConnections() -> None:
 async def _monitorSingleDevice(device: ESPDevice) -> None:
     """Monitor a single device using LENGTH-based framing from v2 header."""
     loop = asyncio.get_event_loop()
-    from libqretprop.protocol import PacketHeader, PacketType, TimeSyncPacket, decode_packet
+    from libqretprop.protocol import PacketHeader, PacketType, SimplePacket, decode_packet
 
     buffer = b""
 
@@ -264,7 +264,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                         and time.monotonic() - device.last_sync_time > ESPDevice.RESYNC_INTERVAL_S
                     ):
                         device._resync_pending = True
-                        timesync = TimeSyncPacket.create()
+                        timesync = SimplePacket.create(PacketType.TIMESYNC)
                         await loop.sock_sendall(device.socket, timesync.pack())
                         ml.slog(f"{device.name} resync sent (stale >{ESPDevice.RESYNC_INTERVAL_S / 60:.0f} min)")
 

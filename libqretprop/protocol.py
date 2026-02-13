@@ -344,31 +344,6 @@ class NackPacket:
         )
 
 
-@dataclass
-class TimeSyncPacket:
-    """Time synchronization. Header + server_time_ms (8B uint64). Total: 17 bytes."""
-    PAYLOAD_FORMAT: ClassVar[str] = ">Q"
-
-    header: PacketHeader
-    server_time_ms: int
-
-    def pack(self) -> bytes:
-        return self.header.pack() + struct.pack(self.PAYLOAD_FORMAT, self.server_time_ms)
-
-    @classmethod
-    def create(cls, server_time_ms: int | None = None) -> "TimeSyncPacket":
-        if server_time_ms is None:
-            server_time_ms = int(time.time() * 1000)
-        header = _make_header(PacketType.TIMESYNC, PacketHeader.SIZE + 8)
-        return cls(header=header, server_time_ms=server_time_ms)
-
-    @classmethod
-    def unpack(cls, data: bytes) -> "TimeSyncPacket":
-        header = PacketHeader.unpack(data)
-        s = PacketHeader.SIZE
-        server_time_ms, = struct.unpack(cls.PAYLOAD_FORMAT, data[s:s + 8])
-        return cls(header=header, server_time_ms=server_time_ms)
-
 
 @dataclass
 class SensorReading:
@@ -485,7 +460,7 @@ def decode_packet(data: bytes):
         PacketType.CONTROL: ControlPacket,
         PacketType.ACK: AckPacket,
         PacketType.NACK: NackPacket,
-        PacketType.TIMESYNC: TimeSyncPacket,
+        PacketType.TIMESYNC: SimplePacket,
         PacketType.DATA: DataPacket,
         PacketType.CONFIG: ConfigPacket,
     }

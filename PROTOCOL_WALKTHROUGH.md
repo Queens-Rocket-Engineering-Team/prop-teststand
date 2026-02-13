@@ -99,6 +99,7 @@ These packets have no payload. LENGTH = 9.
 |----------------|-------|
 | ESTOP          | 0x00  |
 | DISCOVERY      | 0x01  |
+| TIMESYNC       | 0x02  |
 | STREAM_STOP    | 0x06  |
 | GET_SINGLE     | 0x07  |
 | HEARTBEAT      | 0x08  |
@@ -180,15 +181,12 @@ Offset  Size  Type    Field            Description
 
 ---
 
-### TIMESYNC (17 bytes)
+### TIMESYNC (9 bytes, header-only)
 
-Time synchronization from server. LENGTH = 17.
+Time synchronization from server. LENGTH = 9. No payload — the header's TIMESTAMP field carries the server's monotonic milliseconds, which is all the device needs.
 
 ```
-Offset  Size  Type    Field          Description
-------  ----  ------  -------------  -------------------------
-0-8     9     -       header         Standard header
-9       8     uint64  server_time_ms Unix epoch milliseconds
+[Header 9B]
 ```
 
 The server sends TIMESYNC immediately after acknowledging the device's CONFIG, and then periodically every 10 minutes during normal operation.
@@ -207,8 +205,6 @@ The server sends TIMESYNC immediately after acknowledging the device's CONFIG, a
 4. ACK the TIMESYNC.
 
 After this, every packet the device sends has its timestamp locked to the server's time scale. The server can use device header timestamps directly — no server-side conversion is needed.
-
-The `server_time_ms` payload (uint64, Unix epoch ms) is available if the device needs absolute wall-clock time for its own purposes, but is not used for the timestamp sync mechanism.
 
 **Why this matters**: By locking device timestamps to the server's clock, the server gets inter-sample timing derived from the device's crystal oscillator rather than from network receive times. This eliminates jitter from TCP buffering, OS scheduling, and network latency. The device's oscillator provides consistent, microsecond-resolution intervals between readings.
 
@@ -276,7 +272,7 @@ Offset      Size      Type    Field       Description
 | CONTROL        | 11               | 1B cmd_id + 1B state |
 | ACK            | 12               | 1B type + 1B seq + 1B error |
 | NACK           | 12               | 1B type + 1B seq + 1B error |
-| TIMESYNC       | 17               | 8B server_time_ms    |
+| TIMESYNC       | 9                | (none)               |
 | DATA           | 10 + 6*N         | 1B count + N*(1B+1B+4B) |
 | CONFIG         | 13 + json_len    | 4B len + json_data   |
 
