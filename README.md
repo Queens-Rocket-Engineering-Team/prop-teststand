@@ -1,49 +1,142 @@
 # prop-teststand
 
-This project is built to be the interface server for controlling the QRET propulsion sub team's static hot fire setup.
-
-## IDE Setup
-
-This project is intended to be opened in VSCode. When you first open the project, install the recommended extensions that pop up in the bottom right.
-
-## Environment Setup
-
-To run this project you should be running Python3.11.x, with an isolated virtual environment. See [python docs](https://docs.python.org/3/library/venv.html) for help setting up a virtual environment.
-
-To install all the required packages to work as a developer on this code, run: `pip install -e .`, or if you are using
-uv (which I highly recommend), `uv pip install -e .` in the `/prop-teststand` directory in the command line. This
-installs all the listed requirements in the pyproject.toml file.
+Server application for QRET's propulsion test stand. Discovers and communicates with ESP32 sensor/control devices over a custom binary TCP protocol, collects sensor data, controls valves, manages IP cameras, and exposes everything through a REST API and CLI.
 
 ## System Architecture
 
-This part of the test-stand network is intended to run on a Raspberry Pi (or equivalent) and act as a headless server
-that intakes data and can forward it to any connected clients. In the absence of a Pi, the system can run on any linux
-capable machine (or in WSL) and serve the same purpose. All of the data collection will be happening on the ESP32 side,
-this server should act simply as a router for any clients that wish to connect to the datastream coming from the ESP32.
+The server is designed to run on a Raspberry Pi (or any Linux machine / WSL) as a headless hub between ESP32 devices and any number of clients.
 
 ```mermaid
 flowchart LR
-    ESP[ESP32<br>Sensor Data Acquisition] -->|Wi-Fi Data Stream| Pi[Raspberry Pi<br>Router & Server];
+    ESP1[ESP32<br>Sensors & Valves] -->|TCP :50000| Pi
+    ESP2[ESP32<br>Sensors & Valves] -->|TCP :50000| Pi
+    Cam[IP Cameras] -->|ONVIF / RTSP| Pi
+
+    Pi[Server<br>Raspberry Pi]
 
     subgraph Clients
       direction TB
-      Client1[Laptop<br>Data Viewer]
-      Client2[Phone<br>Data Viewer]
-      Client3[Laptop<br>Controller]
+      GUI[Desktop GUI]
+      Web[Web Client]
+      API[REST / WebSocket]
     end
-    Pi --> Client1
-    Pi --> Client2
-    Pi --> Client3
+
+    Pi -->|FastAPI :8000| GUI
+    Pi -->|WebRTC / RTSP| Web
+    Pi -->|HTTP / WS| API
 
     Here((YOU ARE HERE)) --> Pi:::youAreHere
-
     classDef youAreHere stroke:red, stroke-width:6px;
-        linkStyle 4 stroke:red,stroke-width:4px
-
+    linkStyle 5 stroke:red,stroke-width:4px
     style Here fill:transparent,stroke:none,color:red;
+```
+
+### Services
+
+| Service | Description |
+|---------|-------------|
+| **server** | Main application — device discovery (SSDP), TCP listener, FastAPI, CLI |
+| **redis** | Logging pub/sub and real-time data relay |
+| **media** | [MediaMTX](https://github.com/bluenviron/mediamtx) RTSP/WebRTC relay for camera streams |
+| **logs** | Log aggregator that reads from Redis channels |
+
+## Setup
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) (recommended)
+- Or: Python 3.11+ with [uv](https://docs.astral.sh/uv/)
+
+### Development (Docker)
+
+```bash
+docker compose -f compose.dev.yml up
+```
+
+This starts all services with file watching — code changes in `libqretprop/` and `config.yaml` trigger automatic restarts.
+
+### Production (Docker)
+
+```bash
+docker compose -f compose.prod.yml up -d
+```
+
+Pulls pre-built images from `ghcr.io/queens-rocket-engineering-team/`.
+
+### Local (No Docker)
+
+```bash
+uv pip install -e .          # core dependencies
+uv pip install -e ".[gui]"   # optional: GUI tools (PySide6)
+
+start_server                 # start the server
+```
+
+Redis must be running separately for logging to work.
+
+## Configuration
+
+The server reads `config.yaml` for service connections and camera definitions:
+
+```yaml
+accounts:
+  redis:
+    username: server
+    password: ...
+  camera:
+    username: propcam
+    password: ...
+
+services:
+  redis:
+    ip: localhost
+    port: 6379
+  mediamtx:
+    ip: localhost
+    api_port: 9997
+    webrtc_port: 8889
+
+cameras:
+  - ip: 192.168.1.5
+    onvif_port: 2020
+```
+
+Override the path with the `PROP_CONFIG` environment variable (defaults to `./config.yaml`).
+
+ESP32 devices configure themselves — each device sends a JSON CONFIG packet on connection describing its sensors and controls.
+
+## CLI Tools
+
+| Command | Description |
+|---------|-------------|
+| `start_server` | Start the main server |
+| `see_logs` | View real-time logs from Redis (`-e` errors, `-d` debug, `-s` system) |
+| `mock_device` | Simulate an ESP32 device for testing |
+| `full_gui` | Full PySide6 control panel (requires `gui` extra) |
+
+Once the server is running, an interactive CLI provides commands like `discover`, `list`, `stream <device> <Hz>`, `control <device> <name> <state>`, and `estop`.
+
+## Protocol
+
+Devices communicate using a custom binary protocol over TCP (port 50000). All packets share a 9-byte big-endian header:
 
 ```
+Offset  Size  Type    Field      Description
+0       1     uint8   VERSION    Protocol version (0x02)
+1       1     uint8   TYPE       Packet type
+2       1     uint8   SEQUENCE   Wrapping 0-255 counter
+3       2     uint16  LENGTH     Total packet size including header
+5       4     uint32  TIMESTAMP  Milliseconds since boot/session
+```
+
+Devices are discovered via SSDP multicast on `239.255.255.250:1900`. On discovery, the device opens a TCP connection to the server and sends its CONFIG. The server then time-syncs the device and normal operation begins (streaming, control commands, heartbeats).
+
+See [PROTOCOL_WALKTHROUGH.md](PROTOCOL_WALKTHROUGH.md) for the full wire-format specification.
 
 ## ESP32 Setup
 
-For more information on how to set up the microcontroller side of this project, see [its github project](https://github.com/Queens-Rocket-Engineering-Team/prop-esp32-logger).
+For the microcontroller side of this project, see [prop-esp32-logger](https://github.com/Queens-Rocket-Engineering-Team/prop-esp32-logger).
+
+## IDE Setup
+
+This project is intended to be opened in VSCode. Install the recommended extensions when prompted.
