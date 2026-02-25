@@ -1,11 +1,13 @@
 import json
+import time
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import uvicorn
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from libqretprop import mylogging as ml
 from libqretprop.DeviceControllers import cameraTools, deviceTools
@@ -19,6 +21,22 @@ if TYPE_CHECKING:
 app = FastAPI()
 app.include_router(log_router)
 security = HTTPBasic()
+
+
+class AccessLogMiddleware(BaseHTTPMiddleware):
+    """Middleware to log requests to ml.slog instead of stdout."""
+
+    async def dispatch(self, request: Request, call_next):
+        start_time = time.perf_counter()
+        response = await call_next(request)
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        ml.slog(
+            f'{request.client.host}:{request.client.port} - "{request.method} {request.url.path} HTTP/1.1" {response.status_code} ({duration_ms:.0f}ms)'
+        )
+        return response
+
+
+app.add_middleware(AccessLogMiddleware)
 
 # Server runs exclusively on propnet and is not publicly available
 # CSRF is not a concern here
@@ -44,7 +62,8 @@ async def startAPI() -> None:
         host="0.0.0.0",
         port=8000,
         loop="asyncio",
-        log_level="info",
+        log_level="warning",  # Suppress INFO-level access logs
+        access_log=False,  # Disable uvicorn access logging (handled by middleware)
     )
     server = uvicorn.Server(config)
     await server.serve()
@@ -73,13 +92,16 @@ class CommandResponse(BaseModel):
     status: str
     message: str
 
+
 class CameraInfo(BaseModel):
     ip: str
     hostname: str
     stream_path: str
 
+
 class CameraList(BaseModel):
     cameras: list[CameraInfo]
+
 
 # API Endpoints
 # ------------------------
@@ -153,6 +175,7 @@ async def sendDeviceCommand(
         message=f"User {user} sent command '{cmd.command}' with args: {cmd.args} to {', '.join(device.name for device in devices.values())} devices.",
     )
 
+
 @app.get("/v1/cameras", summary="Get the list of connected cameras", dependencies=[Depends(authUser)])
 async def getCameras() -> CameraList:
     cameras = cameraTools.cameraRegistry
@@ -165,6 +188,7 @@ async def getCameras() -> CameraList:
 
     return CameraList(cameras=cameraDataList)
 
+
 @app.post("/v1/cameras/reconnect", summary="Reconnect all cameras", dependencies=[Depends(authUser)])
 async def reconnectCameras(user: Annotated[str, Depends(authUser)]) -> CameraList:
     ml.slog(f"User {user} sent camera reconnect")
@@ -172,8 +196,7 @@ async def reconnectCameras(user: Annotated[str, Depends(authUser)]) -> CameraLis
     return await getCameras()
 
 
-@app.post("/v1/camera", summary="Control a camera's movement",
-          dependencies=[Depends(authUser)])
+@app.post("/v1/camera", summary="Control a camera's movement", dependencies=[Depends(authUser)])
 async def controlCamera(
     ip: str,
     x_movement: float,
@@ -202,7 +225,7 @@ class ConfigsResponse(BaseModel):
     configs: dict[str, dict[str, Any]]
 
 
-@app.get("/config", summary="Get the sensor and control config", response_model=ConfigsResponse, dependencies=[Depends(authUser)])
+@app.get("/config", summary="Get the sensor and control config", response_model=ConfigsResponse)
 async def getServerConfig() -> ConfigsResponse:
     configs: dict[str, dict] = {}
     for dev in deviceTools.deviceRegistry.values():
