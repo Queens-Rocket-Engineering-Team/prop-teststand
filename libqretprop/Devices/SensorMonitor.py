@@ -8,6 +8,7 @@ from libqretprop.Devices.ESPDevice import ESPDevice
 from libqretprop.Devices.sensors.Current import Current
 from libqretprop.Devices.sensors.LoadCell import LoadCell
 from libqretprop.Devices.sensors.PressureTransducer import PressureTransducer
+from libqretprop.Devices.sensors.Resistance import Resistance
 from libqretprop.Devices.sensors.Thermocouple import Thermocouple
 
 
@@ -38,10 +39,10 @@ class SensorMonitor(ESPDevice):
     # JSON.loads returns a dictionary where attributes are defined with string titles and can contain whatever as values.
     def _initializeFromConfig(
         self, config: dict[str, Any]
-    ) -> tuple[dict[str, Thermocouple | LoadCell | PressureTransducer | Current], dict[str, Control]]:
+    ) -> tuple[dict[str, Thermocouple | LoadCell | PressureTransducer | Current | Resistance], dict[str, Control]]:
         """Initialize all devices and sensors from the config file."""
 
-        sensors: dict[str, Thermocouple | LoadCell | PressureTransducer | Current] = {}
+        sensors: dict[str, Thermocouple | LoadCell | PressureTransducer | Current | Resistance] = {}
         controls: dict[str, Control] = {}
 
         sensorInfo = config.get("sensorInfo", {})
@@ -85,6 +86,15 @@ class SensorMonitor(ESPDevice):
                 shuntResistor_Ohms=details.get("shuntResistor_Ohms", 0.1),
                 csaGain=details.get("csaGain", 50),
                 units=details.get("units", "A"),
+            )
+
+        for name, details in sensorInfo.get("resistance", {}).items():
+            sensors[name] = Resistance(
+                name=name,
+                ADCIndex=details["ADCIndex"],
+                pinNumber=details["pin"],
+                injectedCurrent=details["injectedCurrent"],
+                units=details.get("units", "Ohms"),
             )
 
         # Register valves
