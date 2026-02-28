@@ -131,7 +131,7 @@ async def getHealth() -> dict:
     return {"message": "The server is alive!"}
 
 
-app.post(
+@app.post(
     "/v1/command",
     summary="Send a command to the devices on the network",
 )  # Define a POST endpoint for device commands at “/command”
