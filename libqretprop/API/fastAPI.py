@@ -125,17 +125,15 @@ async def getHealth() -> dict:
     return {"message": "The server is alive!"}
 
 
-@app.post(
+app.post(
     "/v1/command",
     summary="Send a command to the devices on the network",
-    dependencies=[Depends(authUser)],
 )  # Define a POST endpoint for device commands at “/command”
 async def sendDeviceCommand(
     cmd: CommandRequest,
     bgTasks: BackgroundTasks,
-    user: Annotated[str, Depends(authUser)],
 ) -> CommandResponse:
-    ml.slog(f"User: {user} sent '{cmd.command} {cmd.args}'")
+    ml.slog(f"Command sent: '{cmd.command} {cmd.args}'")
 
     # Map the relevant command name to their functions
     commandMap: dict[str, Callable] = {
@@ -172,7 +170,7 @@ async def sendDeviceCommand(
 
     return CommandResponse(
         status="sent",
-        message=f"User {user} sent command '{cmd.command}' with args: {cmd.args} to {', '.join(device.name for device in devices.values())} devices.",
+        message=f"Command '{cmd.command}' with args: {cmd.args} sent to {', '.join(device.name for device in devices.values())} devices.",
     )
 
 
