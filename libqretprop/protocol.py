@@ -70,7 +70,7 @@ class Unit(IntEnum):
     SECONDS = 0x0C
     MILLISECONDS = 0x0D
     HERTZ = 0x0E
-    PERCENT = 0x0F
+    OHMS = 0x0F
     UNITLESS = 0xFF
 
 
