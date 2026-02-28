@@ -5,6 +5,7 @@ dictionaries: []
 words:
   - absjoin
   - aioconsole
+  - AVFILL
   - colorama
   - csvfile
   - DEVICECOMMANDS
@@ -18,6 +19,7 @@ words:
   - figsize
   - getch
   - gethostname
+  - INADDR
   - IPPROTO
   - ipykernel
   - isconnected
@@ -29,6 +31,7 @@ words:
   - micropython
   - Modbus
   - mpremote
+  - mreq
   - mylogging
   - Nikhil
   - numpy
@@ -39,12 +42,14 @@ words:
   - qretprop
   - qretproptools
   - REUSEADDR
+  - REUSEPORT
   - SERVERCOMMANDS
   - showlegend
   - skiprows
   - SSDP
   - STRM
   - teststand
+  - timesync
   - webrepl
   - WLAN
   - xaxes
