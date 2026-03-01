@@ -155,6 +155,9 @@ async def sendDeviceCommand(
     if func is None:
         raise HTTPException(400, f"Unknown command {cmd.command!r}")
 
+    # Track if any commands were sent to at least one device, to avoid returning success if all targets were invalid
+    anyCommandsSent = False
+
     # Run the command in the background to not block the API
     for device in devices.values():
         if cmd.command == "STREAM":
@@ -163,22 +166,29 @@ async def sendDeviceCommand(
                 raise HTTPException(400, "STREAM requires a frequency argument")
             try:
                 freq = int(cmd.args[0])
+                anyCommandsSent = True
                 bgTasks.add_task(func, device, freq)
             except ValueError:
                 raise HTTPException(400, f"STREAM frequency must be an integer, got '{cmd.args[0]}'")
         elif cmd.command == "CONTROL":
-            controlName = cmd.args[0]
-
             # CONTROL needs controlName and controlState
             if len(cmd.args) < 2:
                 raise HTTPException(400, "CONTROL requires control name and state")
 
+            controlName = cmd.args[0].upper()
+            controlState = cmd.args[1].upper()
+
             if not isinstance(device, SensorMonitor) or controlName not in device.controls:
                 continue
 
-            bgTasks.add_task(func, device, cmd.args[0], cmd.args[1])
+            anyCommandsSent = True
+            bgTasks.add_task(func, device, controlName, controlState)
         else:
+            anyCommandsSent = True
             bgTasks.add_task(func, device, *cmd.args)
+
+    if not anyCommandsSent:
+        raise HTTPException(400, "No valid target devices for the command")
 
     return CommandResponse(
         status="sent",
