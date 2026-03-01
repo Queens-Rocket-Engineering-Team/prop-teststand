@@ -167,9 +167,15 @@ async def sendDeviceCommand(
             except ValueError:
                 raise HTTPException(400, f"STREAM frequency must be an integer, got '{cmd.args[0]}'")
         elif cmd.command == "CONTROL":
+            controlName = cmd.args[0]
+
             # CONTROL needs controlName and controlState
             if len(cmd.args) < 2:
                 raise HTTPException(400, "CONTROL requires control name and state")
+
+            if not isinstance(device, SensorMonitor) or controlName not in device.controls:
+                continue
+
             bgTasks.add_task(func, device, cmd.args[0], cmd.args[1])
         else:
             bgTasks.add_task(func, device, *cmd.args)
