@@ -15,7 +15,7 @@ MULTICAST_PORT = 1900
 TCP_PORT = 50000
 
 AUTODISCOVER_ENABLED = True
-AUTODISCOVER_INTERVAL = 30.0 # seconds between SSDP discovery broadcasts
+AUTODISCOVER_INTERVAL_S = 30.0 # seconds between SSDP discovery broadcasts
 
 # Searching Globals #
 ssdpSearchSocket: socket.socket | None = None
@@ -54,7 +54,7 @@ async def autoDiscoveryLoop() -> None:
     while True:
         if AUTODISCOVER_ENABLED:
             sendDiscoveryBroadcast()
-            await asyncio.sleep(AUTODISCOVER_INTERVAL)
+            await asyncio.sleep(AUTODISCOVER_INTERVAL_S)
         else:
             await asyncio.sleep(0.5)
 
@@ -211,6 +211,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
             data = await loop.sock_recv(device.socket, 4096)
             if not data:
                 ml.elog(f"Device {device.name} disconnected.")
+                removeDevice(device)
                 break
 
             buffer += data
@@ -253,11 +254,14 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                             device.last_sync_time = time.monotonic()
                             device._resync_pending = False
                             ml.plog(f"{device.name} TIMESYNC completed")
+                        elif packet.ack_packet_type == PacketType.HEARTBEAT:
+                            device.handleHeartbeatAck(packet.ack_sequence)
+                            ml.plog(f"{device.name} HEARTBEAT ACK seq={packet.ack_sequence}")
                         elif packet.ack_packet_type == PacketType.CONTROL:
                             # Check for pending control command
                             if packet.ack_sequence in device._pending_controls:
                                 control_name, state = device._pending_controls.pop(packet.ack_sequence)
-                                ml.log(f"{device.name} CONTROL {control_name} {state}")
+                                ml.plog(f"{device.name} CONTROL {control_name} {state}")
                             else:
                                 ml.plog(f"{device.name} ACK for CONTROL seq={packet.ack_sequence}")
                         else:
@@ -413,7 +417,14 @@ async def getStatus(device: ESPDevice) -> None:
 
 def removeDevice(device: ESPDevice) -> None:
     if device.address in deviceRegistry:
-        _removed = deviceRegistry.pop(device.address)
+        if device.socket:
+            try:
+                device.socket.close()
+                ml.slog(f"Closed socket for {device.name}")
+            except OSError as e:
+                ml.elog(f"Error closing socket for {device.name}: {e}")
+
+        deviceRegistry.pop(device.address)
         ml.slog(f"{device.name} removed from registry.")
 
 

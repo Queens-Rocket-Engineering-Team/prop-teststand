@@ -48,7 +48,7 @@ async def handleServerCommand(command: str, args: list) -> None:
         if not args:
             ml.slog(
                 f"Autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, "
-                f"interval={deviceTools.AUTODISCOVER_INTERVAL}s",
+                f"interval={deviceTools.AUTODISCOVER_INTERVAL_S}s",
             )
             ml.slog("Usage: autodiscovery <on|off|interval <seconds>|status>")
             return
@@ -57,7 +57,7 @@ async def handleServerCommand(command: str, args: list) -> None:
         if sub in ("status", "show"):
             ml.slog(
                 f"Autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, "
-                f"interval={deviceTools.AUTODISCOVER_INTERVAL}s",
+                f"interval={deviceTools.AUTODISCOVER_INTERVAL_S}s",
             )
         elif sub in ("on", "enable", "enabled", "true"):
             deviceTools.AUTODISCOVER_ENABLED = True
@@ -79,7 +79,7 @@ async def handleServerCommand(command: str, args: list) -> None:
                 ml.slog("Autodiscovery interval must be greater than 0 seconds")
                 return
 
-            deviceTools.AUTODISCOVER_INTERVAL = interval
+            deviceTools.AUTODISCOVER_INTERVAL_S = interval
             ml.slog(f"Autodiscovery interval set to {interval}s")
         else:
             ml.slog("Usage: autodiscovery <on|off|interval <seconds>|status>")

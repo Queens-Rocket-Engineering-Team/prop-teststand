@@ -292,7 +292,7 @@ async def controlKasaDevice(
 async def getAutodiscoverySettings() -> AutoDiscoveryConfig:
     return AutoDiscoveryConfig(
         enabled=deviceTools.AUTODISCOVER_ENABLED,
-        intervalSeconds=deviceTools.AUTODISCOVER_INTERVAL,
+        intervalSeconds=deviceTools.AUTODISCOVER_INTERVAL_S,
     )
 
 
@@ -308,16 +308,16 @@ async def updateAutodiscoverySettings(
         deviceTools.AUTODISCOVER_ENABLED = enabled
 
     if interval is not None:
-        deviceTools.AUTODISCOVER_INTERVAL = interval
+        deviceTools.AUTODISCOVER_INTERVAL_S = interval
 
     ml.slog(
         f"User updated autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, "
-        f"interval={deviceTools.AUTODISCOVER_INTERVAL}s"
+        f"interval={deviceTools.AUTODISCOVER_INTERVAL_S}s"
     )
 
     return AutoDiscoveryConfig(
         enabled=deviceTools.AUTODISCOVER_ENABLED,
-        intervalSeconds=deviceTools.AUTODISCOVER_INTERVAL,
+        intervalSeconds=deviceTools.AUTODISCOVER_INTERVAL_S,
     )
 
 
