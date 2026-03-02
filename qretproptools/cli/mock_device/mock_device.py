@@ -60,14 +60,14 @@ class MockSensorDevice:
                         "highPin": 1,
                         "lowPin": 2,
                         "type": "K",
-                        "units": "C"
+                        "units": "C",
                     },
                     "TC2": {
                         "ADCIndex": 1,
                         "highPin": 3,
                         "lowPin": 4,
                         "type": "K",
-                        "units": "C"
+                        "units": "C",
                     }
                 },
                 "pressureTransducers": {
@@ -75,22 +75,27 @@ class MockSensorDevice:
                         "ADCIndex": 2,
                         "pin": 5,
                         "maxPressure_PSI": 500,
-                        "units": "PSI"
-                    }
-                }
+                        "units": "PSI",
+                    },
+                },
             },
             "controls": {
-                "AVFILL": {
+                "AV1": {
                     "pin": 10,
                     "type": "valve",
-                    "defaultState": "CLOSED"
+                    "defaultState": "CLOSED",
                 },
-                "AVVENT": {
+                "AV2": {
                     "pin": 11,
                     "type": "valve",
-                    "defaultState": "CLOSED"
-                }
-            }
+                    "defaultState": "OPEN",
+                },
+                "AV3": {
+                    "pin": 12,
+                    "type": "valve",
+                    "defaultState": "OPEN",
+                },
+            },
         }
 
         # Simulated sensor values
