@@ -51,6 +51,9 @@ services:
       - MTX_RTSPADDRESS=:8558
       - MTX_API=yes
 
+    # Always restart media on dockerd start
+    restart: always
+
   redis:
     image: "redis:latest"
     ports:
