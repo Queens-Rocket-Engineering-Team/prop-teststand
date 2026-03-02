@@ -108,6 +108,8 @@ class MockSensorDevice:
         self.streaming = False
         self.stream_frequency = 10
         self.stream_task = None
+        self.command_task = None
+        self.ssdp_task = None
 
         # Timesync offset: added to local ticks to produce server-scale timestamps
         self.timesync_offset = 0
@@ -115,6 +117,45 @@ class MockSensorDevice:
         # Socket
         self.sock = None
         self.ssdp_sock = None
+
+    def reset_device_state(self, announce: bool = False):
+        """Reset runtime state after a disconnect."""
+        self.streaming = False
+        if self.stream_task:
+            self.stream_task.cancel()
+            self.stream_task = None
+
+        self.tc1_temp = 23.0
+        self.tc2_temp = 25.0
+        self.pt1_pressure = 14.7
+
+        self.valve_states = {
+            "AVFILL": "CLOSED",
+            "AVVENT": "CLOSED"
+        }
+
+        self.timesync_offset = 0
+
+        if announce:
+            self.print_status("Device state reset after disconnect", "INFO")
+
+    def ensure_ssdp_listener(self):
+        """Start SSDP listener in background if not already running."""
+        if self.ssdp_task and not self.ssdp_task.done():
+            return
+        self.ssdp_task = asyncio.create_task(self.start_ssdp_listener())
+
+    async def handle_server_disconnect(self):
+        """Clean up socket and resume discovery mode after a server disconnect."""
+        if self.sock:
+            with contextlib.suppress(Exception):
+                self.sock.close()
+        self.sock = None
+
+        self.server_ip = None
+        self.reset_device_state(announce=True)
+        self.print_status("Listening for discovery after disconnect...", "WARNING")
+        self.ensure_ssdp_listener()
 
     def _pack_with_adjusted_ts(self, packet) -> bytes:
         """Pack a packet, replacing the header timestamp with an offset-adjusted one.
@@ -144,6 +185,11 @@ class MockSensorDevice:
     async def start_ssdp_listener(self):
         """Listen for SSDP discovery broadcasts and extract server IP."""
         self.print_status("Starting SSDP listener on 239.255.255.250:1900")
+
+        if self.ssdp_sock:
+            with contextlib.suppress(Exception):
+                self.ssdp_sock.close()
+            self.ssdp_sock = None
 
         self.ssdp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         self.ssdp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -200,7 +246,7 @@ class MockSensorDevice:
 
             await self.send_config()
 
-            asyncio.create_task(self.handle_commands())
+            self.command_task = asyncio.create_task(self.handle_commands())
 
         except Exception as e:
             self.print_status(f"Connection failed: {e}", "ERROR")
@@ -227,7 +273,7 @@ class MockSensorDevice:
             while True:
                 data = await loop.sock_recv(self.sock, 4096)
                 if not data:
-                    self.print_status("Server disconnected", "ERROR")
+                    self.print_status("Server disconnected", "WARNING")
                     break
 
                 buffer += data
@@ -287,6 +333,10 @@ class MockSensorDevice:
 
         except Exception as e:
             self.print_status(f"Command handler error: {e}", "ERROR")
+        finally:
+            self.command_task = None
+            if self.sock is not None:
+                await self.handle_server_disconnect()
 
     async def handle_control_command(self, packet: ControlPacket):
         command_id = packet.command_id
@@ -408,13 +458,20 @@ class MockSensorDevice:
                 pass
         else:
             self.print_status("Waiting for server discovery...", "INFO")
+            self.ensure_ssdp_listener()
             try:
-                await self.start_ssdp_listener()
+                await asyncio.Event().wait()
             except KeyboardInterrupt:
                 pass
 
         if self.sock:
             self.sock.close()
+        if self.command_task:
+            self.command_task.cancel()
+        if self.stream_task:
+            self.stream_task.cancel()
+        if self.ssdp_task:
+            self.ssdp_task.cancel()
         if self.ssdp_sock:
             self.ssdp_sock.close()
 
