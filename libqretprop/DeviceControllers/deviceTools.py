@@ -14,6 +14,9 @@ MULTICAST_PORT = 1900
 
 TCP_PORT = 50000
 
+AUTODISCOVER_ENABLED = True
+AUTODISCOVER_INTERVAL = 30.0 # seconds between SSDP discovery broadcasts
+
 # Searching Globals #
 ssdpSearchSocket: socket.socket | None = None
 
@@ -46,6 +49,14 @@ def sendDiscoveryBroadcast() -> None:
 
     ssdpSearchSocket.sendto(ssdpRequest.encode(), (MULTICAST_ADDRESS, MULTICAST_PORT))
 
+async def autoDiscoveryLoop() -> None:
+    """Periodically send SSDP discovery broadcasts every AUTODISCOVER_INTERVAL seconds."""
+    while True:
+        if AUTODISCOVER_ENABLED:
+            sendDiscoveryBroadcast()
+            await asyncio.sleep(AUTODISCOVER_INTERVAL)
+        else:
+            await asyncio.sleep(0.5)
 
 def _createSSDPSocket() -> socket.socket:
     """Create a send-only SSDP socket for broadcasting discovery."""
@@ -143,7 +154,7 @@ async def tcpListener() -> None:
 
                         timesync = SimplePacket.create(PacketType.TIMESYNC)
                         await loop.sock_sendall(client_socket, timesync.pack())
-                        ml.slog(f"Sent initial TIMESYNC to {newDevice.name}")
+                        ml.plog(f"Sent initial TIMESYNC to {newDevice.name}")
 
         except asyncio.CancelledError:
             ml.slog("TCP listener cancelled")
@@ -215,7 +226,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                     packet_data = buffer[: header.length]
                     packet = decode_packet(packet_data)
 
-                    ml.slog(f"Decoded {packet.header.packet_type.name} from {device.name}")
+                    ml.plog(f"Decoded {packet.header.packet_type.name} from {device.name}")
 
                     if packet.header.packet_type == PacketType.DATA and isinstance(device, SensorMonitor):
                         # Device timestamps are already in server monotonic ms (locked via TIMESYNC)
@@ -235,25 +246,25 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                 ml.log(f"{device.name} {t:.3f} {sensor_name}:{reading.value:.2f}")
 
                     elif packet.header.packet_type == PacketType.STATUS:
-                        ml.slog(f"{device.name} status: {packet.status.name}")
+                        ml.plog(f"{device.name} status: {packet.status.name}")
 
                     elif packet.header.packet_type == PacketType.ACK:
                         if packet.ack_packet_type == PacketType.TIMESYNC:
                             device.last_sync_time = time.monotonic()
                             device._resync_pending = False
-                            ml.slog(f"{device.name} TIMESYNC completed")
+                            ml.plog(f"{device.name} TIMESYNC completed")
                         elif packet.ack_packet_type == PacketType.CONTROL:
                             # Check for pending control command
                             if packet.ack_sequence in device._pending_controls:
                                 control_name, state = device._pending_controls.pop(packet.ack_sequence)
                                 ml.log(f"{device.name} CONTROL {control_name} {state}")
                             else:
-                                ml.slog(f"{device.name} ACK for CONTROL seq={packet.ack_sequence}")
+                                ml.plog(f"{device.name} ACK for CONTROL seq={packet.ack_sequence}")
                         else:
-                            ml.slog(f"{device.name} ACK for {packet.ack_packet_type.name} seq={packet.ack_sequence}")
+                            ml.plog(f"{device.name} ACK for {packet.ack_packet_type.name} seq={packet.ack_sequence}")
 
                     elif packet.header.packet_type == PacketType.NACK:
-                        ml.elog(f"{device.name} NACK for {packet.nack_packet_type.name} error={packet.error_code.name}")
+                        ml.plog(f"{device.name} NACK for {packet.nack_packet_type.name} error={packet.error_code.name}")
 
                     buffer = buffer[header.length :]
 
@@ -266,7 +277,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                         device._resync_pending = True
                         timesync = SimplePacket.create(PacketType.TIMESYNC)
                         await loop.sock_sendall(device.socket, timesync.pack())
-                        ml.slog(f"{device.name} resync sent (stale >{ESPDevice.RESYNC_INTERVAL_S / 60:.0f} min)")
+                        ml.plog(f"{device.name} resync sent (stale >{ESPDevice.RESYNC_INTERVAL_S / 60:.0f} min)")
 
                 except ValueError:
                     break

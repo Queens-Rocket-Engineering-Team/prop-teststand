@@ -61,8 +61,9 @@ async def main(noDiscovery: bool = False,
         daemons["tcpListener"] = loop.create_task(deviceTools.tcpListener())
         ml.slog("Started TCP listener daemon task.")
 
-        # Send a discovery broadcast
-        deviceTools.sendDiscoveryBroadcast()
+        # Start SSDP auto-discovery loop for finding devices on the network
+        daemons["autoDiscovery"] = loop.create_task(deviceTools.autoDiscoveryLoop())
+        ml.slog("Started SSDP auto-discovery daemon task.")
 
     # Connect to all cameras
     daemons["cameraConnector"] = loop.create_task(cameraTools.connectAllCameras())

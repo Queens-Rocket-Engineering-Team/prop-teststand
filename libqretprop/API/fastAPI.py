@@ -94,6 +94,10 @@ class CommandResponse(BaseModel):
     message: str
 
 
+class AutoDiscoveryConfig(BaseModel):
+    enabled: bool
+    intervalSeconds: float
+
 class CameraInfo(BaseModel):
     ip: str
     hostname: str
@@ -196,7 +200,7 @@ async def sendDeviceCommand(
     )
 
 
-@app.get("/v1/cameras", summary="Get the list of connected cameras", dependencies=[Depends(authUser)])
+@app.get("/v1/cameras", summary="Get the list of connected cameras")
 async def getCameras() -> CameraList:
     cameras = cameraTools.cameraRegistry
 
@@ -209,23 +213,22 @@ async def getCameras() -> CameraList:
     return CameraList(cameras=cameraDataList)
 
 
-@app.post("/v1/cameras/reconnect", summary="Reconnect all cameras", dependencies=[Depends(authUser)])
-async def reconnectCameras(user: Annotated[str, Depends(authUser)]) -> CameraList:
-    ml.slog(f"User {user} sent camera reconnect")
+@app.post("/v1/cameras/reconnect", summary="Reconnect all cameras")
+async def reconnectCameras() -> CameraList:
+    ml.slog(f"User sent camera reconnect")
     await cameraTools.connectAllCameras()
     return await getCameras()
 
 
-@app.post("/v1/camera", summary="Control a camera's movement", dependencies=[Depends(authUser)])
+@app.post("/v1/camera", summary="Control a camera's movement")
 async def controlCamera(
     ip: str,
     x_movement: float,
     y_movement: float,
     bgTasks: BackgroundTasks,
-    user: Annotated[str, Depends(authUser)],
 ) -> CommandResponse:
 
-    ml.slog(f"User {user} sent camera move command to {ip}: <{x_movement}, {y_movement}>")
+    ml.slog(f"User sent camera move command to {ip}: <{x_movement}, {y_movement}>")
 
     bgTasks.add_task(
         cameraTools.moveCamera,
@@ -236,10 +239,10 @@ async def controlCamera(
 
     return CommandResponse(
         status="sent",
-        message=f"User {user} sent camera move command to {ip}: <{x_movement}, {y_movement}>",
+        message=f"User sent camera move command to {ip}: <{x_movement}, {y_movement}>",
     )
 
-@app.get("/v1/kasa", summary="Get the list of discovered Kasa devices", dependencies=[Depends(authUser)])
+@app.get("/v1/kasa", summary="Get the list of discovered Kasa devices")
 async def getKasaDevices() -> list[KasaDeviceInfo]:
     devices = list(kasaTools.kasaRegistry.values())
 
@@ -256,22 +259,20 @@ async def getKasaDevices() -> list[KasaDeviceInfo]:
         ml.elog(f"Failed to get Kasa device info: {e}")
         raise HTTPException(500, "Failed to get Kasa device info")
 
-@app.get("/v1/kasa/discover", summary="Discover Kasa devices on the network", dependencies=[Depends(authUser)])
-async def discoverKasaDevices(user: Annotated[str, Depends(authUser)]) -> list[KasaDeviceInfo]:
-    ml.slog(f"User {user} sent Kasa discover command")
+@app.get("/v1/kasa/discover", summary="Discover Kasa devices on the network")
+async def discoverKasaDevices() -> list[KasaDeviceInfo]:
+    ml.slog(f"User sent Kasa discover command")
     await kasaTools.discoverKasaDevices()
 
     return await getKasaDevices()
 
-@app.post("/v1/kasa", summary="Control a Kasa device's power state",
-            dependencies=[Depends(authUser)])
+@app.post("/v1/kasa", summary="Control a Kasa device's power state")
 async def controlKasaDevice(
     host: str,
     active: bool,
-    user: Annotated[str, Depends(authUser)],
 ) -> KasaDeviceInfo:
 
-    ml.slog(f"User {user} sent Kasa control command to {host}: active={active}")
+    ml.slog(f"User sent Kasa control command to {host}: active={active}")
 
     if host not in kasaTools.kasaRegistry:
         raise HTTPException(404, f"No Kasa device found at {host}")
@@ -285,6 +286,39 @@ async def controlKasaDevice(
     except Exception as e:
         ml.slog(f"Error while controlling Kasa device at {host} (active={active}): {repr(e)}")
         raise HTTPException(500, f"Failed to control Kasa device at {host}")
+
+
+@app.get("/v1/autodiscovery", summary="Get autodiscovery settings")
+async def getAutodiscoverySettings() -> AutoDiscoveryConfig:
+    return AutoDiscoveryConfig(
+        enabled=deviceTools.AUTODISCOVER_ENABLED,
+        intervalSeconds=deviceTools.AUTODISCOVER_INTERVAL,
+    )
+
+
+@app.post("/v1/autodiscovery", summary="Update autodiscovery settings")
+async def updateAutodiscoverySettings(
+    enabled: bool | None = None,
+    interval: float | None = None,
+) -> AutoDiscoveryConfig:
+    if interval is not None and interval <= 0:
+        raise HTTPException(400, "intervalSeconds must be greater than 0")
+
+    if enabled is not None:
+        deviceTools.AUTODISCOVER_ENABLED = enabled
+
+    if interval is not None:
+        deviceTools.AUTODISCOVER_INTERVAL = interval
+
+    ml.slog(
+        f"User updated autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, "
+        f"interval={deviceTools.AUTODISCOVER_INTERVAL}s"
+    )
+
+    return AutoDiscoveryConfig(
+        enabled=deviceTools.AUTODISCOVER_ENABLED,
+        intervalSeconds=deviceTools.AUTODISCOVER_INTERVAL,
+    )
 
 
 class ConfigsResponse(BaseModel):

@@ -27,4 +27,4 @@ ADD config.yaml /app/config.yaml
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev
 
-CMD ["uv", "run", "--no-dev", "see_logs", "-e", "-d", "-s"]
+CMD ["uv", "run", "--no-dev", "see_logs", "-e", "-d", "-s", "-p"]
