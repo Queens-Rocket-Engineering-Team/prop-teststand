@@ -64,7 +64,7 @@ async def websocket_logs(websocket: WebSocket):
     try:
         r = await get_redis_client()
         pubsub = r.pubsub()
-        await pubsub.subscribe("log", "errlog", "debuglog", "syslog")
+        await pubsub.subscribe("log", "errlog", "debuglog", "syslog", "packetlog")
         ml.dlog("WebSocket: Subscribed to Redis log channels")
 
         listener_task = asyncio.create_task(redis_listener(pubsub, websocket))
@@ -78,7 +78,7 @@ async def websocket_logs(websocket: WebSocket):
             ml.elog(f"WebSocket: error occurred - {e}")
         finally:
             listener_task.cancel()
-            await pubsub.unsubscribe("log", "errlog", "debuglog", "syslog")
+            await pubsub.unsubscribe("log", "errlog", "debuglog", "syslog", "packetlog")
             await pubsub.close()
             await r.close()
             ml.dlog("WebSocket: connection closed")
