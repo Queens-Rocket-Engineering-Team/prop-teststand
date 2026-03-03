@@ -113,6 +113,13 @@ class KasaDeviceInfo(BaseModel):
     model: str
     active: bool
 
+class DeviceStatus(BaseModel):
+    name: str
+    controls: dict[str, str]
+
+class DeviceStatusResponse(BaseModel):
+    devices: list[DeviceStatus]
+
 # API Endpoints
 # ------------------------
 
@@ -342,6 +349,10 @@ class StatusResponse(BaseModel):
 
 
 @app.get("/status", summary="Gets the current state of each valve. Status is reported to redis log channel.")
-async def getStatus() -> None:
-    for device in deviceTools.deviceRegistry.values():
-        deviceTools.getStatus(device)
+async def getStatus() -> DeviceStatusResponse:
+    devices = deviceTools.getRegisteredDevices()
+
+    # Fill the status list with the current control states of each device
+    statusList = [DeviceStatus(name=device.name, controls=device.controlStates) for device in devices.values()]
+
+    return DeviceStatusResponse(devices=statusList)

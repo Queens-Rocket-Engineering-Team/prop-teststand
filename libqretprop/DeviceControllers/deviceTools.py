@@ -262,6 +262,13 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                             if packet.ack_sequence in device._pending_controls:
                                 control_name, state = device._pending_controls.pop(packet.ack_sequence)
                                 ml.plog(f"{device.name} CONTROL {control_name} {state}")
+
+                                # Update internal control state on ACK
+                                # Changed CLOSE -> CLOSED for consistency with config
+                                if state == "CLOSE":
+                                    state = "CLOSED"
+
+                                device.controlStates[control_name] = state
                             else:
                                 ml.plog(f"{device.name} ACK for CONTROL seq={packet.ack_sequence}")
                         else:
@@ -400,20 +407,6 @@ async def setControl(device: SensorMonitor, controlName: str, controlState: str)
     else:
         ml.elog(f"No socket available for {device.name} to send CONTROL command.")
 
-
-async def getStatus(device: ESPDevice) -> None:
-    from libqretprop.protocol import PacketType, SimplePacket
-
-    if device.socket:
-        try:
-            packet = SimplePacket.create(PacketType.STATUS_REQUEST)
-            loop = asyncio.get_event_loop()
-            await loop.sock_sendall(device.socket, packet.pack())
-            ml.slog(f"Sent STATUS_REQUEST to {device.name}")
-        except Exception as e:
-            ml.elog(f"Error sending STATUS_REQUEST to {device.name}: {e}")
-    else:
-        ml.elog(f"No socket available for {device.name} to send STATUS_REQUEST.")
 
 def removeDevice(device: ESPDevice) -> None:
     if device.address in deviceRegistry:
