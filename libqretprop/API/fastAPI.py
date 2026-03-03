@@ -299,20 +299,20 @@ async def getAutodiscoverySettings() -> AutoDiscoveryConfig:
 @app.post("/v1/autodiscovery", summary="Update autodiscovery settings")
 async def updateAutodiscoverySettings(
     enabled: bool | None = None,
-    interval: float | None = None,
+    intervalSeconds: float | None = None,
 ) -> AutoDiscoveryConfig:
-    if interval is not None and interval <= 0:
+    if intervalSeconds is not None and intervalSeconds <= 0:
         raise HTTPException(400, "intervalSeconds must be greater than 0")
 
     if enabled is not None:
         deviceTools.AUTODISCOVER_ENABLED = enabled
 
-    if interval is not None:
-        deviceTools.AUTODISCOVER_INTERVAL_S = interval
+    if intervalSeconds is not None:
+        deviceTools.AUTODISCOVER_INTERVAL_S = intervalSeconds
 
     ml.slog(
         f"User updated autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, "
-        f"interval={deviceTools.AUTODISCOVER_INTERVAL_S}s"
+        f"intervalSeconds={deviceTools.AUTODISCOVER_INTERVAL_S}s"
     )
 
     return AutoDiscoveryConfig(

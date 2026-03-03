@@ -336,11 +336,17 @@ class MockSensorDevice:
                         self.print_status(f"Error decoding packet: {e}", "ERROR")
                         break
 
+        except asyncio.CancelledError:
+            # Task was cancelled, likely due to shutdown; avoid treating as an error.
+            self.print_status("Command handler cancelled", "INFO")
+            raise
         except Exception as e:
             self.print_status(f"Command handler error: {e}", "ERROR")
         finally:
             self.command_task = None
-            if self.sock is not None:
+            # Avoid triggering disconnect handling when this task is being cancelled
+            task = asyncio.current_task()
+            if self.sock is not None and not (task and task.cancelled()):
                 await self.handle_server_disconnect()
 
     async def handle_control_command(self, packet: ControlPacket):

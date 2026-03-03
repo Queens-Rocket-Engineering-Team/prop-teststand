@@ -423,7 +423,18 @@ def removeDevice(device: ESPDevice) -> None:
                 ml.slog(f"Closed socket for {device.name}")
             except OSError as e:
                 ml.elog(f"Error closing socket for {device.name}: {e}")
+            finally:
+                # Ensure other code can detect that the device is no longer connected
+                device.socket = None
 
+        # Cancel any per-device listener task to avoid it running against a closed socket
+        listener_task = getattr(device, "listenerTask", None)
+        if listener_task is not None:
+            try:
+                listener_task.cancel()
+                ml.slog(f"Cancelled listener task for {device.name}")
+            except Exception as e:
+                ml.elog(f"Error cancelling listener task for {device.name}: {e}")
         deviceRegistry.pop(device.address)
         ml.slog(f"{device.name} removed from registry.")
 
