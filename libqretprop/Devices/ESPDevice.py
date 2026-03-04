@@ -40,13 +40,6 @@ class ESPDevice:
         self.name: str = jsonConfig["deviceName"]
         self.type = jsonConfig["deviceType"]
 
-        # Track the current control states of the device
-        self.controlStates = {}
-
-        # Set default states from config
-        for controlName in jsonConfig.get("controls", []):
-            self.controlStates[controlName] = jsonConfig["controls"][controlName].get("defaultState", "UNKNOWN")
-
         # Timesync state: track when last sync completed for periodic resync
         self.last_sync_time: float | None = None  # server monotonic time of last sync
         self._resync_pending: bool = False
