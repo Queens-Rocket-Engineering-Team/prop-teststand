@@ -75,8 +75,6 @@ class ESPDevice:
         """Send a heartbeat to the device every 5 seconds to keep TCP alive."""
         while True:
             if self.socket:
-                import contextlib
-
                 if self._heartbeat_ack_pending:
                     self._missed_heartbeat_acks += 1
                     if self._missed_heartbeat_acks >= self.HEARTBEAT_ACK_MISS_LIMIT:
@@ -85,11 +83,15 @@ class ESPDevice:
                         deviceTools.removeDevice(self)
                         break
 
-                with contextlib.suppress(BrokenPipeError, ConnectionResetError, OSError):
+                try:
                     packet = SimplePacket.create(PacketType.HEARTBEAT)
                     loop = asyncio.get_event_loop()
                     await loop.sock_sendall(self.socket, packet.pack())
                     self._last_heartbeat_sequence = packet.header.sequence
                     self._heartbeat_ack_pending = True
+                except (BrokenPipeError, ConnectionResetError, OSError) as e:
+                    ml.elog(f"{self.name} heartbeat send failed: {e}")
+                    deviceTools.removeDevice(self)
+                    break
 
             await asyncio.sleep(self.HEARTBEAT_INTERVAL_S)

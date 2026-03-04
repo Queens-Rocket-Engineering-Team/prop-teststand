@@ -145,6 +145,7 @@ async def tcpListener() -> None:
                         deviceRegistry[deviceIP].listenerTask = listenerTask
 
                         ml.slog(f"Device {newDevice.name} registered from {deviceIP}")
+                        ml.log(f"{newDevice.name} CONNECTED") # Used by GUI to trigger device addition
 
                         # ACK the CONFIG, then send initial TIMESYNC
                         from libqretprop.protocol import AckPacket, SimplePacket
@@ -296,8 +297,13 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                     ml.elog(f"Error decoding packet from {device.name}: {e}")
                     buffer = buffer[1:]
 
+    except asyncio.CancelledError:
+        ml.slog(f"Stopped monitoring {device.name}")
+        raise
     except Exception as e:
         ml.elog(f"Error receiving response from {device.name}: {e}")
+        if device.address in deviceRegistry:
+            removeDevice(device)
 
 
 # ---------------------- #
@@ -430,6 +436,7 @@ def removeDevice(device: ESPDevice) -> None:
                 ml.elog(f"Error cancelling listener task for {device.name}: {e}")
         deviceRegistry.pop(device.address)
         ml.slog(f"{device.name} removed from registry.")
+        ml.log(f"{device.name} DISCONNECTED") # Used by GUI to trigger device removal
 
 
 # ---------------------- #
