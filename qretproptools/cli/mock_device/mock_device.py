@@ -26,6 +26,7 @@ from libqretprop.protocol import (
     ConfigPacket,
     ControlPacket,
     ControlState,
+    ControlStatus,
     DataPacket,
     DeviceStatus,
     ErrorCode,
@@ -80,12 +81,12 @@ class MockSensorDevice:
                 },
             },
             "controls": {
-                "AV1": {
+                "AVDUMP": {
                     "pin": 10,
                     "type": "valve",
                     "defaultState": "CLOSED",
                 },
-                "AV2": {
+                "AVFILL": {
                     "pin": 11,
                     "type": "valve",
                     "defaultState": "OPEN",
@@ -105,8 +106,9 @@ class MockSensorDevice:
 
         # Control states
         self.valve_states = {
-            "AVFILL": "CLOSED",
-            "AVVENT": "CLOSED"
+            "AVDUMP": "CLOSED",
+            "AVFILL": "OPEN",
+            "AV3": "OPEN",
         }
 
         # Streaming state
@@ -135,8 +137,9 @@ class MockSensorDevice:
         self.pt1_pressure = 14.7
 
         self.valve_states = {
-            "AVFILL": "CLOSED",
-            "AVVENT": "CLOSED"
+            "AVDUMP": "CLOSED",
+            "AVFILL": "OPEN",
+            "AV3": "OPEN",
         }
 
         self.timesync_offset = 0
@@ -445,12 +448,20 @@ class MockSensorDevice:
         await loop.sock_sendall(self.sock, self._pack_with_adjusted_ts(ack))
 
     async def send_status(self):
-        status = StatusPacket.create(DeviceStatus.ACTIVE)
+        control_states = []
+        # Preserve the order of controls as defined in the config
+        for control_name in self.config["controls"]:
+            state_str = self.valve_states.get(control_name, "UNKNOWN")
+            state_enum = ControlState.OPEN if state_str == "OPEN" else ControlState.CLOSED if state_str == "CLOSED" else ControlState.ERROR
+            control_states.append(ControlStatus(id=len(control_states), state=state_enum))
+
+        status = StatusPacket.create(DeviceStatus.ACTIVE, control_states=control_states)
 
         loop = asyncio.get_event_loop()
         await loop.sock_sendall(self.sock, self._pack_with_adjusted_ts(status))
 
         self.print_status("Sent STATUS: ACTIVE", "INFO")
+        self.print_status(f"Control states: " + ", ".join(f"{name}={self.valve_states.get(name, 'UNKNOWN')}" for name in self.config["controls"]), "INFO")
 
     async def run(self):
         self.print_status("=== Mock Sensor Device Started ===", "SUCCESS")

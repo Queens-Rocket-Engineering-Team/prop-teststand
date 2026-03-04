@@ -353,6 +353,23 @@ async def getStatus() -> DeviceStatusResponse:
     devices = deviceTools.getRegisteredDevices()
 
     # Fill the status list with the current control states of each device
-    statusList = [DeviceStatus(name=device.name, controls=device.controlStates) for device in devices.values()]
+    statusList = []
+
+    for device in devices.values():
+        if isinstance(device, SensorMonitor):
+            controls = {}
+            for name, ctrl in device.controls.items():
+                controls[name] = ctrl.state
+
+                # Remap for consistency
+                if controls[name] == "CLOSE":
+                    controls[name] = "CLOSED"
+
+            deviceStatus = DeviceStatus(
+                name=device.name,
+                controls=controls,
+            )
+
+            statusList.append(deviceStatus)
 
     return DeviceStatusResponse(devices=statusList)

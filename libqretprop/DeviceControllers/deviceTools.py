@@ -7,6 +7,7 @@ import time
 import libqretprop.mylogging as ml
 from libqretprop.Devices.ESPDevice import ESPDevice
 from libqretprop.Devices.SensorMonitor import SensorMonitor
+from libqretprop.protocol import ControlState
 
 
 MULTICAST_ADDRESS = "239.255.255.250"
@@ -157,6 +158,10 @@ async def tcpListener() -> None:
                         await loop.sock_sendall(client_socket, timesync.pack())
                         ml.plog(f"Sent initial TIMESYNC to {newDevice.name}")
 
+                        status_request = SimplePacket.create(PacketType.STATUS_REQUEST)
+                        await loop.sock_sendall(client_socket, status_request.pack())
+                        ml.plog(f"Sent initial STATUS_REQUEST to {newDevice.name}")
+
         except asyncio.CancelledError:
             ml.slog("TCP listener cancelled")
             server_socket.close()
@@ -248,7 +253,16 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                 ml.log(f"{device.name} {t:.3f} {sensor_name}:{reading.value:.2f}")
 
                     elif packet.header.packet_type == PacketType.STATUS:
-                        ml.plog(f"{device.name} status: {packet.status.name}")
+                        # If SensorMonitor, log control states
+                        if isinstance(device, SensorMonitor) and packet.control_states:
+                            # Read control states from payload (if any) and update internal state
+                            for control_state in packet.control_states:
+                                control_names = list(device.controls.keys())
+                                if control_state.id < len(control_names):
+                                    control_name = control_names[control_state.id]
+                                    state_str = "OPEN" if control_state.state == ControlState.OPEN else "CLOSED" if control_state.state == ControlState.CLOSED else "UNKNOWN"
+                                    device.controls[control_name].state = state_str
+                                    ml.log(f"{device.name} STATUS {control_name} {state_str}")
 
                     elif packet.header.packet_type == PacketType.ACK:
                         if packet.ack_packet_type == PacketType.TIMESYNC:
@@ -264,12 +278,9 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                 control_name, state = device._pending_controls.pop(packet.ack_sequence)
                                 ml.plog(f"{device.name} CONTROL {control_name} {state}")
 
-                                # Update internal control state on ACK
-                                # Changed CLOSE -> CLOSED for consistency with config
-                                if state == "CLOSE":
-                                    state = "CLOSED"
+                                if isinstance(device, SensorMonitor) and control_name in device.controls:
 
-                                device.controlStates[control_name] = state
+                                    device.controls[control_name].state = state
                             else:
                                 ml.plog(f"{device.name} ACK for CONTROL seq={packet.ack_sequence}")
                         else:
@@ -408,11 +419,26 @@ async def setControl(device: SensorMonitor, controlName: str, controlState: str)
             if packet.header.sequence in device._pending_controls:
                 device._pending_controls.pop(packet.header.sequence)
             if device.address in deviceRegistry:
-                _removed = deviceRegistry.pop(device.address)
-                ml.slog(f"{device.name} removed from registry.")
+                removeDevice(device)
     else:
         ml.elog(f"No socket available for {device.name} to send CONTROL command.")
 
+async def getStatus(device: ESPDevice) -> None:
+    from libqretprop.protocol import PacketType, SimplePacket
+
+    if device.socket:
+        try:
+            packet = SimplePacket.create(PacketType.STATUS_REQUEST)
+            loop = asyncio.get_event_loop()
+            await loop.sock_sendall(device.socket, packet.pack())
+            ml.slog(f"Sent STATUS_REQUEST command to {device.name}")
+        except Exception as e:
+            ml.elog(f"Error sending STATUS_REQUEST command to {device.name}: {e}")
+            if device.address in deviceRegistry:
+                removeDevice(device)
+    else:
+        ml.elog(f"No socket available for {device.name} to send STATUS_REQUEST command.")
+        removeDevice(device)
 
 def removeDevice(device: ESPDevice) -> None:
     if device.address in deviceRegistry:

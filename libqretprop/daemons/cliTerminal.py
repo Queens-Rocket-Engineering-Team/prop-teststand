@@ -31,7 +31,8 @@ DEVICECOMMANDS = [
     "CONTROL",
     "OPEN",
     "CLOSE",
-    ]
+    "STATUS",
+]
 
 
 async def handleServerCommand(command: str, args: list) -> None:
@@ -146,6 +147,7 @@ async def handleServerCommand(command: str, args: list) -> None:
         ml.slog("  stop <device>      - Stop streaming")
         ml.slog("  open <dev> <ctrl>  - Open valve/control")
         ml.slog("  close <dev> <ctrl> - Close valve/control")
+        ml.slog("  status <device>    - Get device status / control states")
         ml.slog("  expo               - Export data to CSV")
         ml.slog("  quit               - Exit")
     elif cmd == "EXPO":
@@ -206,6 +208,9 @@ async def handleDeviceCommand(command: str, args: list) -> None:
                 return
             await deviceTools.setControl(device, args[1], "CLOSE")
             ml.slog(f"Closed {args[1]} on {device.name}")
+        elif cmd == "STATUS":
+            await deviceTools.getStatus(device)
+            ml.slog(f"Requested status from {device.name}")
     except Exception as e:
         ml.elog(f"Error: {e}")
 
