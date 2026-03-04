@@ -232,10 +232,10 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                     if packet.header.packet_type == PacketType.DATA and isinstance(device, SensorMonitor):
                         # Device timestamps are already in server monotonic ms (locked via TIMESYNC)
                         if device.last_sync_time is not None:
-                            t = packet.header.timestamp / 1000.0 - device.startTime
+                            t = packet.header.timestamp / 1000.0
                         else:
                             ml.slog(f"WARNING: {device.name} data before TIMESYNC, using server time")
-                            t = time.monotonic() - device.startTime
+                            t = time.monotonic()
 
                         sensor_names = list(device.sensors.keys())
                         for reading in packet.readings:
