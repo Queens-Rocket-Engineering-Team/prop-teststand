@@ -2,6 +2,7 @@ import json
 import time
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
+import asyncio
 import uvicorn
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -112,13 +113,6 @@ class KasaDeviceInfo(BaseModel):
     host: str
     model: str
     active: bool
-
-class DeviceStatus(BaseModel):
-    name: str
-    controls: dict[str, str]
-
-class DeviceStatusResponse(BaseModel):
-    devices: list[DeviceStatus]
 
 # API Endpoints
 # ------------------------
@@ -343,33 +337,10 @@ async def getServerConfig() -> ConfigsResponse:
         configs[getattr(dev, "name", getattr(dev, "id", "unknown"))] = cfg
     return ConfigsResponse(count=len(configs), configs=configs)
 
-
-class StatusResponse(BaseModel):
-    status: dict[str, str]
-
-
 @app.get("/status", summary="Gets the current state of each valve. Status is reported to redis log channel.")
-async def getStatus() -> DeviceStatusResponse:
+async def getStatus() -> None:
     devices = deviceTools.getRegisteredDevices()
 
-    # Fill the status list with the current control states of each device
-    statusList = []
-
+    # Trigger a status request to all devices to get their latest states for the response and to log to the redis log channel
     for device in devices.values():
-        if isinstance(device, SensorMonitor):
-            controls = {}
-            for name, ctrl in device.controls.items():
-                controls[name] = ctrl.state
-
-                # Remap for consistency
-                if controls[name] == "CLOSE":
-                    controls[name] = "CLOSED"
-
-            deviceStatus = DeviceStatus(
-                name=device.name,
-                controls=controls,
-            )
-
-            statusList.append(deviceStatus)
-
-    return DeviceStatusResponse(devices=statusList)
+        await deviceTools.getStatus(device)
