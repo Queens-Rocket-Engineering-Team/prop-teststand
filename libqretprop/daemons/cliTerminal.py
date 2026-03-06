@@ -12,6 +12,8 @@ SERVERCOMMANDS = [
     "QUIT",
     "EXIT",
     "DISCOVER",
+    "AUTODISCOVERY",
+    "AUTOD",
     "LIST",
     "EXPO",
     "HELP",
@@ -29,7 +31,8 @@ DEVICECOMMANDS = [
     "CONTROL",
     "OPEN",
     "CLOSE",
-    ]
+    "STATUS",
+]
 
 
 async def handleServerCommand(command: str, args: list) -> None:
@@ -42,6 +45,45 @@ async def handleServerCommand(command: str, args: list) -> None:
         ml.slog("Sending discovery broadcast...")
         deviceTools.sendDiscoveryBroadcast()
         ml.slog("Discovery sent. Devices will auto-connect.")
+    elif cmd in ("AUTODISCOVERY", "AUTOD"):
+        if not args:
+            ml.slog(
+                f"Autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, "
+                f"interval={deviceTools.AUTODISCOVER_INTERVAL_S}s",
+            )
+            ml.slog("Usage: autodiscovery <on|off|interval <seconds>|status>")
+            return
+
+        sub = args[0].lower()
+        if sub in ("status", "show"):
+            ml.slog(
+                f"Autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, "
+                f"interval={deviceTools.AUTODISCOVER_INTERVAL_S}s",
+            )
+        elif sub in ("on", "enable", "enabled", "true"):
+            deviceTools.AUTODISCOVER_ENABLED = True
+            ml.slog("Autodiscovery enabled")
+        elif sub in ("off", "disable", "disabled", "false"):
+            deviceTools.AUTODISCOVER_ENABLED = False
+            ml.slog("Autodiscovery disabled")
+        elif sub == "interval":
+            if len(args) < 2:
+                ml.slog("Usage: autodiscovery interval <seconds>")
+                return
+            try:
+                interval = float(args[1])
+            except ValueError:
+                ml.slog(f"Invalid interval: {args[1]!r}. Must be a positive number.")
+                return
+
+            if interval <= 0:
+                ml.slog("Autodiscovery interval must be greater than 0 seconds")
+                return
+
+            deviceTools.AUTODISCOVER_INTERVAL_S = interval
+            ml.slog(f"Autodiscovery interval set to {interval}s")
+        else:
+            ml.slog("Usage: autodiscovery <on|off|interval <seconds>|status>")
     elif cmd == "LIST":
         devices = deviceTools.getRegisteredDevices()
         if not devices:
@@ -95,12 +137,17 @@ async def handleServerCommand(command: str, args: list) -> None:
     elif cmd == "HELP":
         ml.slog("Available commands:")
         ml.slog("  discover           - Discover devices")
+        ml.slog("  autodiscovery      - Show autodiscovery status")
+        ml.slog("  autodiscovery on   - Enable periodic discovery")
+        ml.slog("  autodiscovery off  - Disable periodic discovery")
+        ml.slog("  autodiscovery interval <seconds> - Set discovery interval")
         ml.slog("  list               - Show connected devices")
         ml.slog("  info <device>      - Show device details")
         ml.slog("  stream <dev> <hz>  - Start streaming")
         ml.slog("  stop <device>      - Stop streaming")
         ml.slog("  open <dev> <ctrl>  - Open valve/control")
         ml.slog("  close <dev> <ctrl> - Close valve/control")
+        ml.slog("  status <device>    - Get device status / control states")
         ml.slog("  expo               - Export data to CSV")
         ml.slog("  quit               - Exit")
     elif cmd == "EXPO":
@@ -161,6 +208,9 @@ async def handleDeviceCommand(command: str, args: list) -> None:
                 return
             await deviceTools.setControl(device, args[1], "CLOSE")
             ml.slog(f"Closed {args[1]} on {device.name}")
+        elif cmd == "STATUS":
+            await deviceTools.getStatus(device)
+            ml.slog(f"Requested status from {device.name}")
     except Exception as e:
         ml.elog(f"Error: {e}")
 

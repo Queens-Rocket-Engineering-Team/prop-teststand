@@ -21,7 +21,7 @@ def main() -> None:
     """Start the QRET server."""
     args = parseArgs()
     asyncio.run(server.main(
-        noDiscovery=args.no_discovery
+        noDiscovery=args.no_discovery,
     ))
 
 if __name__ == "__main__":

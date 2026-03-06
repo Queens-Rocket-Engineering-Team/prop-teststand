@@ -55,3 +55,7 @@ def elog(message: str) -> None:
 def dlog(message: str) -> None:
     """Log a debug message to the redis debug log channel."""
     _publishLog("debuglog", message, color="yellow")
+
+def plog(message: str) -> None:
+    """Log a packet info message to the redis packet log channel."""
+    _publishLog("packetlog", message, color="grey")

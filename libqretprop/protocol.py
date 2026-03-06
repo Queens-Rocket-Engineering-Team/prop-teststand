@@ -191,27 +191,40 @@ DiscoveryPacket = SimplePacket
 
 
 @dataclass
+class ControlStatus:
+    id: int
+    state: ControlState
+
+@dataclass
 class StatusPacket:
-    """Device status. Header + 1 byte status. Total: 10 bytes."""
-    PAYLOAD_FORMAT: ClassVar[str] = ">B"
+    """Device status + Batched control states. Header + 1 byte status + 1 byte length + [command_id (1B) + command_state (1B)] * N. Total: 11 + 2*N bytes."""
+    PAYLOAD_FORMAT: ClassVar[str] = ">BB" # status (1B) + control count (1B)
+    READING_FORMAT: ClassVar[str] = ">BB" # command_id (1B) + command_state (1B)
 
     header: PacketHeader
     status: DeviceStatus
+    control_states: list[ControlStatus] = field(default_factory=list)
 
     def pack(self) -> bytes:
-        return self.header.pack() + struct.pack(self.PAYLOAD_FORMAT, self.status)
+        return self.header.pack() + struct.pack(self.PAYLOAD_FORMAT, self.status, len(self.control_states)) + b''.join(
+            struct.pack(self.READING_FORMAT, cs.id, cs.state) for cs in self.control_states
+        )
 
     @classmethod
-    def create(cls, status: DeviceStatus) -> "StatusPacket":
-        header = _make_header(PacketType.STATUS, PacketHeader.SIZE + 1)
-        return cls(header=header, status=status)
+    def create(cls, status: DeviceStatus, control_states: list[ControlStatus] | None = None) -> "StatusPacket":
+        header = _make_header(PacketType.STATUS, PacketHeader.SIZE + 2 + (len(control_states) * 2 if control_states else 0))
+        return cls(header=header, status=status, control_states=control_states or [])
 
     @classmethod
     def unpack(cls, data: bytes) -> "StatusPacket":
         header = PacketHeader.unpack(data)
         s = PacketHeader.SIZE
-        status, = struct.unpack(cls.PAYLOAD_FORMAT, data[s:s + 1])
-        return cls(header=header, status=DeviceStatus(status))
+        status, control_count = struct.unpack(cls.PAYLOAD_FORMAT, data[s:s + 2])
+        control_states = []
+        for i in range(control_count):
+            cmd_id, cmd_state = struct.unpack(cls.READING_FORMAT, data[s + 2 + i * 2:s + 2 + (i + 1) * 2])
+            control_states.append(ControlStatus(id=cmd_id, state=ControlState(cmd_state)))
+        return cls(header=header, status=DeviceStatus(status), control_states=control_states)
 
 
 @dataclass

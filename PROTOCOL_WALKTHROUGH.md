@@ -111,15 +111,20 @@ These packets have no payload. LENGTH = 9.
 
 ---
 
-### STATUS (10 bytes)
+### STATUS (11 + 2*N bytes, variable)
 
-Device status response. LENGTH = 10.
+Device status response and valve/control states. LENGTH = 11 + 2*N, where N is the number of valves/controls.
 
 ```
 Offset  Size  Type    Field   Description
 ------  ----  ------  ------  -------------------------
 0-8     9     -       header  Standard header
 9       1     uint8   status  DeviceStatus enum value
+10      1     uint8   count   Number of valves/controls (N)
+
+Repeated N times (2 bytes each):
++0      1     uint8   command_id  Index in device's control array
++1      1     uint8   command_state ControlState enum value
 ```
 
 ---

@@ -2,6 +2,7 @@ import json
 import time
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
+import asyncio
 import uvicorn
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -94,6 +95,10 @@ class CommandResponse(BaseModel):
     message: str
 
 
+class AutoDiscoveryConfig(BaseModel):
+    enabled: bool
+    intervalSeconds: float
+
 class CameraInfo(BaseModel):
     ip: str
     hostname: str
@@ -155,6 +160,9 @@ async def sendDeviceCommand(
     if func is None:
         raise HTTPException(400, f"Unknown command {cmd.command!r}")
 
+    # Track if any commands were sent to at least one device, to avoid returning success if all targets were invalid
+    anyCommandsSent = False
+
     # Run the command in the background to not block the API
     for device in devices.values():
         if cmd.command == "STREAM":
@@ -163,6 +171,7 @@ async def sendDeviceCommand(
                 raise HTTPException(400, "STREAM requires a frequency argument")
             try:
                 freq = int(cmd.args[0])
+                anyCommandsSent = True
                 bgTasks.add_task(func, device, freq)
             except ValueError:
                 raise HTTPException(400, f"STREAM frequency must be an integer, got '{cmd.args[0]}'")
@@ -170,9 +179,21 @@ async def sendDeviceCommand(
             # CONTROL needs controlName and controlState
             if len(cmd.args) < 2:
                 raise HTTPException(400, "CONTROL requires control name and state")
-            bgTasks.add_task(func, device, cmd.args[0], cmd.args[1])
+
+            controlName = cmd.args[0].upper()
+            controlState = cmd.args[1].upper()
+
+            if not isinstance(device, SensorMonitor) or controlName not in device.controls:
+                continue
+
+            anyCommandsSent = True
+            bgTasks.add_task(func, device, controlName, controlState)
         else:
+            anyCommandsSent = True
             bgTasks.add_task(func, device, *cmd.args)
+
+    if not anyCommandsSent:
+        raise HTTPException(400, "No valid target devices for the command")
 
     return CommandResponse(
         status="sent",
@@ -268,6 +289,39 @@ async def controlKasaDevice(
         raise HTTPException(500, f"Failed to control Kasa device at {host}")
 
 
+@app.get("/v1/autodiscovery", summary="Get autodiscovery settings")
+async def getAutodiscoverySettings() -> AutoDiscoveryConfig:
+    return AutoDiscoveryConfig(
+        enabled=deviceTools.AUTODISCOVER_ENABLED,
+        intervalSeconds=deviceTools.AUTODISCOVER_INTERVAL_S,
+    )
+
+
+@app.post("/v1/autodiscovery", summary="Update autodiscovery settings")
+async def updateAutodiscoverySettings(
+    enabled: bool | None = None,
+    intervalSeconds: float | None = None,
+) -> AutoDiscoveryConfig:
+    if intervalSeconds is not None and intervalSeconds <= 0:
+        raise HTTPException(400, "intervalSeconds must be greater than 0")
+
+    if enabled is not None:
+        deviceTools.AUTODISCOVER_ENABLED = enabled
+
+    if intervalSeconds is not None:
+        deviceTools.AUTODISCOVER_INTERVAL_S = intervalSeconds
+
+    ml.slog(
+        f"User updated autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, "
+        f"intervalSeconds={deviceTools.AUTODISCOVER_INTERVAL_S}s"
+    )
+
+    return AutoDiscoveryConfig(
+        enabled=deviceTools.AUTODISCOVER_ENABLED,
+        intervalSeconds=deviceTools.AUTODISCOVER_INTERVAL_S,
+    )
+
+
 class ConfigsResponse(BaseModel):
     count: int
     configs: dict[str, dict[str, Any]]
@@ -283,12 +337,10 @@ async def getServerConfig() -> ConfigsResponse:
         configs[getattr(dev, "name", getattr(dev, "id", "unknown"))] = cfg
     return ConfigsResponse(count=len(configs), configs=configs)
 
-
-class StatusResponse(BaseModel):
-    status: dict[str, str]
-
-
 @app.get("/status", summary="Gets the current state of each valve. Status is reported to redis log channel.")
 async def getStatus() -> None:
-    for device in deviceTools.deviceRegistry.values():
-        deviceTools.getStatus(device)
+    devices = deviceTools.getRegisteredDevices()
+
+    # Trigger a status request to all devices to get their latest states for the response and to log to the redis log channel
+    for device in devices.values():
+        await deviceTools.getStatus(device)

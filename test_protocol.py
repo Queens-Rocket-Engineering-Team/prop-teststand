@@ -13,6 +13,7 @@ from libqretprop.protocol import (
     ConfigPacket,
     ControlPacket,
     ControlState,
+    ControlStatus,
     DataPacket,
     decode_packet,
     DeviceStatus,
@@ -223,13 +224,22 @@ def test_status_packet() -> bool:
     passed = True
 
     for status in [DeviceStatus.INACTIVE, DeviceStatus.ACTIVE, DeviceStatus.ERROR, DeviceStatus.CALIBRATING]:
-        packet = StatusPacket.create(status=status)
-        packed = packet.pack()
-        unpacked = StatusPacket.unpack(packed)
+        # Test with both no control states and with some control states
+        for control_states in (None, [ControlStatus(id=1, state=ControlState.OPEN), ControlStatus(id=2, state=ControlState.CLOSED)]):
+            packet = StatusPacket.create(status=status, control_states=control_states)
+            packed = packet.pack()
+            unpacked = StatusPacket.unpack(packed)
 
-        passed &= assert_equal(len(packed), 10, f"Status {status.name}: size is 10 bytes")
-        passed &= assert_equal(unpacked.header.packet_type, PacketType.STATUS, f"Status {status.name}: type correct")
-        passed &= assert_equal(unpacked.status, status, f"Status {status.name}: status preserved")
+            num_controls = len(control_states) if control_states else 0
+
+            passed &= assert_equal(len(packed), 11 + num_controls * 2, f"Status {status.name} [{num_controls}]: size is 15 bytes")
+            passed &= assert_equal(unpacked.header.packet_type, PacketType.STATUS, f"Status {status.name}: type correct")
+            passed &= assert_equal(unpacked.status, status, f"Status {status.name} [{num_controls}]: status preserved")
+            passed &= assert_equal(len(unpacked.control_states), num_controls, f"Status {status.name} [{num_controls}]: control count preserved")
+            if control_states:
+                for i, (orig, decoded) in enumerate(zip(control_states, unpacked.control_states)):
+                    passed &= assert_equal(decoded.id, orig.id, f"Status {status.name} Control {i}: ID preserved")
+                    passed &= assert_equal(decoded.state, orig.state, f"Status {status.name} Control {i}: state preserved")
 
     return passed
 

@@ -13,6 +13,7 @@ def main() -> None:
     parser.add_argument("-e", "--elog", action="store_true", help="Show error logs")
     parser.add_argument("-d", "--debug", action="store_true", help="Show debug logs")
     parser.add_argument("-s", "--slog", action="store_true", help="Show standard logs")
+    parser.add_argument("-p", "--plog", action="store_true", help="Show packet logs")
     args = parser.parse_args()
 
     channels = []
@@ -20,6 +21,7 @@ def main() -> None:
     if args.elog:   channels.append("errlog")
     if args.debug:  channels.append("debuglog")
     if args.slog:   channels.append("syslog")
+    if args.plog:   channels.append("packetlog")
 
     print(f"Listening to channels: {', '.join(channels)}")
 
