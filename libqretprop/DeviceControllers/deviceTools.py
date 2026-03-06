@@ -276,11 +276,12 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                             # Check for pending control command
                             if packet.ack_sequence in device._pending_controls:
                                 control_name, state = device._pending_controls.pop(packet.ack_sequence)
-                                ml.plog(f"{device.name} CONTROL {control_name} {state}")
 
+                                # Send status log for control ACK
+                                state_str = "OPEN" if state == "OPEN" else "CLOSED" if state == "CLOSE" else "UNKNOWN"
                                 if isinstance(device, SensorMonitor) and control_name in device.controls:
-
                                     device.controls[control_name].state = state
+                                    ml.log(f"{device.name} STATUS {control_name} {state_str}")
                             else:
                                 ml.plog(f"{device.name} ACK for CONTROL seq={packet.ack_sequence}")
                         else:
