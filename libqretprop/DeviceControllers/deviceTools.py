@@ -174,11 +174,6 @@ async def tcpListener() -> None:
 def getRegisteredDevices() -> dict[str, ESPDevice]:
     return deviceRegistry.copy()
 
-
-def getDeviceByName(name: str) -> ESPDevice | None:
-    return deviceRegistry.get(name)
-
-
 # ---------------------- #
 # Socket Management
 # ---------------------- #
