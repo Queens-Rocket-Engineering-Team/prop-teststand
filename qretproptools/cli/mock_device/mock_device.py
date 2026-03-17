@@ -21,6 +21,7 @@ import socket
 import struct
 import time
 
+
 from libqretprop.protocol import (
     AckPacket,
     ConfigPacket,
@@ -405,11 +406,19 @@ class MockSensorDevice:
 
     async def stream_data(self):
         interval = 1.0 / self.stream_frequency
+        next_send = time.monotonic()
 
         try:
             while self.streaming:
+                now = time.monotonic()
+                if now < next_send:
+                    await asyncio.sleep(0)
+                    continue
                 await self.send_sensor_data()
-                await asyncio.sleep(interval)
+                next_send += interval
+                # If we've fallen behind, reset to avoid a catch-up burst
+                if time.monotonic() > next_send:
+                    next_send = time.monotonic() + interval
         except asyncio.CancelledError:
             pass
 

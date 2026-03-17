@@ -33,6 +33,11 @@ When a device receives this packet, it extracts the server's IP address from the
 - Server listen port: `50000`
 - The server never connects to devices. Devices always initiate TCP connections to the server.
 
+### UDP
+
+- Server listen port: `50001`
+- The server listens through UDP for DATA packets ONLY. DATA packets MUST be sent through UDP.
+
 ---
 
 ## Packet Header (9 bytes)
@@ -220,6 +225,7 @@ After this, every packet the device sends has its timestamp locked to the server
 ### DATA (10 + 6*N bytes, variable)
 
 Batched sensor data. LENGTH = 10 + 6*N where N is the number of readings.
+Data packets MUST be sent through UDP. See the UDP section above for details.
 
 ```
 Offset  Size  Type    Field     Description

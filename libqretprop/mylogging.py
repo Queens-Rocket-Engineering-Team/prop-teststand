@@ -1,11 +1,37 @@
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from queue import SimpleQueue
+from threading import Thread
 
 import redis
 import redis.exceptions
 
 
 redisClient: redis.Redis | None = None
+_publishQueue: SimpleQueue[tuple[str, str, str]] = SimpleQueue()  # (channel, message, color)
+
+
+def _publishWorker() -> None:
+    """Background thread: applies color and publishes log messages to Redis (non-blocking for callers)."""
+    while True:
+        channel, message, color = _publishQueue.get()
+        if redisClient is not None:
+            # Apply ANSI color codes
+            if color == "grey":
+                colored_msg = f"\033[90m{message}\033[0m"
+            elif color == "red":
+                colored_msg = f"\033[91m{message}\033[0m"
+            elif color == "yellow":
+                colored_msg = f"\033[93m{message}\033[0m"
+            else:
+                colored_msg = message
+            try:
+                redisClient.publish(channel, colored_msg)
+            except Exception:
+                pass
+
+
+_publishThread = Thread(target=_publishWorker, daemon=True)
+_publishThread.start()
+
 
 def initLogger(client: redis.Redis) -> None:
     """Initialize the Redis client for logging. Checks if Redis server is running."""
@@ -16,32 +42,14 @@ def initLogger(client: redis.Redis) -> None:
     except redis.exceptions.ConnectionError as err:
         raise RuntimeError("Redis server is not running or cannot be reached.") from err
 
-def _publishLog(channel: str, message: str, color: str) -> None:
-    """Publish a time stamped log message to a specific Redis channel with a color."""
+def _publishLog(channel: str, message: str, color: str = "") -> None:
+    """Enqueue a log message for background publishing with optional ANSI color (non-blocking)."""
     if redisClient is None:
         raise ValueError("Logger not initialized. Call initLogger() first.")
-
-    now = datetime.now(ZoneInfo("America/New_York"))
-    # Format: YYYY-MM-DDTHH:MM:SS.s-TZ (1 decimal place for seconds)
-    timestamp = now.strftime("%H:%M:%S")
-    timestamp_str = f"\033[90m[{timestamp}]\033[0m"  # Always dark grey
-
-    # Apply color formatting to the message only
-    if color == "grey":
-        message_str = f"\033[90m{message}\033[0m"  # Dark grey
-    elif color == "red":
-        message_str = f"\033[91m{message}\033[0m"  # Red
-    elif color == "yellow":
-        message_str = f"\033[93m{message}\033[0m"  # Light yellow
-    else:
-        message_str = message
-
-    logString = f"{timestamp_str} {message_str}"
-
-    redisClient.publish(channel, logString)
+    _publishQueue.put((channel, message, color))
 
 def log(message: str) -> None:
-    """Log a message to the base redis log channel with a timestamp."""
+    """Log a message to the base redis log channel."""
     _publishLog("log", message, color="")
 
 def slog(message: str) -> None:

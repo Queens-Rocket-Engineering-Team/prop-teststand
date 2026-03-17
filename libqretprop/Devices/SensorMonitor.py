@@ -35,6 +35,7 @@ class SensorMonitor(ESPDevice):
         self.startTime = time.monotonic()  # Start time for the device, used for uptime tracking
         self.times: list[float] = []
         self.sensors, self.controls = self._initializeFromConfig(config)
+        self.sensor_names: list[str] = list(self.sensors.keys()) # Cache sensor names to avoid rebuilding list
 
     # JSON.loads returns a dictionary where attributes are defined with string titles and can contain whatever as values.
     def _initializeFromConfig(

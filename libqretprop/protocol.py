@@ -115,6 +115,7 @@ class PacketHeader:
     """
     STRUCT_FORMAT: ClassVar[str] = ">BBBHI"
     SIZE: ClassVar[int] = struct.calcsize(">BBBHI")  # 9
+    _STRUCT: ClassVar[struct.Struct] = struct.Struct(">BBBHI")  # Pre-compiled for performance
 
     version: int
     packet_type: PacketType
@@ -137,9 +138,7 @@ class PacketHeader:
         if len(data) < cls.SIZE:
             raise ValueError(f"Insufficient data for header: {len(data)} < {cls.SIZE}")
 
-        version, packet_type, sequence, length, timestamp = struct.unpack(
-            cls.STRUCT_FORMAT, data[:cls.SIZE]
-        )
+        version, packet_type, sequence, length, timestamp = cls._STRUCT.unpack_from(data, 0)
 
         return cls(
             version=version,
@@ -372,6 +371,7 @@ class DataPacket:
     Total: 10 + 6*N bytes."""
     READING_FORMAT: ClassVar[str] = ">BBf"
     READING_SIZE: ClassVar[int] = 6
+    _READING_STRUCT: ClassVar[struct.Struct] = struct.Struct(">BBf")  # Pre-compiled for performance
 
     header: PacketHeader
     readings: list[SensorReading] = field(default_factory=list)
@@ -403,7 +403,7 @@ class DataPacket:
         s += 1
         readings = []
         for _ in range(count):
-            sid, unit_val, value = struct.unpack(cls.READING_FORMAT, data[s:s + cls.READING_SIZE])
+            sid, unit_val, value = cls._READING_STRUCT.unpack_from(data, s)
             readings.append(SensorReading(sensor_id=sid, unit=Unit(unit_val), value=value))
             s += cls.READING_SIZE
         return cls(header=header, readings=readings)
