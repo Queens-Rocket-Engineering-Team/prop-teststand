@@ -1,4 +1,5 @@
-from queue import SimpleQueue
+import contextlib
+from queue import Empty, Full, Queue
 from threading import Thread
 
 import redis
@@ -6,27 +7,47 @@ import redis.exceptions
 
 
 redisClient: redis.Redis | None = None
-_publishQueue: SimpleQueue[tuple[str, str, str]] = SimpleQueue()  # (channel, message, color)
+_MAX_LOG_QUEUE_SIZE = 50000
+_publishQueue: Queue[tuple[str, str, str]] = Queue(maxsize=_MAX_LOG_QUEUE_SIZE)  # (channel, message, color)
+_PIPELINE_BATCH_SIZE = 256
+
+
+def _applyColor(message: str, color: str) -> str:
+    if color == "grey":
+        return f"\033[90m{message}\033[0m"
+    if color == "red":
+        return f"\033[91m{message}\033[0m"
+    if color == "yellow":
+        return f"\033[93m{message}\033[0m"
+    return message
 
 
 def _publishWorker() -> None:
-    """Background thread: applies color and publishes log messages to Redis (non-blocking for callers)."""
+    """Background thread: batches and publishes log messages to Redis (non-blocking for callers)."""
     while True:
-        channel, message, color = _publishQueue.get()
-        if redisClient is not None:
-            # Apply ANSI color codes
-            if color == "grey":
-                colored_msg = f"\033[90m{message}\033[0m"
-            elif color == "red":
-                colored_msg = f"\033[91m{message}\033[0m"
-            elif color == "yellow":
-                colored_msg = f"\033[93m{message}\033[0m"
-            else:
-                colored_msg = message
+        first = _publishQueue.get()
+
+        if redisClient is None:
+            continue
+
+        batch = [first]
+        while len(batch) < _PIPELINE_BATCH_SIZE:
             try:
-                redisClient.publish(channel, colored_msg)
-            except Exception:
-                pass
+                batch.append(_publishQueue.get_nowait())
+            except Empty:
+                break
+
+        try:
+            if len(batch) == 1:
+                channel, message, color = batch[0]
+                redisClient.publish(channel, _applyColor(message, color))
+            else:
+                pipe = redisClient.pipeline(transaction=False)
+                for channel, message, color in batch:
+                    pipe.publish(channel, _applyColor(message, color))
+                pipe.execute()
+        except Exception:
+            pass
 
 
 _publishThread = Thread(target=_publishWorker, daemon=True)
@@ -46,7 +67,15 @@ def _publishLog(channel: str, message: str, color: str = "") -> None:
     """Enqueue a log message for background publishing with optional ANSI color (non-blocking)."""
     if redisClient is None:
         raise ValueError("Logger not initialized. Call initLogger() first.")
-    _publishQueue.put((channel, message, color))
+    item = (channel, message, color)
+    try:
+        _publishQueue.put_nowait(item)
+    except Full:
+        # Prefer newest logs under overload: evict one oldest entry, then enqueue latest.
+        with contextlib.suppress(Empty):
+            _publishQueue.get_nowait()
+        with contextlib.suppress(Full):
+            _publishQueue.put_nowait(item)
 
 def log(message: str) -> None:
     """Log a message to the base redis log channel."""
