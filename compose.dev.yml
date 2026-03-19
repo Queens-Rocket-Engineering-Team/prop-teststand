@@ -40,7 +40,7 @@ services:
       dockerfile: Dockerfile.logs
     depends_on:
       - redis
-      
+
     # Required for consistency of shared config of redis ip
     # Normal containers cannot access localhost, host networked containers cannot use docker internal DNS
     network_mode: "host"
@@ -87,3 +87,24 @@ services:
         - action: restart
           path: ./redis.conf
           target: /usr/local/etc/redis/redis.conf
+
+  mumble:
+    image: mumblevoip/mumble-server:latest
+    ports:
+      - "64738:64738"
+      - "64738:64738/udp"
+    volumes:
+      - ./murmur.ini:/etc/mumble/murmur.ini
+      - murmur-data:/data
+
+  mumble-web:
+    image: rankenstein/mumble-web:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - MUMBLE_SERVER=mumble:64738
+    depends_on:
+      - mumble
+
+volumes:
+  murmur-data:
