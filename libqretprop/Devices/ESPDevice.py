@@ -3,7 +3,6 @@ import socket
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import libqretprop.mylogging as ml
-from libqretprop.DeviceControllers import deviceTools
 from libqretprop.protocol import PacketType, SimplePacket
 
 if TYPE_CHECKING:
@@ -65,6 +64,8 @@ class ESPDevice:
         self.is_responsive = True
 
     async def heartbeat(self) -> None:
+        from libqretprop.DeviceControllers import deviceTools
+
         """Send a heartbeat to the device every 5 seconds to keep TCP alive."""
         while True:
             if self.socket:
