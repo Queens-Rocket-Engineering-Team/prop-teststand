@@ -14,6 +14,11 @@ services:
     ip: localhost
     api_port: 9997
     webrtc_port: 8889 # Relayed to GUI for connection
+  mumble:
+    ip: localhost
+    port: 64738
+    temp_recording_dir: /tmp/mumble_recordings
+    recording_dir: ./mumble_recordings
 
 cameras:
   - ip: 192.168.1.5
