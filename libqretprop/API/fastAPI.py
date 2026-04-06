@@ -1,14 +1,16 @@
 import json
 import time
 from typing import TYPE_CHECKING, Annotated, Any, Literal
+from urllib.parse import quote
 
-import asyncio
 import uvicorn
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.responses import Response
+from starlette.responses import FileResponse
 
 from libqretprop import mylogging as ml
 from libqretprop.DeviceControllers import cameraTools, deviceTools, kasaTools
@@ -28,12 +30,22 @@ security = HTTPBasic()
 class AccessLogMiddleware(BaseHTTPMiddleware):
     """Middleware to log requests to ml.slog instead of stdout."""
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         start_time = time.perf_counter()
         response = await call_next(request)
         duration_ms = (time.perf_counter() - start_time) * 1000
+
+        client = request.client
+        if client is None:
+            clientHost = "unknown"
+            clientPort = "unknown"
+        else:
+            clientHost = client.host
+            clientPort = str(client.port)
+
         ml.slog(
-            f'{request.client.host}:{request.client.port} - "{request.method} {request.url.path} HTTP/1.1" {response.status_code} ({duration_ms:.0f}ms)'
+            f'{clientHost}:{clientPort} - "{request.method} {request.url.path} HTTP/1.1" '
+            f"{response.status_code} ({duration_ms:.0f}ms)",
         )
         return response
 
@@ -108,11 +120,25 @@ class CameraInfo(BaseModel):
 class CameraList(BaseModel):
     cameras: list[CameraInfo]
 
+
+class CameraRecordingFileInfo(BaseModel):
+    filename: str
+    camera_ip: str | None
+    camera_hostname: str | None
+    size_bytes: int
+    modified_unix_ms: int
+    download_path: str
+
+
+class CameraRecordingList(BaseModel):
+    recordings: list[CameraRecordingFileInfo]
+
 class KasaDeviceInfo(BaseModel):
     alias: str
     host: str
     model: str
     active: bool
+
 
 # API Endpoints
 # ------------------------
@@ -242,6 +268,78 @@ async def controlCamera(
         status="sent",
         message=f"User sent camera move command to {ip}: <{x_movement}, {y_movement}>",
     )
+
+@app.post("/v1/camera/recordings/start", summary="Start recording a camera's stream")
+async def startCameraRecording(
+    ip: str,
+) -> CommandResponse:
+
+    ml.slog(f"User sent camera recording start command to {ip}")
+
+    try:
+        await cameraTools.startCameraRecording(ip)
+    except Exception as e:
+        raise HTTPException(500, f"Failed to start recording for camera at {ip}") from e
+
+    return CommandResponse(
+        status="sent",
+        message=f"User sent camera recording start command to {ip}",
+    )
+
+@app.post("/v1/camera/recordings/stop", summary="Stop recording a camera's stream")
+async def stopCameraRecording(
+    ip: str,
+) -> CommandResponse:
+
+    ml.slog(f"User sent camera recording stop command to {ip}")
+
+    try:
+        await cameraTools.stopCameraRecording(ip)
+    except Exception as e:
+        raise HTTPException(500, f"Failed to stop recording for camera at {ip}") from e
+
+    return CommandResponse(
+        status="sent",
+        message=f"User sent camera recording stop command to {ip}",
+    )
+
+
+@app.get("/v1/camera/recordings", summary="List camera recordings available for download")
+async def listCameraRecordings(ip: str | None = None) -> CameraRecordingList:
+    try:
+        cameraRecordingFiles = cameraTools.listRecordingFiles(ip)
+    except Exception as e:
+        ml.elog(f"Failed to list camera recordings: {e}")
+        raise HTTPException(500, "Failed to list camera recordings") from e
+
+    cameraRecordings = [
+        CameraRecordingFileInfo(
+            filename=cameraRecording["filename"],
+            camera_ip=cameraRecording["camera_ip"],
+            camera_hostname=cameraRecording["camera_hostname"],
+            size_bytes=cameraRecording["size_bytes"],
+            modified_unix_ms=cameraRecording["modified_unix_ms"],
+            download_path=f"/v1/camera/recordings/download/{quote(cameraRecording['filename'])}",
+        )
+        for cameraRecording in cameraRecordingFiles
+    ]
+
+    return CameraRecordingList(recordings=cameraRecordings)
+
+
+@app.get("/v1/camera/recordings/download/{filename}", summary="Download a camera recording file")
+async def downloadCameraRecording(filename: str) -> FileResponse:
+    try:
+        filePath = cameraTools.getRecordingFilePath(filename)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except Exception as e:
+        ml.elog(f"Failed to load recording file '{filename}': {e}")
+        raise HTTPException(500, "Failed to open recording file") from e
+
+    return FileResponse(path=filePath, media_type="video/mp4", filename=filePath.name)
 
 @app.get("/v1/kasa", summary="Get the list of discovered Kasa devices")
 async def getKasaDevices() -> list[KasaDeviceInfo]:

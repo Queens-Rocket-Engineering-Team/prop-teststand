@@ -14,6 +14,7 @@ services:
     ip: localhost
     api_port: 9997
     webrtc_port: 8889 # Relayed to GUI for connection
+    recordings_dir: ./recordings/mediamtx
 
 cameras:
   - ip: 192.168.1.5

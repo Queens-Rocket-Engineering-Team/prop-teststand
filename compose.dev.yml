@@ -17,6 +17,7 @@ services:
 
     volumes:
       - ./config.yaml:/app/config.yaml # Mount local config file for development
+      - ./recordings/mediamtx:/app/recordings/mediamtx
 
     develop:
       watch:
@@ -40,7 +41,7 @@ services:
       dockerfile: Dockerfile.logs
     depends_on:
       - redis
-      
+
     # Required for consistency of shared config of redis ip
     # Normal containers cannot access localhost, host networked containers cannot use docker internal DNS
     network_mode: "host"
@@ -71,6 +72,8 @@ services:
       - MTX_API=yes
       # Windows firewall blocks UDP, so use TCP for development streams
       - MTX_WEBRTCLOCALTCPADDRESS=:8189
+    volumes:
+      - ./recordings/mediamtx:/recordings
 
   redis:
     image: "redis:latest"

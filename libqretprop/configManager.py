@@ -15,6 +15,7 @@ class MediaMTXConfig(TypedDict):
     ip: str
     api_port: int
     webrtc_port: int
+    recordings_dir: str
 
 class RedisConfig(TypedDict):
     ip: str
@@ -38,6 +39,7 @@ serverConfig: ServerConfig = {
             "ip": "",
             "api_port": 0,
             "webrtc_port": 0,
+            "recordings_dir": "./recordings/mediamtx",
         },
         "redis": {
             "ip": "",
