@@ -3,18 +3,16 @@ class Current:
 
     def __init__(self,
                  name: str,
-                 ADCIndex: int,
-                 pinNumber: int,
-                 shuntResistor_Ohms: float,
+                 sensor_index: str,
+                 shuntResistorOhms: float,
                  csaGain: int,
-                 units: str = "A",
+                 unit: str = "A",
                  ):
 
         self.name = name
-        self.ADCIndex = ADCIndex
-        self.pin = pinNumber
-        self.shuntResistor_Ohms = shuntResistor_Ohms
+        self.sensor_index = sensor_index
+        self.shuntResistorOhms = shuntResistorOhms
         self.csaGain = csaGain
-        self.units = units
+        self.unit = unit
 
         self.data: list[float] = []

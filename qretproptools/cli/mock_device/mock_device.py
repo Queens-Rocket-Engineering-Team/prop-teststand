@@ -52,47 +52,43 @@ class MockSensorDevice:
 
         # Device configuration
         self.config = {
-            "deviceName": device_name,
-            "deviceType": "Sensor Monitor",
-            "sensorInfo": {
-                "thermocouples": {
+            "device_name": device_name,
+            "device_type": "Sensor Monitor",
+            "sensor_info": {
+                "thermocouple": {
                     "TC1": {
-                        "ADCIndex": 0,
-                        "highPin": 1,
-                        "lowPin": 2,
+                        "sensor_index": "TC1",
                         "type": "K",
-                        "units": "C",
+                        "unit": "C",
                     },
                     "TC2": {
-                        "ADCIndex": 1,
-                        "highPin": 3,
-                        "lowPin": 4,
+                        "sensor_index": "TC2",
                         "type": "K",
-                        "units": "C",
+                        "unit": "C",
                     }
                 },
-                "pressureTransducers": {
+                "pressure_transducer": {
                     "PT1": {
-                        "ADCIndex": 2,
-                        "pin": 5,
-                        "maxPressure_PSI": 500,
-                        "units": "PSI",
+                        "sensor_index": "PT1",
+                        "resistor_ohms": 350,
+                        "max_pressure_PSI": 500,
+                        "unit": "PSI",
                     },
                 },
             },
             "controls": {
                 "AVDUMP": {
-                    "pin": 10,
+                    "control_index": "AV_DUMP",
                     "type": "valve",
                     "defaultState": "CLOSED",
                 },
                 "AVFILL": {
-                    "pin": 11,
+                    "control_index": "AV_FILL",
                     "type": "valve",
                     "defaultState": "OPEN",
                 },
                 "AV3": {
-                    "pin": 12,
+                    "control_index": "AV_3",
                     "type": "valve",
                     "defaultState": "OPEN",
                 },

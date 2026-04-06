@@ -4,16 +4,16 @@ class Resistance:
     def __init__(
         self,
         name: str,
-        ADCIndex: int,
-        pinNumber: int,
-        injectedCurrent: int,
-        units: str = "Ohms",
+        sensor_index: str,
+        injectedCurrentuA: int,
+        rShort: float,
+        unit: str = "ohms",
     ):
 
         self.name = name
-        self.ADCIndex = ADCIndex
-        self.pin = pinNumber
-        self.injectedCurrent = injectedCurrent
-        self.units = units
+        self.sensor_index = sensor_index
+        self.injectedCurrentuA = injectedCurrentuA
+        self.rShort = rShort
+        self.unit = unit
 
         self.data: list[float] = []

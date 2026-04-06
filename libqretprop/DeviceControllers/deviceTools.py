@@ -135,7 +135,7 @@ async def tcpListener() -> None:
                     if packet.header.packet_type == PacketType.CONFIG:
                         config_dict = json.loads(packet.config_json)
 
-                        if config_dict.get("deviceType") in {"Sensor Monitor", "Simulated Sensor Monitor"}:
+                        if config_dict.get("device_type") in {"Sensor Monitor", "Simulated Sensor Monitor"}:
                             newDevice = SensorMonitor(client_socket, deviceIP, config_dict)
                         else:
                             newDevice = ESPDevice(client_socket, deviceIP, config_dict)
