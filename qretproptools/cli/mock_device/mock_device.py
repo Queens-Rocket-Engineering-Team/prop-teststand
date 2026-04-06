@@ -80,17 +80,17 @@ class MockSensorDevice:
                 "AVDUMP": {
                     "control_index": "AV_DUMP",
                     "type": "valve",
-                    "defaultState": "CLOSED",
+                    "default_state": "CLOSED",
                 },
                 "AVFILL": {
                     "control_index": "AV_FILL",
                     "type": "valve",
-                    "defaultState": "OPEN",
+                    "default_state": "OPEN",
                 },
                 "AV3": {
                     "control_index": "AV_3",
                     "type": "valve",
-                    "defaultState": "OPEN",
+                    "default_state": "OPEN",
                 },
             },
         }

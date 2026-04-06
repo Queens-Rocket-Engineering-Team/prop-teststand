@@ -366,7 +366,7 @@ STATUS_REQUEST and GET_SINGLE do not require ACK — the device responds with a 
 
 ### ESTOP
 
-On receiving ESTOP, the device must immediately set **all controls to their default states** as defined in the device's configuration (the `defaultState` field of each control). This is the safest state for the hardware. The device should also stop streaming if active.
+On receiving ESTOP, the device must immediately set **all controls to their default states** as defined in the device's configuration (the `default_state` field of each control). This is the safest state for the hardware. The device should also stop streaming if active.
 
 ESTOP does not require an ACK. The server assumes immediate compliance.
 
@@ -436,55 +436,62 @@ Key points:
 
 ## CONFIG JSON Structure
 
-The CONFIG packet carries a JSON object describing the device's capabilities. The server uses this to register sensors and controls. Additional device-specific fields (such as `i2cBus`, `wifiIndicatorPin`) are stored but not parsed by the server.
+The CONFIG packet carries a JSON object describing the device's capabilities. The server uses this to register sensors and controls.
 
 ### Schema
 
 ```json
 {
-    "deviceName": "<string>",
-    "deviceType": "Sensor Monitor",
-    "i2cBus": {
-        "sdaPin": "<int>",
-        "sclPin": "<int>",
-        "frequency_Hz": "<int>"
-    },
-    "wifiIndicatorPin": "<int>",
-    "sensorInfo": {
-        "thermocouples": {
+    "device_name": "<string>",
+    "device_type": "Sensor Monitor",
+
+    "sensor_info": {
+        "thermocouple": {
             "<name>": {
-                "ADCIndex": "<int>",
-                "highPin": "<int>",
-                "lowPin": "<int>",
+                "sensor_index": "<string>",
                 "type": "<string>",
                 "units": "<string>"
             }
         },
-        "pressureTransducers": {
+        "pressure_transducer": {
             "<name>": {
-                "ADCIndex": "<int>",
-                "pin": "<int>",
-                "maxPressure_PSI": "<int>",
-                "units": "<string>"
+                "sensor_index": "<string>",
+                "resistor_ohms": "<float>",
+                "max_pressure_PSI": "<int>",
+                "unit": "<string>"
             }
         },
-        "loadCells": {
+        "load_cell": {
             "<name>": {
-                "ADCIndex": "<int>",
-                "highPin": "<int>",
-                "lowPin": "<int>",
-                "loadRating_N": "<float>",
+                "sensor_index": "<string>",
+                "load_rating_N": "<float>",
                 "excitation_V": "<float>",
                 "sensitivity_vV": "<float>",
-                "units": "<string>"
+                "unit": "<string>"
             }
-        }
+        },
+        "resistance_sensor" : {
+            "<name>" : {
+                "sensor_index": "<string>",
+                "injected_current_uA": "<int>",
+                "r_short": "<float>",
+                "unit" : "<string>"
+            }
+        },
+        "current_sensor" : {
+            "ignCurrent" : {
+                "sensor_index": "<string>",
+                "shunt_resistor_ohms" : "<float>",
+                "csa_gain" : "<int>",
+                "unit" : "<string>"
+            }
+        }
     },
     "controls": {
         "<name>": {
-            "pin": "<int>",
+            "control_index": "<string>",
             "type": "<string>",
-            "defaultState": "<string>"
+            "default_state": "<string>"
         }
     }
 }
@@ -494,116 +501,139 @@ The CONFIG packet carries a JSON object describing the device's capabilities. Th
 
 ```json
 {
-    "deviceName": "PANDA-V3",
-    "deviceType": "Sensor Monitor",
-    "i2cBus": {
-        "sdaPin": 21,
-        "sclPin": 22,
-        "frequency_Hz": 100000
-    },
-    "wifiIndicatorPin": 21,
-    "sensorInfo": {
-        "thermocouples": {},
-        "pressureTransducers": {
-            "PTCombustionChamber": {
-                "ADCIndex": 3,
-                "pin": 0,
-                "maxPressure_PSI": 1000,
-                "units": "PSI"
-            },
-            "PTN2OSupply": {
-                "ADCIndex": 4,
-                "pin": 0,
-                "maxPressure_PSI": 1000,
-                "units": "PSI"
-            },
-            "PTN2Supply": {
-                "ADCIndex": 4,
-                "pin": 1,
-                "maxPressure_PSI": 200,
-                "units": "PSI"
-            },
-            "PTPreInjector": {
-                "ADCIndex": 4,
-                "pin": 2,
-                "maxPressure_PSI": 1000,
-                "units": "PSI"
-            },
-            "PTRun": {
-                "ADCIndex": 4,
-                "pin": 3,
-                "maxPressure_PSI": 1000,
-                "units": "PSI"
-            }
-        },
-        "loadCells": {
-            "LCFill": {
-                "ADCIndex": 2,
-                "highPin": 1,
-                "lowPin": 0,
-                "loadRating_N": 889.644,
-                "excitation_V": 5,
-                "sensitivity_vV": 36,
-                "units": "kg"
-            },
-            "LCThrust": {
-                "ADCIndex": 3,
-                "highPin": 3,
-                "lowPin": 2,
-                "loadRating_N": 5000,
-                "excitation_V": 5,
-                "sensitivity_vV": 2,
-                "units": "kg"
-            }
-        }
-    },
-    "controls": {
-        "AVFill": {
-            "pin": 38,
-            "defaultState": "CLOSED",
-            "type": "solenoid"
-        },
-        "AVRun": {
-            "pin": 39,
-            "defaultState": "CLOSED",
-            "type": "solenoid"
-        },
-        "AVDump": {
-            "pin": 40,
-            "defaultState": "OPEN",
-            "type": "solenoid"
-        },
-        "AVPurge1": {
-            "pin": 41,
-            "defaultState": "OPEN",
-            "type": "solenoid"
-        },
-        "AVPurge2": {
-            "pin": 42,
-            "defaultState": "OPEN",
-            "type": "solenoid"
-        },
-        "AVVent": {
-            "pin": 43,
-            "defaultState": "OPEN",
-            "type": "solenoid"
-        },
-        "Safe24": {
-            "pin": 4,
-            "defaultState": "OPEN",
-            "type": "relay"
-        },
-        "IgnPrime": {
-            "pin": 6,
-            "defaultState": "OPEN",
-            "type": "relay"
-        },
-        "Ign": {
-            "pin": 5,
-            "defaultState": "OPEN",
-            "type": "relay"
-        }
-    }
+    "device_name": "PANDA-V3",
+    "device_type": "Sensor Monitor",
+
+    "sensor_info": {
+        "thermocouple": {
+            "TCRun": {
+                "sensor_index": "TC1",
+                "type" : "K",
+                "unit" : "C"
+            },
+            "TCCombustionChamber": {
+                "sensor_index": "TC2",
+                "type" : "K",
+                "unit" : "C"
+            }
+        },
+
+        "pressure_transducer": {
+            "PTRun": {
+                "sensor_index": "PT1",
+                "resistor_ohms": 250,
+                "max_pressure_PSI" : 1000,
+                "unit" : "PSI"
+            },
+            "PTCombustionChamber": {
+                "sensor_index": "PT2",
+                "resistor_ohms": 250,
+                "max_pressure_PSI" : 1000,
+                "unit" : "PSI"
+            },
+            "PTPreInjector": {
+                "sensor_index": "PT3",
+                "resistor_ohms": 250,
+                "max_pressure_PSI" : 1000,
+                "unit" : "PSI"
+            },
+            "PTN2OSupply": {
+                "sensor_index": "PT4",
+                "resistor_ohms": 250,
+                "max_pressure_PSI" : 1000,
+                "unit" : "PSI"
+            },
+            "PTN2Supply": {
+                "sensor_index": "PT5",
+                "resistor_ohms": 250,
+                "max_pressure_PSI" : 200,
+                "unit" : "PSI"
+            }
+        },
+
+        "load_cell": {
+            "LCFill": {
+                "sensor_index": "LC_FILL",
+                "load_rating_N" : 1962,
+                "excitation_V" : 5,
+                "sensitivity_vV" : 2,
+                "unit" : "kg"
+            },
+            "LCThrust": {
+                "sensor_index": "LC_THRUST",
+                "load_rating_N" : 5000,
+                "excitation_V" : 5,
+                "sensitivity_vV" : 2,
+                "unit" : "kg"
+            }
+        },
+
+        "resistance_sensor" : {
+            "ignResistance" : {
+                "sensor_index": "IGN_RESIST_READ",
+                "injected_current_uA": 1500,
+                "r_short": 47.91259768,
+                "unit" : "ohms"
+            }
+        },
+
+        "current_sensor" : {
+            "ignCurrent" : {
+                "sensor_index": "IGN_CURRENT_READ",
+                "shunt_resistor_ohms" : 0.025,
+                "csa_gain" : 20,
+                "unit" : "A"
+            }
+        }
+    },
+
+    "controls": {
+        "AVN2OFill": {
+            "control_index": "AV_FILL",
+            "default_state": "CLOSED",
+            "type": "solenoid"
+        },
+        "AVRun": {
+            "control_index": "AV_RUN",
+            "default_state": "CLOSED",
+            "type": "solenoid"
+        },
+        "AVVent": {
+            "control_index": "AV3",
+            "default_state": "OPEN",
+            "type": "solenoid"
+        },
+        "AVN2Fill": {
+            "control_index": "AV4",
+            "default_state": "OPEN",
+            "type": "solenoid"
+        },
+        "AVPurge": {
+            "control_index": "AV5",
+            "default_state": "OPEN",
+            "type": "solenoid"
+        },
+        "AVDump": {
+            "control_index": "AV6",
+            "default_state" : "OPEN",
+            "type": "solenoid"
+        },
+        "Safe24": {
+            "control_index": "SAFE_24V_CTL",
+            "default_state" : "OPEN",
+            "type" : "relay"
+        },
+        "IgnPrime": {
+            "control_index": "IGNITOR_PRIME_CTL",
+            "default_state" : "OPEN",
+            "type" : "relay"
+        },
+        "IgnRun": {
+            "control_index": "IGNITOR_RUN_CTL",
+            "default_state" : "OPEN",
+            "type" : "relay"
+        }
+    }
 }
 ```
 

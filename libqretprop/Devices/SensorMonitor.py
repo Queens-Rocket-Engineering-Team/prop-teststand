@@ -96,7 +96,7 @@ class SensorMonitor(ESPDevice):
         for name, details in config.get("controls", {}).items():
             control_index = details.get("control_index", None)
             controlType = details.get("type")
-            defaultState = details.get("defaultState")
+            defaultState = details.get("default_state")
 
             controls[name.upper()] = Control(
                 name=name.upper(),
