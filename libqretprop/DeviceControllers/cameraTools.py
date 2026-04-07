@@ -113,6 +113,7 @@ async def connectAllCameras() -> None:
                         "source": f"rtsp://{cam_username}:{cam_password}@{cam.address}/stream1",
                         "sourceOnDemand": True,
                         "recordPath": record_path,
+                        "recordSegmentDuration": "2h",  # 2 hours per recording file segment to accommodate long sessions
                     }, timeout=aiohttp.ClientTimeout(10))
                 except asyncio.TimeoutError:
                     ml.elog(f"Media server configuration timed out for {cam.hostname} ({camera_ip})")
@@ -201,6 +202,10 @@ async def startCameraRecording(ip: str) -> None:
 
                 if response.status != 200:
                     raise Exception(f"Media server API returned status {response.status}")
+
+                # Mark camera as recording in registry
+                cam = cameraRegistry[ip]
+                cam.recording = True
             except asyncio.TimeoutError:
                 ml.elog(f"Media server API request to start recording timed out for camera at {ip}")
                 raise Exception("Media server API request timed out")
@@ -229,6 +234,10 @@ async def stopCameraRecording(ip: str) -> None:
 
                 if response.status != 200:
                     raise Exception(f"Media server API returned status {response.status}")
+
+                # Mark camera as not recording in registry
+                cam = cameraRegistry[ip]
+                cam.recording = False
             except asyncio.TimeoutError:
                 ml.elog(f"Media server API request to stop recording timed out for camera at {ip}")
                 raise Exception("Media server API request timed out")

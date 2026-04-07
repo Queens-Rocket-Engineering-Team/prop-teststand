@@ -23,6 +23,9 @@ class Camera:
         self.address = address
         self.port = port
 
+        # Whether the camera is currently recording via media server
+        self.recording = False
+
     async def connect(self) -> None:
         try:
             # Load wsdl files for ONVIF
