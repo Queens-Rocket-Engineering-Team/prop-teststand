@@ -74,15 +74,6 @@ class SensorMonitor(ESPDevice):
                 unit=details.get("unit", "N"),
             )
 
-        for name, details in sensorInfo.get("current_sensor", {}).items():
-            sensors[name] = Current(
-                name=name,
-                sensor_index=details.get("sensor_index"),
-                shuntResistorOhms=details.get("shunt_resistor_ohms", 0.1),
-                csaGain=details.get("csa_gain", 50),
-                unit=details.get("unit", "A"),
-            )
-
         for name, details in sensorInfo.get("resistance_sensor", {}).items():
             sensors[name] = Resistance(
                 name=name,
@@ -90,6 +81,15 @@ class SensorMonitor(ESPDevice):
                 injectedCurrentuA=details.get("injected_current_uA", 1000),
                 rShort=details.get("r_short", 50),
                 unit=details.get("unit", "ohms"),
+            )
+
+        for name, details in sensorInfo.get("current_sensor", {}).items():
+            sensors[name] = Current(
+                name=name,
+                sensor_index=details.get("sensor_index"),
+                shuntResistorOhms=details.get("shunt_resistor_ohms", 0.1),
+                csaGain=details.get("csa_gain", 50),
+                unit=details.get("unit", "A"),
             )
 
         # Register valves
