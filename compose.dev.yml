@@ -17,6 +17,7 @@ services:
 
     volumes:
       - ./config.yaml:/app/config.yaml # Mount local config file for development
+      - ./recordings:/app/recordings # Mount local directory for audio recordings
 
     develop:
       watch:
@@ -50,7 +51,6 @@ services:
 
     volumes:
       - ./config.yaml:/app/config.yaml  # Mount local config file for development
-      - ./mumble_recordings:/app/mumble_recordings # Mount local directory for audio recordings
 
     develop:
       watch:

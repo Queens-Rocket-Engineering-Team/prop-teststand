@@ -4,6 +4,6 @@ build/
 data/
 configs/
 .claude/
-mumble_recordings/
+recordings/
 
 *.egg-info

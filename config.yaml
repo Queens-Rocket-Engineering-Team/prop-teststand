@@ -18,7 +18,7 @@ services:
     ip: localhost
     port: 64738
     temp_recording_dir: /tmp/mumble_recordings
-    recording_dir: ./mumble_recordings
+    recording_dir: ./recordings/mumble
 
 cameras:
   - ip: 192.168.1.5

@@ -379,7 +379,6 @@ def start(request: Request) -> dict[str, str]:
         MUMBLE_HOST = config.serverConfig["services"]["mumble"]["ip"]
         MUMBLE_PORT = config.serverConfig["services"]["mumble"]["port"]
         MUMBLE_TEMP_RECORDING_DIR = config.serverConfig["services"]["mumble"]["temp_recording_dir"]
-        MUMBLE_RECORDING_DIR = config.serverConfig["services"]["mumble"]["recording_dir"]
 
         mumble, wav, file_name = mumbleRecording.start_recording(MUMBLE_HOST, MUMBLE_PORT, "", MUMBLE_TEMP_RECORDING_DIR)
         audioState.mumble = mumble
@@ -411,18 +410,25 @@ def stop(request: Request) -> dict[str, str | None]:
 
 
 @app.get("/v1/audio/files")
-def list_recordings():
+def list_recordings() -> dict[str, list[dict[str, str]]]:
     MUMBLE_RECORDING_DIR = config.serverConfig["services"]["mumble"]["recording_dir"]
     RECORDINGS_DIR = Path(MUMBLE_RECORDING_DIR)
 
-    files = [f.name for f in RECORDINGS_DIR.iterdir() if f.suffix == ".opus"]
+    files = [
+        {
+            "filename": f.name,
+            "download_path": f"/v1/audio/files/{f.name}",
+        }
+        for f in RECORDINGS_DIR.iterdir()
+        if f.suffix == ".opus"
+    ]
 
     # Sort files by modified time, newest first
-    files.sort(key=lambda f: (RECORDINGS_DIR / f).stat().st_mtime, reverse=True)
+    files.sort(key=lambda f: (RECORDINGS_DIR / f["filename"]).stat().st_mtime, reverse=True)
     return {"files": files}
 
 @app.get("/v1/audio/files/{filename}")
-def download_recording(filename: str):
+def download_recording(filename: str) -> FileResponse:
     MUMBLE_RECORDING_DIR = config.serverConfig["services"]["mumble"]["recording_dir"]
     RECORDINGS_DIR = Path(MUMBLE_RECORDING_DIR)
 

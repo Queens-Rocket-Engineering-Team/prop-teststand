@@ -43,10 +43,12 @@ def stop_recording(mumble: Mumble, wav: wave.Wave_write, temp_recording_dir: str
     # Convert wav to opus using ffmpeg to reduce file size and move to final output directory
     subprocess.run([
         "ffmpeg",
-        "-y",  # Overwrite output file if it exists
+        "-y",
         "-i", str(temp_path),
         "-c:a", "libopus",
-        "-b:a", "32k",
+        "-b:a", "96k", # Bitrate
+        "-vbr", "on", 
+        "-ar", "48000",
         str(output_path)
     ], check=True)
 
