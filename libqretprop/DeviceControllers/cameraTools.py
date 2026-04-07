@@ -29,6 +29,51 @@ def getRecordingsRoot() -> Path:
     return Path(recordingsDir).resolve()
 
 
+def _parseMediaMtxRecordFlag(data: dict) -> bool | None:
+    recordFlag = data.get("record")
+    if isinstance(recordFlag, bool):
+        return recordFlag
+
+    item = data.get("item")
+    if isinstance(item, dict):
+        recordFlag = item.get("record")
+        if isinstance(recordFlag, bool):
+            return recordFlag
+
+    return None
+
+
+async def _getMediaMtxPathRecordState(httpClient: aiohttp.ClientSession, pathName: str) -> bool | None:
+    mediamtxConfig = config.serverConfig["services"]["mediamtx"]
+    mediamtxIp = mediamtxConfig["ip"]
+    mediamtxPort = mediamtxConfig["api_port"]
+
+    try:
+        response = await httpClient.get(
+            f"http://{mediamtxIp}:{mediamtxPort}/v3/config/paths/get/{pathName}",
+            timeout=aiohttp.ClientTimeout(10),
+        )
+
+        if response.status == 404:
+            return None
+
+        if response.status != 200:
+            ml.elog(f"Failed to read MediaMTX path config for {pathName}: status {response.status}")
+            return None
+
+        data = await response.json()
+        if not isinstance(data, dict):
+            return None
+
+        return _parseMediaMtxRecordFlag(data)
+    except TimeoutError:
+        ml.elog(f"MediaMTX path config request timed out for {pathName}")
+    except Exception as e:
+        ml.elog(f"Failed reading MediaMTX path config for {pathName}: {e}")
+
+    return None
+
+
 def _extractIpFromFilename(filename: str) -> str | None:
     ipMatch = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})", filename)
     if ipMatch is None:
@@ -117,6 +162,13 @@ async def connectAllCameras() -> None:
                     }, timeout=aiohttp.ClientTimeout(10))
                 except asyncio.TimeoutError:
                     ml.elog(f"Media server configuration timed out for {cam.hostname} ({camera_ip})")
+
+                recordState = await _getMediaMtxPathRecordState(httpClient, cam.address)
+                if recordState is None:
+                    cam.recording = False
+                    ml.elog(f"Could not determine recording state from MediaMTX path {cam.address}; defaulting to False")
+                else:
+                    cam.recording = recordState
 
 
 """Register a camera with its IP and port
