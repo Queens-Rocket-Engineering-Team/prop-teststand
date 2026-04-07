@@ -111,7 +111,7 @@ async def connectAllCameras() -> None:
                     ml.slog(f"Configuring media server for camera {cam.hostname} ({camera_ip})")
                     await httpClient.post(f"http://{mediamtx_ip}:{mediamtx_port}/v3/config/paths/add/{cam.address}", json={
                         "source": f"rtsp://{cam_username}:{cam_password}@{cam.address}/stream1",
-                        "sourceOnDemand": True,
+                        "sourceOnDemand": False, # Always pull stream even if no viewers to ensure recording works
                         "recordPath": record_path,
                         "recordSegmentDuration": "2h",  # 2 hours per recording file segment to accommodate long sessions
                     }, timeout=aiohttp.ClientTimeout(10))
