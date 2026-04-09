@@ -199,8 +199,7 @@ async def udpListener() -> None:
                         # Fast-path for DATA packets (100% of UDP traffic):
                         # Check packet type from raw bytes without full decode_packet.
                         packet_type = data[1]
-                        if packet_type == 0x11:  # PacketType.DATA
-                            start_time = time.monotonic()
+                        if packet_type == PacketType.DATA:
                             _, _, _, _, timestamp_ms, readings = _unpackDataPacketFast(data)
                             t = timestamp_ms / 1000.0 if device.last_sync_time is not None else time.monotonic()
                             sensor_names = device.sensor_names
@@ -286,7 +285,10 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
 
                     ml.plog(f"Decoded {packet.header.packet_type.name} from {device.name}")
 
-                    if packet.header.packet_type == PacketType.STATUS:
+                    if packet.header.packet_type == PacketType.DATA:
+                        ml.elog(f"Unexpected DATA packet received over TCP from {device.name}. This should be sent over UDP. Ignoring.")
+
+                    elif packet.header.packet_type == PacketType.STATUS:
                         # If SensorMonitor, log control states
                         if isinstance(device, SensorMonitor) and packet.control_states:
                             # Read control states from payload (if any) and update internal state
