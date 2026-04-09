@@ -4,5 +4,6 @@ build/
 data/
 configs/
 .claude/
+recordings/
 
 *.egg-info
