@@ -471,21 +471,21 @@ The CONFIG packet carries a JSON object describing the device's capabilities. Th
             }
         },
         "resistance_sensor" : {
-            "<name>" : {
-                "sensor_index": "<string>",
-                "injected_current_uA": "<int>",
-                "r_short": "<float>",
-                "unit" : "<string>"
-            }
-        },
-        "current_sensor" : {
-            "ignCurrent" : {
-                "sensor_index": "<string>",
-                "shunt_resistor_ohms" : "<float>",
-                "csa_gain" : "<int>",
-                "unit" : "<string>"
-            }
-        }
+            "<name>" : {
+                "sensor_index": "<string>",
+                "injected_current_uA": "<int>",
+                "r_short": "<float>",
+                "unit" : "<string>"
+            }
+        },
+        "current_sensor" : {
+            "ignCurrent" : {
+                "sensor_index": "<string>",
+                "shunt_resistor_ohms" : "<float>",
+                "csa_gain" : "<int>",
+                "unit" : "<string>"
+            }
+        }
     },
     "controls": {
         "<name>": {
