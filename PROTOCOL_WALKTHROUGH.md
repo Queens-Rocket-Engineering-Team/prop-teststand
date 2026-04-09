@@ -450,7 +450,7 @@ The CONFIG packet carries a JSON object describing the device's capabilities. Th
             "<name>": {
                 "sensor_index": "<string>",
                 "type": "<string>",
-                "units": "<string>"
+                "unit": "<string>"
             }
         },
         "pressure_transducer": {
