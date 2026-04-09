@@ -61,6 +61,9 @@ async def main(noDiscovery: bool = False,
         daemons["tcpListener"] = loop.create_task(deviceTools.tcpListener())
         ml.slog("Started TCP listener daemon task.")
 
+        daemons["udpListener"] = loop.create_task(deviceTools.udpListener())
+        ml.slog("Started UDP listener daemon task.")
+
         # Start SSDP auto-discovery loop for finding devices on the network
         daemons["autoDiscovery"] = loop.create_task(deviceTools.autoDiscoveryLoop())
         ml.slog("Started SSDP auto-discovery daemon task.")
