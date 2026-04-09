@@ -37,8 +37,8 @@ class ESPDevice:
         self.jsonConfig = jsonConfig
         self.listenerTask: asyncio.Task[Any]
 
-        self.name: str = jsonConfig["deviceName"]
-        self.type = jsonConfig["deviceType"]
+        self.name: str = jsonConfig["device_name"]
+        self.type = jsonConfig["device_type"]
 
         # Timesync state: track when last sync completed for periodic resync
         self.last_sync_time: float | None = None  # server monotonic time of last sync

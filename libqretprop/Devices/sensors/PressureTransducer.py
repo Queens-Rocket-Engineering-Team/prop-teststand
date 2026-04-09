@@ -7,17 +7,16 @@ class PressureTransducer:
 
     def __init__ (self,
                   name: str,
-                  ADCIndex: int,
-                  pinNumber: int,
-                  maxPressure_PSI: int,
-                  units: str,
+                  sensor_index: str,
+                  resistorOhms: float,
+                  maxPressurePSI: int,
+                  unit: str,
                   ):
 
         self.name = name
-        self.ADCIndex = ADCIndex
-        if self.ADCIndex == 0:
-            self.pin = pinNumber
-        self.maxPressure_PSI = maxPressure_PSI
-        self.units = units
+        self.sensor_index = sensor_index
+        self.resistorOhms = resistorOhms
+        self.maxPressurePSI = maxPressurePSI
+        self.unit = unit
 
         self.data : list[float] = []

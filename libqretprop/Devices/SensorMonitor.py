@@ -29,8 +29,8 @@ class SensorMonitor(ESPDevice):
         self.address = address
         self.jsonConfig: dict[str, str] = config
 
-        self.name: str = config.get("deviceName")
-        self.type = config.get("deviceType")
+        self.name: str = config.get("device_name")
+        self.type = config.get("device_type")
 
         self.startTime = time.monotonic()  # Start time for the device, used for uptime tracking
         self.times: list[float] = []
@@ -46,68 +46,63 @@ class SensorMonitor(ESPDevice):
         sensors: dict[str, Thermocouple | LoadCell | PressureTransducer | Current | Resistance] = {}
         controls: dict[str, Control] = {}
 
-        sensorInfo = config.get("sensorInfo", {})
+        sensorInfo = config.get("sensor_info", {})
 
-        for name, details in sensorInfo.get("thermocouples", {}).items():
+        for name, details in sensorInfo.get("thermocouple", {}).items():
             sensors[name] = Thermocouple(
                 name=name,
-                ADCIndex=details["ADCIndex"],
-                highPin=details["highPin"],
-                lowPin=details["lowPin"],
+                sensor_index=details.get("sensor_index"),
                 thermoType=details.get("type", "K"),
-                units=details.get("units", "C"),
+                unit=details.get("unit", "C"),
             )
 
-        for name, details in sensorInfo.get("pressureTransducers", {}).items():
+        for name, details in sensorInfo.get("pressure_transducer", {}).items():
             sensors[name] = PressureTransducer(
                 name=name,
-                ADCIndex=details["ADCIndex"],
-                pinNumber=details["pin"],
-                maxPressure_PSI=details.get("maxPressure_PSI", 500),
-                units=details.get("units", "PSI"),
+                sensor_index=details.get("sensor_index"),
+                resistorOhms=details.get("resistor_ohms", 350),
+                maxPressurePSI=details.get("max_pressure_PSI", 500),
+                unit=details.get("unit", "PSI"),
             )
 
-        for name, details in sensorInfo.get("loadCells", {}).items():
+        for name, details in sensorInfo.get("load_cell", {}).items():
             sensors[name] = LoadCell(
                 name=name,
-                ADCIndex=details["ADCIndex"],
-                highPin=details["highPin"],
-                lowPin=details["lowPin"],
-                loadRating_N=details.get("loadRating_N", 1000),
-                excitation_V=details.get("excitation_V", 5.0),
-                sensitivity_vV=details.get("sensitivity_vV", 2.0),
-                units=details.get("units", "N"),
+                sensor_index=details.get("sensor_index"),
+                loadRatingN=details.get("load_rating_N", 1000),
+                excitationV=details.get("excitation_V", 5.0),
+                sensitivityvV=details.get("sensitivity_vV", 2.0),
+                unit=details.get("unit", "N"),
             )
 
-        for name, details in sensorInfo.get("current", {}).items():
-            sensors[name] = Current(
-                name=name,
-                ADCIndex=details["ADCIndex"],
-                pinNumber=details["pin"],
-                shuntResistor_Ohms=details.get("shuntResistor_Ohms", 0.1),
-                csaGain=details.get("csaGain", 50),
-                units=details.get("units", "A"),
-            )
-
-        for name, details in sensorInfo.get("resistance", {}).items():
+        for name, details in sensorInfo.get("resistance_sensor", {}).items():
             sensors[name] = Resistance(
                 name=name,
-                ADCIndex=details["ADCIndex"],
-                pinNumber=details["pin"],
-                injectedCurrent=details["injectedCurrent"],
-                units=details.get("units", "Ohms"),
+                sensor_index=details.get("sensor_index"),
+                injectedCurrentuA=details.get("injected_current_uA", 1000),
+                rShort=details.get("r_short", 50),
+                unit=details.get("unit", "ohms"),
+            )
+
+        for name, details in sensorInfo.get("current_sensor", {}).items():
+            sensors[name] = Current(
+                name=name,
+                sensor_index=details.get("sensor_index"),
+                shuntResistorOhms=details.get("shunt_resistor_ohms", 0.1),
+                csaGain=details.get("csa_gain", 50),
+                unit=details.get("unit", "A"),
             )
 
         # Register valves
         for name, details in config.get("controls", {}).items():
-            pin = details.get("pin", None)
+            control_index = details.get("control_index", None)
             controlType = details.get("type")
-            defaultState = details.get("defaultState")
+            defaultState = details.get("default_state")
 
             controls[name.upper()] = Control(
                 name=name.upper(),
                 controlType=controlType,
-                pin=pin,
+                control_index=control_index,
                 defaultState=defaultState,
             )
 

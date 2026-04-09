@@ -7,18 +7,14 @@ class Thermocouple:
 
     def __init__ (self,
                   name: str,
-                  ADCIndex: int,
-                  highPin: int,
-                  lowPin: int,
+                  sensor_index: str,
                   thermoType: str,
-                  units: str,
+                  unit: str,
                   ):
 
         self.name = name
-        self.ADCIndex = ADCIndex
-        self.highPin = highPin
-        self.lowPin = lowPin
+        self.sensor_index = sensor_index
         self.type = thermoType
-        self.units = units
+        self.unit = unit
 
         self.data: list[float] = []
