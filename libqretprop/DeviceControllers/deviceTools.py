@@ -5,6 +5,7 @@ import socket
 import time
 
 
+from libqretprop.DeviceMonitoring.deviceHealthStore import DeviceHealthStore
 import libqretprop.mylogging as ml
 from libqretprop.Devices.ESPDevice import ESPDevice
 from libqretprop.Devices.SensorMonitor import SensorMonitor
@@ -25,7 +26,10 @@ ssdpSearchSocket: socket.socket | None = None
 
 # Listening Globals #
 tcpListenerSocket: socket.socket | None = None
+
+# Device Data #
 deviceRegistry: dict[str, ESPDevice] = {}
+deviceHealthStore = DeviceHealthStore()
 
 
 # ---------------------- #
@@ -143,6 +147,7 @@ async def tcpListener() -> None:
                             newDevice = ESPDevice(client_socket, deviceIP, config_dict)
 
                         deviceRegistry[deviceIP] = newDevice
+                        await deviceHealthStore.on_connect(newDevice.name, deviceIP) # Track health on connect
 
                         listenerTask = loop.create_task(_monitorSingleDevice(newDevice))
                         deviceRegistry[deviceIP].listenerTask = listenerTask
@@ -195,6 +200,8 @@ async def udpListener() -> None:
                 deviceIP = addr[0]
                 if deviceIP in deviceRegistry:
                     device = deviceRegistry[deviceIP]
+                    await deviceHealthStore.on_udp_packet(device.name) # Track health on UDP packet
+
                     if isinstance(device, SensorMonitor):
                         # Fast-path for DATA packets (100% of UDP traffic):
                         # Check packet type from raw bytes without full decode_packet.
@@ -267,7 +274,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
             data = await loop.sock_recv(device.socket, 4096)
             if not data:
                 ml.elog(f"Device {device.name} disconnected.")
-                removeDevice(device)
+                await removeDevice(device)
                 break
 
             buffer += data
@@ -284,6 +291,8 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                     packet = decode_packet(packet_data)
 
                     ml.plog(f"Decoded {packet.header.packet_type.name} from {device.name}")
+
+                    await deviceHealthStore.on_tcp_packet(device.name) # Track health on TCP packet
 
                     if packet.header.packet_type == PacketType.DATA:
                         ml.elog(f"Unexpected DATA packet received over TCP from {device.name}. This should be sent over UDP. Ignoring.")
@@ -350,8 +359,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
         raise
     except Exception as e:
         ml.elog(f"Error receiving response from {device.name}: {e}")
-        if device.address in deviceRegistry:
-            removeDevice(device)
+        await removeDevice(device)
 
 # ---------------------- #
 # Data Packet Processing Tools
@@ -399,7 +407,7 @@ async def getSingle(device: ESPDevice) -> None:
                 ml.slog(f"{_removed.name} removed from registry")
     else:
         ml.elog(f"No socket available for {device.name} to send GET_SINGLE command.")
-        removeDevice(device)
+        await removeDevice(device)
 
 
 async def startStreaming(device: ESPDevice, Hz: int) -> None:
@@ -422,7 +430,7 @@ async def startStreaming(device: ESPDevice, Hz: int) -> None:
                 ml.slog(f"{device.name} removed from registry")
     else:
         ml.elog(f"No socket available for {device.name} to send STREAM_START command.")
-        removeDevice(device)
+        await removeDevice(device)
 
 
 async def stopStreaming(device: ESPDevice) -> None:
@@ -436,12 +444,10 @@ async def stopStreaming(device: ESPDevice) -> None:
             ml.slog(f"Sent STREAM_STOP command to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending STREAM_STOP command to {device.name}: {e}")
-            if device.address in deviceRegistry:
-                _removed = deviceRegistry.pop(device.address)
-                ml.slog(f"{device.name} removed from registry")
+            await removeDevice(device)
     else:
         ml.elog(f"No socket available for {device.name} to send STREAM_STOP command.")
-        removeDevice(device)
+        await removeDevice(device)
 
 
 async def setControl(device: SensorMonitor, controlName: str, controlState: str) -> None:
@@ -479,8 +485,7 @@ async def setControl(device: SensorMonitor, controlName: str, controlState: str)
             # Clean up pending control on send failure
             if packet.header.sequence in device._pending_controls:
                 device._pending_controls.pop(packet.header.sequence)
-            if device.address in deviceRegistry:
-                removeDevice(device)
+            await removeDevice(device)
     else:
         ml.elog(f"No socket available for {device.name} to send CONTROL command.")
 
@@ -496,12 +501,12 @@ async def getStatus(device: ESPDevice) -> None:
         except Exception as e:
             ml.elog(f"Error sending STATUS_REQUEST command to {device.name}: {e}")
             if device.address in deviceRegistry:
-                removeDevice(device)
+                await removeDevice(device)
     else:
         ml.elog(f"No socket available for {device.name} to send STATUS_REQUEST command.")
-        removeDevice(device)
+        await removeDevice(device)
 
-def removeDevice(device: ESPDevice) -> None:
+async def removeDevice(device: ESPDevice) -> None:
     if device.address in deviceRegistry:
         if device.socket:
             try:
@@ -524,6 +529,8 @@ def removeDevice(device: ESPDevice) -> None:
         deviceRegistry.pop(device.address)
         ml.slog(f"{device.name} removed from registry.")
         ml.log(f"{device.name} DISCONNECTED") # Used by GUI to trigger device removal
+
+        await deviceHealthStore.on_disconnect(device.name) # Track health on disconnect
 
 
 # ---------------------- #

@@ -158,10 +158,20 @@ async def readAuth(user: Annotated[str, Depends(authUser)]) -> dict:
     return {"message": f"Authenticated as, {user}!"}
 
 
+# Store server start time to report uptime in health endpoint
+START_TIME = time.monotonic()
+
 @app.get("/health")
 async def getHealth() -> dict:
-    return {"message": "The server is alive!"}
+    devices = await deviceTools.deviceHealthStore.snapshot()
+    connected = await deviceTools.deviceHealthStore.connected_count()
 
+    return {
+        "message": "The server is alive!",
+        "uptime": time.monotonic() - START_TIME,
+        "device_count": connected,
+        "devices": devices,
+    }
 
 @app.post(
     "/v1/command",
