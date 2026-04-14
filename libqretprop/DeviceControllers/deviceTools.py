@@ -142,6 +142,7 @@ async def tcpListener() -> None:
                         if deviceIP in deviceRegistry:
                             ml.elog(f"Device {deviceIP} attempted to connect and is already registered. Closing old connection.")
                             cleanupDevice(deviceRegistry[deviceIP])
+                            del deviceRegistry[deviceIP]
 
                         if config_dict.get("device_type") in {"Sensor Monitor", "Simulated Sensor Monitor"}:
                             newDevice = SensorMonitor(client_socket, deviceIP, config_dict)
@@ -526,6 +527,14 @@ def cleanupDevice(device: ESPDevice) -> None:
             ml.slog(f"Cancelled listener task for {device.name}")
         except Exception as e:
             ml.elog(f"Error cancelling listener task for {device.name}: {e}")
+
+    heartbeat_task = getattr(device, "_heartbeat_task", None)
+    if heartbeat_task is not None:
+        try:
+            heartbeat_task.cancel()
+            ml.slog(f"Cancelled heartbeat task for {device.name}")
+        except Exception as e:
+            ml.elog(f"Error cancelling heartbeat task for {device.name}: {e}")
 
 
 def removeDevice(device: ESPDevice) -> None:
