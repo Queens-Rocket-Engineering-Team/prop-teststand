@@ -52,7 +52,7 @@ class ESPDevice:
         self._last_heartbeat_sequence: int | None = None
         self._missed_heartbeat_acks: int = 0
 
-        asyncio.create_task(self.heartbeat())
+        self.heartbeat_task = asyncio.create_task(self.heartbeat())
 
     def handleHeartbeatAck(self, ack_sequence: int) -> None:
         if self._heartbeat_ack_pending and ack_sequence != self._last_heartbeat_sequence:

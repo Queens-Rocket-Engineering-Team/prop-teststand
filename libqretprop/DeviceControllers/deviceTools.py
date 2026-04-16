@@ -137,6 +137,13 @@ async def tcpListener() -> None:
                     if packet.header.packet_type == PacketType.CONFIG:
                         config_dict = json.loads(packet.config_json)
 
+                        # If a device with the same IP is already registered, close the old connection before registering the new one
+                        # Prevents issues with devices rebooting and reconnecting before the disconnect is detected
+                        if deviceIP in deviceRegistry:
+                            ml.elog(f"Device {deviceIP} attempted to connect and is already registered. Closing old connection.")
+                            cleanupDevice(deviceRegistry[deviceIP])
+                            del deviceRegistry[deviceIP]
+
                         if config_dict.get("device_type") in {"Sensor Monitor", "Simulated Sensor Monitor"}:
                             newDevice = SensorMonitor(client_socket, deviceIP, config_dict)
                         else:
@@ -501,7 +508,7 @@ async def getStatus(device: ESPDevice) -> None:
         ml.elog(f"No socket available for {device.name} to send STATUS_REQUEST command.")
         removeDevice(device)
 
-def removeDevice(device: ESPDevice) -> None:
+def cleanupDevice(device: ESPDevice) -> None:
     if device.address in deviceRegistry:
         if device.socket:
             try:
@@ -510,18 +517,31 @@ def removeDevice(device: ESPDevice) -> None:
             except OSError as e:
                 ml.elog(f"Error closing socket for {device.name}: {e}")
             finally:
-                # Ensure other code can detect that the device is no longer connected
                 device.socket = None
 
-        # Cancel any per-device listener task to avoid it running against a closed socket
-        listener_task = getattr(device, "listenerTask", None)
-        if listener_task is not None:
-            try:
-                listener_task.cancel()
-                ml.slog(f"Cancelled listener task for {device.name}")
-            except Exception as e:
-                ml.elog(f"Error cancelling listener task for {device.name}: {e}")
-        deviceRegistry.pop(device.address)
+    # Cancel any per-device listener task to avoid it running against a closed socket
+    listener_task = getattr(device, "listenerTask", None)
+    if listener_task is not None:
+        try:
+            listener_task.cancel()
+            ml.slog(f"Cancelled listener task for {device.name}")
+        except Exception as e:
+            ml.elog(f"Error cancelling listener task for {device.name}: {e}")
+
+    heartbeat_task = getattr(device, "heartbeat_task", None)
+    if heartbeat_task is not None:
+        try:
+            heartbeat_task.cancel()
+            ml.slog(f"Cancelled heartbeat task for {device.name}")
+        except Exception as e:
+            ml.elog(f"Error cancelling heartbeat task for {device.name}: {e}")
+
+
+def removeDevice(device: ESPDevice) -> None:
+    if device.address in deviceRegistry:
+        cleanupDevice(device)
+        del deviceRegistry[device.address]
+
         ml.slog(f"{device.name} removed from registry.")
         ml.log(f"{device.name} DISCONNECTED") # Used by GUI to trigger device removal
 
