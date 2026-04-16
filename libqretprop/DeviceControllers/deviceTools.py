@@ -528,7 +528,7 @@ def cleanupDevice(device: ESPDevice) -> None:
         except Exception as e:
             ml.elog(f"Error cancelling listener task for {device.name}: {e}")
 
-    heartbeat_task = getattr(device, "_heartbeat_task", None)
+    heartbeat_task = getattr(device, "heartbeat_task", None)
     if heartbeat_task is not None:
         try:
             heartbeat_task.cancel()
