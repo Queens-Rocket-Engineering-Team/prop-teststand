@@ -28,7 +28,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 ADD . /app
 
-RUN uv run python libqretprop/_build_qlcp.py
+RUN uv run --no-dev python libqretprop/_build_qlcp.py
 
 
 # Stage 3: Final runtime image
