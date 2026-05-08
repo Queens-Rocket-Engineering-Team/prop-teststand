@@ -1,6 +1,8 @@
 import contextlib
+from datetime import datetime
 from queue import Empty, Full, Queue
 from threading import Thread
+from zoneinfo import ZoneInfo
 
 import redis
 import redis.exceptions
@@ -21,6 +23,12 @@ def _applyColor(message: str, color: str) -> str:
         return f"\033[93m{message}\033[0m"
     return message
 
+def _formatMessage(message: str, color: str) -> str:
+    now = datetime.now(ZoneInfo("America/New_York"))
+    # Format: YYYY-MM-DDTHH:MM:SS.s-TZ (1 decimal place for seconds)
+    timestamp = now.strftime("%H:%M:%S")
+    timestamp_str = f"\033[90m[{timestamp}]\033[0m"  # Always dark grey
+    return f"{timestamp_str} {_applyColor(message, color)}"
 
 def _publishWorker() -> None:
     """Background thread: batches and publishes log messages to Redis (non-blocking for callers)."""
@@ -40,15 +48,14 @@ def _publishWorker() -> None:
         try:
             if len(batch) == 1:
                 channel, message, color = batch[0]
-                redisClient.publish(channel, _applyColor(message, color))
+                redisClient.publish(channel, _formatMessage(message, color))
             else:
                 pipe = redisClient.pipeline(transaction=False)
                 for channel, message, color in batch:
-                    pipe.publish(channel, _applyColor(message, color))
+                    pipe.publish(channel, _formatMessage(message, color))
                 pipe.execute()
         except Exception:
             pass
-
 
 _publishThread = Thread(target=_publishWorker, daemon=True)
 _publishThread.start()
@@ -67,6 +74,7 @@ def _publishLog(channel: str, message: str, color: str = "") -> None:
     """Enqueue a log message for background publishing with optional ANSI color (non-blocking)."""
     if redisClient is None:
         raise ValueError("Logger not initialized. Call initLogger() first.")
+
     item = (channel, message, color)
     try:
         _publishQueue.put_nowait(item)
