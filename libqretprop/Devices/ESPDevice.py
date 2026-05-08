@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import libqretprop.mylogging as ml
 from libqretprop.DeviceControllers import deviceTools
-from libqretprop.protocol import PacketType, SimplePacket, encode_header_only
+from libqretprop.protocol import PacketType, SimplePacket
 
 
 if TYPE_CHECKING:
@@ -80,7 +80,7 @@ class ESPDevice:
                 try:
                     packet = SimplePacket.create(PacketType.HEARTBEAT)
                     loop = asyncio.get_event_loop()
-                    await loop.sock_sendall(self.socket, encode_header_only(packet))
+                    await loop.sock_sendall(self.socket, packet.encode())
                     self._last_heartbeat_sequence = packet.sequence
                     self._heartbeat_ack_pending = True
                 except (BrokenPipeError, ConnectionResetError, OSError) as e:

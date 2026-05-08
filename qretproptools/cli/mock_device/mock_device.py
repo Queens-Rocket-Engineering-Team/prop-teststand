@@ -21,7 +21,7 @@ import socket
 import struct
 import time
 
-from libqretprop.protocol import HEADER_SIZE, AckPacket, ConfigPacket, ControlPacket, ControlState, ControlStatus, DataPacket, DeviceStatus, ErrorCode, NackPacket, PacketType, SensorReading, SimplePacket, StatusPacket, StreamStartPacket, Unit, decode_packet_client, encode_ack, encode_config, encode_data, encode_nack, encode_status, get_packet_len
+from libqretprop.protocol import HEADER_SIZE, AckPacket, ConfigPacket, ControlPacket, ControlState, ControlStatus, DataPacket, DeviceStatus, ErrorCode, NackPacket, PacketType, SensorReading, SimplePacket, StatusPacket, StreamStartPacket, Unit, decode_packet_client, get_packet_len
 
 import contextlib
 
@@ -242,7 +242,7 @@ class MockSensorDevice:
         """Send device configuration to server."""
         config_json = json.dumps(self.config)
         packet = ConfigPacket.create(config_json)
-        encoded_packet = encode_config(packet)
+        encoded_packet = packet.encode()
 
         loop = asyncio.get_event_loop()
         await loop.sock_sendall(self.sock, encoded_packet)
@@ -291,7 +291,7 @@ class MockSensorDevice:
                             ack = AckPacket.create(PacketType.TIMESYNC, packet.sequence)
                             ack.timestamp = self._get_adjusted_ts()
 
-                            await loop.sock_sendall(self.sock, encode_ack(ack))
+                            await loop.sock_sendall(self.sock, ack.encode())
 
                         elif isinstance(packet, ControlPacket):
                             await self.handle_control_command(packet)
@@ -312,7 +312,7 @@ class MockSensorDevice:
                             ack = AckPacket.create(PacketType.HEARTBEAT, packet.sequence)
                             ack.timestamp = self._get_adjusted_ts()
 
-                            await loop.sock_sendall(self.sock, encode_ack(ack))
+                            await loop.sock_sendall(self.sock, ack.encode())
 
                         buffer = buffer[packet_len:]
 
@@ -352,13 +352,13 @@ class MockSensorDevice:
             ack = AckPacket.create(PacketType.CONTROL, packet.sequence)
             ack.timestamp = self._get_adjusted_ts()
 
-            await loop.sock_sendall(self.sock, encode_ack(ack))
+            await loop.sock_sendall(self.sock, ack.encode())
         else:
             self.print_status(f"Invalid command_id: {command_id}", "ERROR")
             nack = NackPacket.create(PacketType.CONTROL, packet.sequence, ErrorCode.INVALID_ID)
             nack.timestamp = self._get_adjusted_ts()
 
-            await loop.sock_sendall(self.sock, encode_nack(nack))
+            await loop.sock_sendall(self.sock, nack.encode())
 
     async def handle_stream_start(self, packet: StreamStartPacket):
         self.stream_frequency = packet.frequency_hz
@@ -369,7 +369,7 @@ class MockSensorDevice:
         loop = asyncio.get_event_loop()
         ack = AckPacket.create(PacketType.STREAM_START, packet.sequence)
         ack.timestamp = self._get_adjusted_ts()
-        await loop.sock_sendall(self.sock, encode_ack(ack))
+        await loop.sock_sendall(self.sock, ack.encode())
 
         if self.stream_task:
             self.stream_task.cancel()
@@ -387,7 +387,7 @@ class MockSensorDevice:
         seq = packet.sequence if packet else 0
         ack = AckPacket.create(PacketType.STREAM_STOP, seq)
         ack.timestamp = self._get_adjusted_ts()
-        await loop.sock_sendall(self.sock, encode_ack(ack))
+        await loop.sock_sendall(self.sock, ack.encode())
 
     async def stream_data(self):
         interval = 1.0 / self.stream_frequency
@@ -430,7 +430,7 @@ class MockSensorDevice:
         loop = asyncio.get_event_loop()
 
         # Send data over UDP for performance
-        await loop.sock_sendto(self.udp_sock, encode_data(packet), (self.server_ip, self.server_udp_port))
+        await loop.sock_sendto(self.udp_sock, packet.encode(), (self.server_ip, self.server_udp_port))
 
         if random.random() < 0.1:
             self.print_status(
@@ -446,7 +446,7 @@ class MockSensorDevice:
         seq = request_packet.sequence if request_packet else 0
         ack = AckPacket.create(PacketType.GET_SINGLE, seq)
         ack.timestamp = self._get_adjusted_ts()
-        await loop.sock_sendall(self.sock, encode_ack(ack))
+        await loop.sock_sendall(self.sock, ack.encode())
 
     async def send_status(self):
         control_states = []
@@ -460,7 +460,7 @@ class MockSensorDevice:
         status.timestamp = self._get_adjusted_ts()
 
         loop = asyncio.get_event_loop()
-        await loop.sock_sendall(self.sock, encode_status(status))
+        await loop.sock_sendall(self.sock, status.encode())
 
         self.print_status("Sent STATUS: ACTIVE", "INFO")
         self.print_status(f"Control states: " + ", ".join(f"{name}={self.valve_states.get(name, 'UNKNOWN')}" for name in self.config["controls"]), "INFO")

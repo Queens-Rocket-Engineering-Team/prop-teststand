@@ -20,10 +20,6 @@ from libqretprop.protocol import (
     StatusPacket,
     StreamStartPacket,
     decode_packet_server,
-    encode_ack,
-    encode_control,
-    encode_header_only,
-    encode_stream_start,
     get_packet_len,
 )
 
@@ -175,14 +171,14 @@ async def tcpListener() -> None:
                         # ACK the CONFIG, then send initial TIMESYNC
 
                         ack = AckPacket.create(PacketType.CONFIG, packet.sequence)
-                        await loop.sock_sendall(client_socket, encode_ack(ack))
+                        await loop.sock_sendall(client_socket, ack.encode())
 
                         timesync = SimplePacket.create(PacketType.TIMESYNC)
-                        await loop.sock_sendall(client_socket, encode_header_only(timesync))
+                        await loop.sock_sendall(client_socket, timesync.encode())
                         ml.plog(f"Sent initial TIMESYNC to {newDevice.name}")
 
                         status_request = SimplePacket.create(PacketType.STATUS_REQUEST)
-                        await loop.sock_sendall(client_socket, encode_header_only(status_request))
+                        await loop.sock_sendall(client_socket, status_request.encode())
                         ml.plog(f"Sent initial STATUS_REQUEST to {newDevice.name}")
 
         except asyncio.CancelledError:
@@ -363,7 +359,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                     ):
                         device._resync_pending = True
                         timesync = SimplePacket.create(PacketType.TIMESYNC)
-                        await loop.sock_sendall(device.socket, encode_header_only(timesync))
+                        await loop.sock_sendall(device.socket, timesync.encode())
                         ml.plog(f"{device.name} resync sent (stale >{ESPDevice.RESYNC_INTERVAL_S / 60:.0f} min)")
 
                 except ValueError:
@@ -389,7 +385,7 @@ async def getSingle(device: ESPDevice) -> None:
         try:
             packet = SimplePacket.create(PacketType.GET_SINGLE)
             loop = asyncio.get_event_loop()
-            await loop.sock_sendall(device.socket, encode_header_only(packet))
+            await loop.sock_sendall(device.socket, packet.encode())
             ml.slog(f"Sent GET_SINGLE command to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending GET_SINGLE command to {device.name}: {e}")
@@ -410,7 +406,7 @@ async def startStreaming(device: ESPDevice, Hz: int) -> None:
         try:
             packet = StreamStartPacket.create(frequency_hz=Hz)
             loop = asyncio.get_event_loop()
-            await loop.sock_sendall(device.socket, encode_stream_start(packet))
+            await loop.sock_sendall(device.socket, packet.encode())
             ml.slog(f"Sent STREAM_START ({Hz} Hz) to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending STREAM_START command to {device.name}: {e}")
@@ -427,7 +423,7 @@ async def stopStreaming(device: ESPDevice) -> None:
         try:
             packet = SimplePacket.create(PacketType.STREAM_STOP)
             loop = asyncio.get_event_loop()
-            await loop.sock_sendall(device.socket, encode_header_only(packet))
+            await loop.sock_sendall(device.socket, packet.encode())
             ml.slog(f"Sent STREAM_STOP command to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending STREAM_STOP command to {device.name}: {e}")
@@ -464,7 +460,7 @@ async def setControl(device: SensorMonitor, controlName: str, controlState: str)
             device._pending_controls[packet.sequence] = (controlName, controlState.upper())
 
             loop = asyncio.get_event_loop()
-            await loop.sock_sendall(device.socket, encode_control(packet))
+            await loop.sock_sendall(device.socket, packet.encode())
             ml.slog(f"Sent CONTROL command (id={command_id}, {controlName} {controlState}) to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending CONTROL command to {device.name}: {e}")
@@ -481,7 +477,7 @@ async def getStatus(device: ESPDevice) -> None:
         try:
             packet = SimplePacket.create(PacketType.STATUS_REQUEST)
             loop = asyncio.get_event_loop()
-            await loop.sock_sendall(device.socket, encode_header_only(packet))
+            await loop.sock_sendall(device.socket, packet.encode())
             ml.slog(f"Sent STATUS_REQUEST command to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending STATUS_REQUEST command to {device.name}: {e}")
