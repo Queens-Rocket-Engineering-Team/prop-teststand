@@ -5,8 +5,8 @@ RUN apk add --no-cache gcc musl-dev cmake make
 COPY qlcp/ /build/qlcp/
 WORKDIR /build/qlcp/build
 
-RUN cmake .. -DCMAKE_BUILD_TYPE=Release && \
-    cmake --build . --target qlcp_shared && \
+RUN cmake .. -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build . --target qlcp && \
     gcc -E -P ../include/qlcp_lib.h -o qlcp_lib_expanded.h
 
 # Final stage
