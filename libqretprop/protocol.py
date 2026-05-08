@@ -3,19 +3,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
 
-import cffi
-
-
-# Low-level CFFI bindings to the QLCP C library
-# This file assumes the library is correctly installed and located at ./lib/libqlcp.so, and that the postprocessed header file is at ./lib/qlcp_lib_expanded.h
-
-_ffi = cffi.FFI()
-
-_header = Path(".") / "lib" / "qlcp_lib_expanded.h"
-_ffi.cdef(_header.read_text())
-
-_lib = _ffi.dlopen(str(Path(".") / "lib" / "libqlcp.so")) # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType, reportAttributeAccessIssue]
-
+from libqretprop._protocol._qlcp import lib as _lib, ffi as _ffi
 
 # Enums
 
@@ -266,7 +254,7 @@ _MAX_SENSORS  = 32
 _MAX_CONFIG   = 4096
 _ENCODE_BUF_SIZE = 4096
 
-HEADER_SIZE = 9
+HEADER_SIZE = _lib.QLCP_HEADER_SIZE_CONST
 
 # Utils
 
