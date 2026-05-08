@@ -1777,6 +1777,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aioconsole" },
     { name = "aiohttp" },
+    { name = "cffi" },
     { name = "colorama" },
     { name = "fastapi" },
     { name = "keyboard" },
@@ -1811,6 +1812,7 @@ dev = [
 requires-dist = [
     { name = "aioconsole", specifier = ">=0.8.1" },
     { name = "aiohttp", specifier = ">=3.13.2" },
+    { name = "cffi", specifier = ">=2.0.0" },
     { name = "colorama" },
     { name = "fastapi", specifier = ">=0.116.1" },
     { name = "keyboard" },

@@ -4,11 +4,28 @@ import csv
 import socket
 import time
 
-
 import libqretprop.mylogging as ml
 from libqretprop.Devices.ESPDevice import ESPDevice
 from libqretprop.Devices.SensorMonitor import SensorMonitor
-from libqretprop.protocol import ControlState, DataPacket, PacketHeader, PacketType, Unit, decode_packet
+from libqretprop.protocol import (
+    HEADER_SIZE,
+    AckPacket,
+    ConfigPacket,
+    ControlPacket,
+    ControlState,
+    DataPacket,
+    NackPacket,
+    PacketType,
+    SimplePacket,
+    StatusPacket,
+    StreamStartPacket,
+    decode_packet_server,
+    encode_ack,
+    encode_control,
+    encode_header_only,
+    encode_stream_start,
+    get_packet_len,
+)
 
 
 MULTICAST_ADDRESS = "239.255.255.250"
@@ -109,19 +126,17 @@ async def tcpListener() -> None:
             # Read header first (9 bytes) to get packet length
             import json
 
-            from libqretprop.protocol import PacketHeader, PacketType, decode_packet
-
             header_bytes = b""
-            while len(header_bytes) < PacketHeader.SIZE:
-                chunk = await loop.sock_recv(client_socket, PacketHeader.SIZE - len(header_bytes))
+            while len(header_bytes) < HEADER_SIZE:
+                chunk = await loop.sock_recv(client_socket, HEADER_SIZE - len(header_bytes))
                 if not chunk:
                     ml.elog(f"Device {deviceIP} disconnected during config.")
                     client_socket.close()
                     break
                 header_bytes += chunk
             else:
-                header = PacketHeader.unpack(header_bytes)
-                remaining = header.length - PacketHeader.SIZE
+                packet_len = get_packet_len(header_bytes)
+                remaining = packet_len - HEADER_SIZE
                 payload_bytes = b""
                 while len(payload_bytes) < remaining:
                     chunk = await loop.sock_recv(client_socket, remaining - len(payload_bytes))
@@ -132,9 +147,9 @@ async def tcpListener() -> None:
                     payload_bytes += chunk
                 else:
                     full_packet = header_bytes + payload_bytes
-                    packet = decode_packet(full_packet)
+                    packet = decode_packet_server(full_packet)
 
-                    if packet.header.packet_type == PacketType.CONFIG:
+                    if isinstance(packet, ConfigPacket):
                         config_dict = json.loads(packet.config_json)
 
                         # If a device with the same IP is already registered, close the old connection before registering the new one
@@ -158,17 +173,16 @@ async def tcpListener() -> None:
                         ml.log(f"{newDevice.name} CONNECTED") # Used by GUI to trigger device addition
 
                         # ACK the CONFIG, then send initial TIMESYNC
-                        from libqretprop.protocol import AckPacket, SimplePacket
 
-                        ack = AckPacket.create(PacketType.CONFIG, packet.header.sequence)
-                        await loop.sock_sendall(client_socket, ack.pack())
+                        ack = AckPacket.create(PacketType.CONFIG, packet.sequence)
+                        await loop.sock_sendall(client_socket, encode_ack(ack))
 
                         timesync = SimplePacket.create(PacketType.TIMESYNC)
-                        await loop.sock_sendall(client_socket, timesync.pack())
+                        await loop.sock_sendall(client_socket, encode_header_only(timesync))
                         ml.plog(f"Sent initial TIMESYNC to {newDevice.name}")
 
                         status_request = SimplePacket.create(PacketType.STATUS_REQUEST)
-                        await loop.sock_sendall(client_socket, status_request.pack())
+                        await loop.sock_sendall(client_socket, encode_header_only(status_request))
                         ml.plog(f"Sent initial STATUS_REQUEST to {newDevice.name}")
 
         except asyncio.CancelledError:
@@ -205,13 +219,22 @@ async def udpListener() -> None:
                     if isinstance(device, SensorMonitor):
                         # Fast-path for DATA packets (100% of UDP traffic):
                         # Check packet type from raw bytes without full decode_packet.
-                        packet_type = data[1]
+                        packet_type = data[1] # Important: this relies on header structure outside of decode_packet
                         if packet_type == PacketType.DATA:
-                            _, _, _, _, timestamp_ms, readings = _unpackDataPacketFast(data)
+                            # Only decode if already verified as DATA packet
+                            packet = decode_packet_server(data)
+
+                            timestamp_ms = packet.timestamp
+                            readings = packet.readings
+
                             t = timestamp_ms / 1000.0 if device.last_sync_time is not None else time.monotonic()
                             sensor_names = device.sensor_names
                             sensors = device.sensors
-                            for sid, _, value in readings:
+
+                            for reading in readings:
+                                sid = reading.sensor_id
+                                value = reading.value
+
                                 if sid < len(sensor_names):
                                     sensor_name = sensor_names[sid]
                                     sensors[sensor_name].data.append(value)
@@ -265,8 +288,6 @@ def closeDeviceConnections() -> None:
 async def _monitorSingleDevice(device: ESPDevice) -> None:
     """Monitor a single device using LENGTH-based framing from v2 header."""
     loop = asyncio.get_event_loop()
-    from libqretprop.protocol import PacketHeader, PacketType, SimplePacket, decode_packet
-
     buffer = b""
 
     try:
@@ -280,22 +301,21 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
             buffer += data
 
             # Use LENGTH field for framing
-            while len(buffer) >= PacketHeader.SIZE:
+            while len(buffer) >= HEADER_SIZE:
                 try:
-                    header = PacketHeader.unpack(buffer)
-
-                    if len(buffer) < header.length:
+                    packet_len = get_packet_len(buffer)
+                    if len(buffer) < packet_len:
                         break  # Need more data
 
-                    packet_data = buffer[: header.length]
-                    packet = decode_packet(packet_data)
+                    packet_data = buffer[: packet_len]
+                    packet = decode_packet_server(packet_data)
 
-                    ml.plog(f"Decoded {packet.header.packet_type.name} from {device.name}")
+                    ml.plog(f"Decoded {packet.__class__.__name__} from {device.name}")
 
-                    if packet.header.packet_type == PacketType.DATA:
+                    if isinstance(packet, DataPacket):
                         ml.elog(f"Unexpected DATA packet received over TCP from {device.name}. This should be sent over UDP. Ignoring.")
 
-                    elif packet.header.packet_type == PacketType.STATUS:
+                    elif isinstance(packet, StatusPacket):
                         # If SensorMonitor, log control states
                         if isinstance(device, SensorMonitor) and packet.control_states:
                             # Read control states from payload (if any) and update internal state
@@ -307,7 +327,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                     device.controls[control_name].state = state_str
                                     ml.log(f"{device.name} STATUS {control_name} {state_str}")
 
-                    elif packet.header.packet_type == PacketType.ACK:
+                    elif isinstance(packet, AckPacket):
                         if packet.ack_packet_type == PacketType.TIMESYNC:
                             device.last_sync_time = time.monotonic()
                             device._resync_pending = False
@@ -330,10 +350,10 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                         else:
                             ml.plog(f"{device.name} ACK for {packet.ack_packet_type.name} seq={packet.ack_sequence}")
 
-                    elif packet.header.packet_type == PacketType.NACK:
+                    elif isinstance(packet, NackPacket):
                         ml.plog(f"{device.name} NACK for {packet.nack_packet_type.name} error={packet.error_code.name}")
 
-                    buffer = buffer[header.length :]
+                    buffer = buffer[packet_len :]
 
                     # Periodic resync check
                     if (
@@ -343,7 +363,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                     ):
                         device._resync_pending = True
                         timesync = SimplePacket.create(PacketType.TIMESYNC)
-                        await loop.sock_sendall(device.socket, timesync.pack())
+                        await loop.sock_sendall(device.socket, encode_header_only(timesync))
                         ml.plog(f"{device.name} resync sent (stale >{ESPDevice.RESYNC_INTERVAL_S / 60:.0f} min)")
 
                 except ValueError:
@@ -361,43 +381,15 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
             removeDevice(device)
 
 # ---------------------- #
-# Data Packet Processing Tools
-# ---------------------- #
-
-def _unpackDataPacketFast(data: bytes) -> tuple[int, int, int, int, int, list[tuple[int, int, float]]]:
-    """Fast inline unpacking of DATA packets using pre-compiled structs.
-    Returns: (version, packet_type, sequence, length, timestamp, [(sensor_id, unit, value), ...])
-    Avoids SensorReading object allocation.
-    """
-    # Use PacketHeader's pre-compiled struct for fast header unpack
-    version, packet_type, sequence, length, timestamp = PacketHeader._STRUCT.unpack_from(data, 0)
-
-    # Parse reading count at byte 9
-    count = data[9]
-
-    # Parse readings using DataPacket's pre-compiled struct
-    readings = []
-    offset = 10
-    for _ in range(count):
-        sid, unit_val, value = DataPacket._READING_STRUCT.unpack_from(data, offset)
-        readings.append((sid, unit_val, value))
-        offset += DataPacket.READING_SIZE
-
-    return version, packet_type, sequence, length, timestamp, readings
-
-# ---------------------- #
 # Device Control Tools
 # ---------------------- #
 
-
 async def getSingle(device: ESPDevice) -> None:
-    from libqretprop.protocol import PacketType, SimplePacket
-
     if device.socket:
         try:
             packet = SimplePacket.create(PacketType.GET_SINGLE)
             loop = asyncio.get_event_loop()
-            await loop.sock_sendall(device.socket, packet.pack())
+            await loop.sock_sendall(device.socket, encode_header_only(packet))
             ml.slog(f"Sent GET_SINGLE command to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending GET_SINGLE command to {device.name}: {e}")
@@ -410,8 +402,6 @@ async def getSingle(device: ESPDevice) -> None:
 
 
 async def startStreaming(device: ESPDevice, Hz: int) -> None:
-    from libqretprop.protocol import StreamStartPacket
-
     if not Hz or Hz < 1 or Hz > 65535:
         ml.elog(f"Invalid frequency: {Hz}. Must be between 1-65535 Hz.")
         return
@@ -420,7 +410,7 @@ async def startStreaming(device: ESPDevice, Hz: int) -> None:
         try:
             packet = StreamStartPacket.create(frequency_hz=Hz)
             loop = asyncio.get_event_loop()
-            await loop.sock_sendall(device.socket, packet.pack())
+            await loop.sock_sendall(device.socket, encode_stream_start(packet))
             ml.slog(f"Sent STREAM_START ({Hz} Hz) to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending STREAM_START command to {device.name}: {e}")
@@ -433,13 +423,11 @@ async def startStreaming(device: ESPDevice, Hz: int) -> None:
 
 
 async def stopStreaming(device: ESPDevice) -> None:
-    from libqretprop.protocol import PacketType, SimplePacket
-
     if device.socket:
         try:
             packet = SimplePacket.create(PacketType.STREAM_STOP)
             loop = asyncio.get_event_loop()
-            await loop.sock_sendall(device.socket, packet.pack())
+            await loop.sock_sendall(device.socket, encode_header_only(packet))
             ml.slog(f"Sent STREAM_STOP command to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending STREAM_STOP command to {device.name}: {e}")
@@ -452,9 +440,6 @@ async def stopStreaming(device: ESPDevice) -> None:
 
 
 async def setControl(device: SensorMonitor, controlName: str, controlState: str) -> None:
-    from libqretprop.protocol import ControlPacket
-    from libqretprop.protocol import ControlState as CS
-
     controlName = controlName.upper()
     controlState = controlState.upper()
 
@@ -469,36 +454,34 @@ async def setControl(device: SensorMonitor, controlName: str, controlState: str)
     control_names = list(device.controls.keys())
     command_id = control_names.index(controlName)
 
-    state = CS.OPEN if controlState == "OPEN" else CS.CLOSED
+    state = ControlState.OPEN if controlState == "OPEN" else ControlState.CLOSED
 
     if device.socket:
         try:
             packet = ControlPacket.create(command_id=command_id, command_state=state)
 
             # Store pending control BEFORE sending (to avoid race condition)
-            device._pending_controls[packet.header.sequence] = (controlName, controlState.upper())
+            device._pending_controls[packet.sequence] = (controlName, controlState.upper())
 
             loop = asyncio.get_event_loop()
-            await loop.sock_sendall(device.socket, packet.pack())
+            await loop.sock_sendall(device.socket, encode_control(packet))
             ml.slog(f"Sent CONTROL command (id={command_id}, {controlName} {controlState}) to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending CONTROL command to {device.name}: {e}")
             # Clean up pending control on send failure
-            if packet.header.sequence in device._pending_controls:
-                device._pending_controls.pop(packet.header.sequence)
+            if packet.sequence in device._pending_controls:
+                device._pending_controls.pop(packet.sequence)
             if device.address in deviceRegistry:
                 removeDevice(device)
     else:
         ml.elog(f"No socket available for {device.name} to send CONTROL command.")
 
 async def getStatus(device: ESPDevice) -> None:
-    from libqretprop.protocol import PacketType, SimplePacket
-
     if device.socket:
         try:
             packet = SimplePacket.create(PacketType.STATUS_REQUEST)
             loop = asyncio.get_event_loop()
-            await loop.sock_sendall(device.socket, packet.pack())
+            await loop.sock_sendall(device.socket, encode_header_only(packet))
             ml.slog(f"Sent STATUS_REQUEST command to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending STATUS_REQUEST command to {device.name}: {e}")
