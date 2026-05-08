@@ -1,0 +1,3 @@
+[submodule "qlcp"]
+	path = qlcp
+	url = https://github.com/Queens-Rocket-Engineering-Team/ctl-qlcp-lib
