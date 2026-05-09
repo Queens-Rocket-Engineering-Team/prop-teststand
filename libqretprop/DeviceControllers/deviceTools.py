@@ -306,16 +306,14 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                     packet_data = buffer[: packet_len]
                     packet = decode_packet_server(packet_data)
 
-                    ml.plog(f"Decoded {packet.__class__.__name__} from {device.name}")
+                    ml.plog(f"Decoded {type(packet).__name__} from {device.name}")
 
-                    if isinstance(packet, DataPacket):
-                        ml.elog(f"Unexpected DATA packet received over TCP from {device.name}. This should be sent over UDP. Ignoring.")
+                    match packet:
+                        case DataPacket():
+                            ml.elog(f"Unexpected DATA packet received over TCP from {device.name}. This should be sent over UDP. Ignoring.")
 
-                    elif isinstance(packet, StatusPacket):
-                        # If SensorMonitor, log control states
-                        if isinstance(device, SensorMonitor) and packet.control_states:
-                            # Read control states from payload (if any) and update internal state
-                            for control_state in packet.control_states:
+                        case StatusPacket(control_states=control_states) if isinstance(device, SensorMonitor) and control_states:
+                            for control_state in control_states:
                                 control_names = list(device.controls.keys())
                                 if control_state.id < len(control_names):
                                     control_name = control_names[control_state.id]
@@ -323,31 +321,34 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                     device.controls[control_name].state = state_str
                                     ml.log(f"{device.name} STATUS {control_name} {state_str}")
 
-                    elif isinstance(packet, AckPacket):
-                        if packet.ack_packet_type == PacketType.TIMESYNC:
-                            device.last_sync_time = time.monotonic()
-                            device._resync_pending = False
-                            ml.plog(f"{device.name} TIMESYNC completed")
-                        elif packet.ack_packet_type == PacketType.HEARTBEAT:
-                            device.handleHeartbeatAck(packet.ack_sequence)
-                            ml.plog(f"{device.name} HEARTBEAT ACK seq={packet.ack_sequence}")
-                        elif packet.ack_packet_type == PacketType.CONTROL:
-                            # Check for pending control command
-                            if packet.ack_sequence in device._pending_controls:
-                                control_name, state = device._pending_controls.pop(packet.ack_sequence)
+                        case AckPacket():
+                            if packet.ack_packet_type == PacketType.TIMESYNC:
+                                device.last_sync_time = time.monotonic()
+                                device._resync_pending = False
+                                ml.plog(f"{device.name} TIMESYNC completed")
+                            elif packet.ack_packet_type == PacketType.HEARTBEAT:
+                                device.handleHeartbeatAck(packet.ack_sequence)
+                                ml.plog(f"{device.name} HEARTBEAT ACK seq={packet.ack_sequence}")
+                            elif packet.ack_packet_type == PacketType.CONTROL:
+                                # Check for pending control command
+                                if packet.ack_sequence in device._pending_controls:
+                                    control_name, state = device._pending_controls.pop(packet.ack_sequence)
 
-                                # Send status log for control ACK
-                                state_str = "OPEN" if state == "OPEN" else "CLOSED" if state == "CLOSE" else "UNKNOWN"
-                                if isinstance(device, SensorMonitor) and control_name in device.controls:
-                                    device.controls[control_name].state = state
-                                    ml.log(f"{device.name} STATUS {control_name} {state_str}")
+                                    # Send status log for control ACK
+                                    state_str = "OPEN" if state == "OPEN" else "CLOSED" if state == "CLOSE" else "UNKNOWN"
+                                    if isinstance(device, SensorMonitor) and control_name in device.controls:
+                                        device.controls[control_name].state = state
+                                        ml.log(f"{device.name} STATUS {control_name} {state_str}")
+                                else:
+                                    ml.plog(f"{device.name} ACK for CONTROL seq={packet.ack_sequence}")
                             else:
-                                ml.plog(f"{device.name} ACK for CONTROL seq={packet.ack_sequence}")
-                        else:
-                            ml.plog(f"{device.name} ACK for {packet.ack_packet_type.name} seq={packet.ack_sequence}")
+                                ml.plog(f"{device.name} ACK for {packet.ack_packet_type.name} seq={packet.ack_sequence}")
 
-                    elif isinstance(packet, NackPacket):
-                        ml.plog(f"{device.name} NACK for {packet.nack_packet_type.name} error={packet.error_code.name}")
+                        case NackPacket():
+                            ml.plog(f"{device.name} NACK for {packet.nack_packet_type.name} error={packet.error_code.name}")
+
+                        case _:
+                            ml.elog(f"Received unexpected packet type {type(packet).__name__} from {device.name} over TCP")
 
                     buffer = buffer[packet_len :]
 
