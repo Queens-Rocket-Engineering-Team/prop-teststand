@@ -418,7 +418,10 @@ class ConfigPacket:
 # DECODING
 # ============================================================================
 
-def decode_packet_server(data: bytes):
+ServerReceivedPacket = StatusPacket | DataPacket | ConfigPacket | AckPacket | NackPacket
+ClientReceivedPacket = SimplePacket | ControlPacket | StreamStartPacket | AckPacket | NackPacket
+
+def decode_packet_server(data: bytes) -> ServerReceivedPacket:
     """
     Decode a client->server packet. For use by the main server when receiving packets from devices.
     """
@@ -503,7 +506,7 @@ def _server_payload_to_python(payload):
     else:
         raise QLCPError(f"unknown packet type: {payload_type}")
 
-def decode_packet_client(data: bytes):
+def decode_packet_client(data: bytes) -> ClientReceivedPacket:
     """Decode a server->client packet. For use by the mock device."""
     if len(data) < HEADER_SIZE:
         raise QLCPError(f"packet too small: {len(data)} bytes")
