@@ -13,7 +13,9 @@ _MAX_SENSORS  = 32
 _MAX_CONFIG   = 4096
 _ENCODE_BUF_SIZE = 4096
 
-HEADER_SIZE = _lib.QLCP_HEADER_SIZE_CONST
+# HEADER_SIZE cannot be sourced from the C header via cffi since it's a #define
+# This must be kept in sync with the actual header size in qlcp_lib.h
+HEADER_SIZE = 9
 
 # ============================================================================
 # UTILS
