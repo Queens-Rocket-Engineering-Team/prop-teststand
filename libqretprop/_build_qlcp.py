@@ -16,7 +16,10 @@ _LIB_DIR = _ROOT / "libqretprop" / "_lib"
 _PROTOCOL_DIR = _ROOT / "libqretprop" / "_protocol"
 
 ffi = cffi.FFI()
-ffi.cdef((_LIB_DIR / "qlcp_lib_expanded.h").read_text())
+ffi.cdef(
+    (_LIB_DIR / "qlcp_lib_expanded.h").read_text()
+    + "\n#define QLCP_HEADER_SIZE ..." # Tells cffi to treat this #define as a constant pulled from the header
+)
 ffi.set_source(
     "_qlcp",  # flat name — no dots
     '#include "qlcp_lib.h"',
