@@ -30,6 +30,11 @@ COPY qlcp/include/ /app/qlcp/include/
 COPY libqretprop/_build_qlcp.py /app/libqretprop/_build_qlcp.py
 COPY libqretprop/__init__.py /app/libqretprop/__init__.py
 
+RUN gcc -E /app/qlcp/include/qlcp_lib.h | \
+    awk '/^# [0-9]+ "\//{in_our_header=($3!~/^"\/usr/&&$3!~/^"</);next} in_our_header{print}' \
+    > /app/libqretprop/_lib/qlcp_lib_expanded.h && \
+    test -s /app/libqretprop/_lib/qlcp_lib_expanded.h || (echo "ERROR: expanded header is empty" && exit 1)
+
 RUN mkdir -p /app/libqretprop/_protocol && \
     uv run python libqretprop/_build_qlcp.py
 

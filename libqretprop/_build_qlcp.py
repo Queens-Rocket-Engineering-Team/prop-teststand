@@ -16,7 +16,7 @@ _LIB_DIR = _ROOT / "libqretprop" / "_lib"
 _PROTOCOL_DIR = _ROOT / "libqretprop" / "_protocol"
 
 ffi = cffi.FFI()
-ffi.cdef((_QLCP_INCLUDE / "qlcp_lib_cffi.h").read_text())
+ffi.cdef((_LIB_DIR / "qlcp_lib_expanded.h").read_text())
 ffi.set_source(
     "_qlcp",  # flat name — no dots
     '#include "qlcp_lib.h"',
