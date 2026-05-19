@@ -53,6 +53,19 @@ def get_packet_len(data: bytes) -> int:
     _check(_lib.qlcp_get_packet_len(data_len, buf, len(data)), "get_packet_len")
     return int(data_len[0])
 
+
+def peek_packet_type(data: bytes) -> int:
+    """Peek the packet-type byte from a raw packet header.
+
+    Accesses the packet type from raw bytes for fast-path packet type checks without a full decode
+
+    Raises `QLCPError` if the provided buffer is too short to contain that byte.
+    """
+    if len(data) < 2:
+        raise QLCPError(f"packet too small to peek type: {len(data)} bytes")
+    # In QLCP v2 the packet-type is the second byte of the header
+    return data[1]
+
 # ============================================================================
 # ENUMS
 # ============================================================================

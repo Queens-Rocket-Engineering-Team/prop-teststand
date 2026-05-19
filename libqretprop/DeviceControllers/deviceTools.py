@@ -21,6 +21,7 @@ from libqretprop.protocol import (
     StreamStartPacket,
     decode_packet_server,
     get_packet_len,
+    peek_packet_type,
 )
 
 
@@ -215,7 +216,7 @@ async def udpListener() -> None:
                     if isinstance(device, SensorMonitor):
                         # Fast-path for DATA packets (100% of UDP traffic):
                         # Check packet type from raw bytes without full decode_packet.
-                        packet_type = data[1] # Important: this relies on header structure outside of decode_packet
+                        packet_type = peek_packet_type(data)
                         if packet_type == PacketType.DATA:
                             # Only decode if already verified as DATA packet
                             packet = decode_packet_server(data)
