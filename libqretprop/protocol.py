@@ -13,7 +13,13 @@ _MAX_SENSORS  = 32
 _MAX_CONFIG   = 4096
 _ENCODE_BUF_SIZE = 4096
 
-HEADER_SIZE = _lib.QLCP_HEADER_SIZE
+# Make sure the compiled C library actually exported the header-size constant.
+# If this assert fails, the compiled extension or generated headers are out
+# of sync with the shared library and we should rebuild the protocol artifacts.
+assert hasattr(_lib, "QLCP_HEADER_SIZE"), (
+    "QLCP_HEADER_SIZE missing from compiled qlcp library; rebuild required"
+)
+HEADER_SIZE = int(_lib.QLCP_HEADER_SIZE)
 
 # ============================================================================
 # UTILS
