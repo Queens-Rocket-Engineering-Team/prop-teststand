@@ -26,16 +26,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-install-project --no-dev
 
 COPY qlcp/include/ /app/qlcp/include/
-COPY libqretprop/_build_qlcp.py /app/libqretprop/_build_qlcp.py
+COPY scripts/build_qlcp.py /app/scripts/build_qlcp.py
 COPY libqretprop/__init__.py /app/libqretprop/__init__.py
+COPY scripts/expand_qlcp_header.sh /app/scripts/expand_qlcp_header.sh
 
-RUN gcc -E /app/qlcp/include/qlcp_lib.h | \
-    awk '/^# [0-9]+ "\//{in_our_header=($3!~/^"\/usr/&&$3!~/^"</);next} in_our_header{print}' \
-    > /app/libqretprop/_lib/qlcp_lib_expanded.h && \
-    test -s /app/libqretprop/_lib/qlcp_lib_expanded.h || (echo "ERROR: expanded header is empty" && exit 1)
+RUN sh /app/scripts/expand_qlcp_header.sh /app/qlcp/include/qlcp_lib.h /app/libqretprop/_lib/qlcp_lib_expanded.h
 
 RUN mkdir -p /app/libqretprop/_protocol && \
-    uv run python libqretprop/_build_qlcp.py
+    uv run python scripts/build_qlcp.py
 
 # Stage 3: Final runtime image
 FROM python:3.13-alpine3.22@sha256:ab45bd32143151fe060d48218b91df43a289166e72ec7877823b1c972580bed3
