@@ -10,15 +10,16 @@ from libqretprop._protocol._qlcp import lib as _lib, ffi as _ffi
 
 _MAX_CONTROLS = 32
 _MAX_SENSORS  = 32
-_MAX_CONFIG   = 4096
-_ENCODE_BUF_SIZE = 4096
+_MAX_CONFIG   = 8192 # Much larger than any expected config JSON
+_ENCODE_BUF_SIZE = 8192  # Large enough for any packet type to avoid buffer-too-small errors on encoding
 
 # Make sure the compiled C library actually exported the header-size constant.
 # If this assert fails, the compiled extension or generated headers are out
 # of sync with the shared library and we should rebuild the protocol artifacts.
-assert hasattr(_lib, "QLCP_HEADER_SIZE"), (
-    "QLCP_HEADER_SIZE missing from compiled qlcp library; rebuild required"
-)
+if not hasattr(_lib, "QLCP_HEADER_SIZE"):
+     raise RuntimeError(
+         "QLCP_HEADER_SIZE missing from compiled qlcp library; rebuild required"
+     )
 HEADER_SIZE = int(_lib.QLCP_HEADER_SIZE)
 
 # ============================================================================
@@ -208,7 +209,7 @@ class StatusPacket:
         control_arr = _ffi.new(f"qlcp_control_data[{_MAX_CONTROLS}]")
         for i, ctrl in enumerate(self.control_states):
             if i >= _MAX_CONTROLS:
-                break
+                raise QLCPError(f"too many controls in status packet: {len(self.control_states)} (max {_MAX_CONTROLS})")
             control_arr[i].control_id = ctrl.id
             control_arr[i].control_state = ctrl.state
 
@@ -420,6 +421,9 @@ class ConfigPacket:
         conf_bytes = self.config_json.encode()
         conf_buf = _ffi.new(f"char[{_MAX_CONFIG}]", conf_bytes)
         conf_buf_len = len(conf_bytes)
+
+        if conf_buf_len > _MAX_CONFIG:
+            raise QLCPError(f"config JSON too large: {conf_buf_len} bytes (max {_MAX_CONFIG})")
 
         pkt = _ffi.new("qlcp_config_packet *", {
             "header": {"sequence": self.sequence, "timestamp": self.timestamp},
