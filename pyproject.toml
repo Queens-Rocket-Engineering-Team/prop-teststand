@@ -36,11 +36,6 @@ dev = [
     "pydantic>=2.11.7",
 ]
 
-[project.optional-dependencies]
-gui = [
-  "PySide6",
-  "PySide6-stubs",
-]
 
 [build-system]
 requires = ["uv_build>=0.7.21,<0.8.0"]
@@ -59,16 +54,9 @@ see_logs = "qretproptools.cli.see_logs.see_logs:main"
 start_server = "qretproptools.cli.start_server.start_server:main"
 mock_device = "qretproptools.cli.mock_device.mock_device:main"
 
-[project.gui-scripts]
-# GUI TOOLS
-hello_gui = "qretproptools.gui.hello_gui.hello_gui:main"
-full_gui =  "qretproptools.gui.full_Gui.full_Gui:main"
-multi_plot = "qretproptools.gui.full_Gui.test_multi_plot:main"
-
 [tool.mypy]
 strict = false
 ignore_missing_imports = true
-exclude = "libqretprop/LJM_archive/"
 
 [tool.mypy-plotly]
 ignore_missing_imports = true
