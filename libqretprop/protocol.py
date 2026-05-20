@@ -437,6 +437,22 @@ class ConfigPacket:
 # DECODING
 # ============================================================================
 
+
+# Reuse buffers for client->server decoding to avoid unncessary allocations on the critical data packet path
+# These are only used in a single thread so it's safe to reuse
+_ctrl_arr = _ffi.new(f"qlcp_control_data[{_MAX_CONTROLS}]")
+_sens_arr = _ffi.new(f"qlcp_sensor_data[{_MAX_SENSORS}]")
+_conf_buf = _ffi.new(f"char[{_MAX_CONFIG}]")
+_buffers = _ffi.new("qlcp_server_payload_buffers *", {
+    "control_data":     _ctrl_arr, "control_data_len": _MAX_CONTROLS,
+    "sensor_data":      _sens_arr, "sensor_data_len":  _MAX_SENSORS,
+    "config_data":      _conf_buf, "config_data_len":  _MAX_CONFIG,
+})
+_payload = _ffi.new("qlcp_server_payload *")
+
+# Cache for converting unit integers to enums without constructing a new enum for every sensor reading
+_unit_cache: dict[int, Unit] = {u.value: u for u in Unit}
+
 ServerReceivedPacket = StatusPacket | DataPacket | ConfigPacket | AckPacket | NackPacket
 ClientReceivedPacket = SimplePacket | ControlPacket | StreamStartPacket | AckPacket | NackPacket
 
@@ -449,23 +465,12 @@ def decode_packet_server(data: bytes) -> ServerReceivedPacket:
 
     buf = _ffi.from_buffer(data)  # zero-copy
 
-    # Server receives client->server packets
-    ctrl_arr = _ffi.new(f"qlcp_control_data[{_MAX_CONTROLS}]")
-    sens_arr = _ffi.new(f"qlcp_sensor_data[{_MAX_SENSORS}]")
-    conf_buf = _ffi.new(f"char[{_MAX_CONFIG}]")
-    buffers = _ffi.new("qlcp_server_payload_buffers *", {
-        "control_data":     ctrl_arr, "control_data_len": _MAX_CONTROLS,
-        "sensor_data":      sens_arr, "sensor_data_len":  _MAX_SENSORS,
-        "config_data":      conf_buf, "config_data_len":  _MAX_CONFIG,
-    })
-    payload = _ffi.new("qlcp_server_payload *")
-
     _check(
-        _lib.qlcp_decode_client_to_server(payload, buffers, buf, len(data)),
+        _lib.qlcp_decode_client_to_server(_payload, _buffers, buf, len(data)),
         "decode_packet"
     )
 
-    return _server_payload_to_python(payload)
+    return _server_payload_to_python(_payload)
 
 
 def _server_payload_to_python(payload):
@@ -496,7 +501,7 @@ def _server_payload_to_python(payload):
                 SensorReading(
                     sensor_id=payload_data.data.sensor_data[i].sensor_id,
                     value=payload_data.data.sensor_data[i].value,
-                    unit=Unit(payload_data.data.sensor_data[i].unit),
+                    unit=_unit_cache[payload_data.data.sensor_data[i].unit],
                 )
                 for i in range(payload_data.data.sensor_count)
             ],
