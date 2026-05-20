@@ -541,46 +541,46 @@ def _client_payload_to_python(payload):
     """
     Convert a decoded C payload struct into a Python dataclass based on the packet type. Do not call this directly — use decode_packet_client() instead.
     """
-    pt = payload.packet_type
-    pd = payload.payload_data
+    payload_type = payload.packet_type
+    payload_data = payload.payload_data
 
-    if pt in (
+    if payload_type in (
         _lib.QLCP_PT_ESTOP, _lib.QLCP_PT_DISCOVERY, _lib.QLCP_PT_TIMESYNC,
         _lib.QLCP_PT_STREAM_STOP, _lib.QLCP_PT_GET_SINGLE,
         _lib.QLCP_PT_HEARTBEAT, _lib.QLCP_PT_STATUS_REQUEST,
     ):
         return SimplePacket(
-            packet_type=PacketType(pt),
-            sequence=pd.header_only.sequence,
-            timestamp=pd.header_only.timestamp,
+            packet_type=PacketType(payload_type),
+            sequence=payload_data.header_only.sequence,
+            timestamp=payload_data.header_only.timestamp,
         )
-    elif pt == _lib.QLCP_PT_CONTROL:
+    elif payload_type == _lib.QLCP_PT_CONTROL:
         return ControlPacket(
-            sequence=pd.control.header.sequence,
-            timestamp=pd.control.header.timestamp,
-            command_id=pd.control.command_id,
-            command_state=ControlState(pd.control.command_state),
+            sequence=payload_data.control.header.sequence,
+            timestamp=payload_data.control.header.timestamp,
+            command_id=payload_data.control.command_id,
+            command_state=ControlState(payload_data.control.command_state),
         )
-    elif pt == _lib.QLCP_PT_STREAM_START:
+    elif payload_type == _lib.QLCP_PT_STREAM_START:
         return StreamStartPacket(
-            sequence=pd.stream_start.header.sequence,
-            timestamp=pd.stream_start.header.timestamp,
-            frequency_hz=pd.stream_start.stream_frequency,
+            sequence=payload_data.stream_start.header.sequence,
+            timestamp=payload_data.stream_start.header.timestamp,
+            frequency_hz=payload_data.stream_start.stream_frequency,
         )
-    elif pt == _lib.QLCP_PT_ACK:
+    elif payload_type == _lib.QLCP_PT_ACK:
         return AckPacket(
-            sequence=pd.ack.header.sequence,
-            timestamp=pd.ack.header.timestamp,
-            ack_packet_type=PacketType(pd.ack.ack_packet_type),
-            ack_sequence=pd.ack.ack_sequence,
+            sequence=payload_data.ack.header.sequence,
+            timestamp=payload_data.ack.header.timestamp,
+            ack_packet_type=PacketType(payload_data.ack.ack_packet_type),
+            ack_sequence=payload_data.ack.ack_sequence,
         )
-    elif pt == _lib.QLCP_PT_NACK:
+    elif payload_type == _lib.QLCP_PT_NACK:
         return NackPacket(
-            sequence=pd.nack.header.sequence,
-            timestamp=pd.nack.header.timestamp,
-            nack_packet_type=PacketType(pd.nack.nack_packet_type),
-            nack_sequence=pd.nack.nack_sequence,
-            error_code=ErrorCode(pd.nack.nack_error_code),
+            sequence=payload_data.nack.header.sequence,
+            timestamp=payload_data.nack.header.timestamp,
+            nack_packet_type=PacketType(payload_data.nack.nack_packet_type),
+            nack_sequence=payload_data.nack.nack_sequence,
+            error_code=ErrorCode(payload_data.nack.nack_error_code),
         )
     else:
-        raise QLCPError(f"unexpected packet type from server: {pt:#04x}")
+        raise QLCPError(f"unexpected packet type from server: {payload_type:#04x}")
