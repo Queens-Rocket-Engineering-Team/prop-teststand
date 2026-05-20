@@ -21,7 +21,6 @@ from libqretprop.protocol import (
     StreamStartPacket,
     decode_packet_server,
     get_packet_len,
-    peek_packet_type,
 )
 
 
@@ -214,29 +213,28 @@ async def udpListener() -> None:
                 if deviceIP in deviceRegistry:
                     device = deviceRegistry[deviceIP]
                     if isinstance(device, SensorMonitor):
-                        # Fast-path for DATA packets (100% of UDP traffic):
-                        # Check packet type from raw bytes without full decode_packet.
-                        packet_type = peek_packet_type(data)
-                        if packet_type == PacketType.DATA:
-                            # Only decode if already verified as DATA packet
-                            packet = decode_packet_server(data)
+                        packet = decode_packet_server(data)
 
-                            timestamp_ms = packet.timestamp
-                            readings = packet.readings
+                        if not isinstance(packet, DataPacket):
+                            ml.elog(f"Received non-DATA packet over UDP from {device.name}. Ignoring.")
+                            continue
 
-                            t = timestamp_ms / 1000.0 if device.last_sync_time is not None else time.monotonic()
-                            sensor_names = device.sensor_names
-                            sensors = device.sensors
+                        timestamp_ms = packet.timestamp
+                        readings = packet.readings
 
-                            for reading in readings:
-                                sid = reading.sensor_id
-                                value = reading.value
+                        t = timestamp_ms / 1000.0 if device.last_sync_time is not None else time.monotonic()
+                        sensor_names = device.sensor_names
+                        sensors = device.sensors
 
-                                if sid < len(sensor_names):
-                                    sensor_name = sensor_names[sid]
-                                    sensors[sensor_name].data.append(value)
-                                    ml.log(f"{device.name} {t:.3f} {sensor_name}:{value:.2f}")
-                            device.times.append(t)
+                        for reading in readings:
+                            sid = reading.sensor_id
+                            value = reading.value
+
+                            if sid < len(sensor_names):
+                                sensor_name = sensor_names[sid]
+                                sensors[sensor_name].data.append(value)
+                                ml.log(f"{device.name} {t:.3f} {sensor_name}:{value:.2f}")
+                        device.times.append(t)
                 else:
                     ml.elog(f"Received UDP packet from unknown device {deviceIP}")
 
