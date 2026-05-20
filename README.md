@@ -72,6 +72,8 @@ Pulls pre-built images from `ghcr.io/queens-rocket-engineering-team/`.
 uv pip install -e .          # core dependencies
 uv pip install -e ".[gui]"   # optional: GUI tools (PySide6)
 
+make build-protocol # build qlcp library for binary protocol
+
 start_server                 # start the server
 ```
 
