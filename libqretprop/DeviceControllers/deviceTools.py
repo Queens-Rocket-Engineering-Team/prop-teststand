@@ -215,26 +215,24 @@ async def udpListener() -> None:
                     if isinstance(device, SensorMonitor):
                         packet = decode_packet_server(data)
 
-                        if not isinstance(packet, DataPacket):
+                        if isinstance(packet, DataPacket):
+                            timestamp_ms = packet.timestamp
+                            readings = packet.readings
+                            t = timestamp_ms / 1000.0 if device.last_sync_time is not None else time.monotonic()
+                            sensor_names = device.sensor_names
+                            sensors = device.sensors
+
+                            for reading in readings:
+                                sid = reading.sensor_id
+                                value = reading.value
+
+                                if sid < len(sensor_names):
+                                    sensor_name = sensor_names[sid]
+                                    sensors[sensor_name].data.append(value)
+                                    ml.log(f"{device.name} {t:.3f} {sensor_name}:{value:.2f}")
+                            device.times.append(t)
+                        else:
                             ml.elog(f"Received non-DATA packet over UDP from {device.name}. Ignoring.")
-                            continue
-
-                        timestamp_ms = packet.timestamp
-                        readings = packet.readings
-
-                        t = timestamp_ms / 1000.0 if device.last_sync_time is not None else time.monotonic()
-                        sensor_names = device.sensor_names
-                        sensors = device.sensors
-
-                        for reading in readings:
-                            sid = reading.sensor_id
-                            value = reading.value
-
-                            if sid < len(sensor_names):
-                                sensor_name = sensor_names[sid]
-                                sensors[sensor_name].data.append(value)
-                                ml.log(f"{device.name} {t:.3f} {sensor_name}:{value:.2f}")
-                        device.times.append(t)
                 else:
                     ml.elog(f"Received UDP packet from unknown device {deviceIP}")
 
