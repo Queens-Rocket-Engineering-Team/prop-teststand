@@ -25,7 +25,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --no-install-project --no-dev
 
-# Only copy what _build_qlcp.py needs — insulates cffi build from unrelated changes
 COPY qlcp/include/ /app/qlcp/include/
 COPY scripts/build_qlcp.py /app/scripts/build_qlcp.py
 COPY libqretprop/__init__.py /app/libqretprop/__init__.py
@@ -55,4 +54,4 @@ ADD . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev
 
-CMD ["uv", "run", "--no-dev", "start_server"]
+CMD ["uv", "run", "--no-dev", "mock_device"]

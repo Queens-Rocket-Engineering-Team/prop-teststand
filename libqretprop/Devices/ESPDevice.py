@@ -6,6 +6,7 @@ import libqretprop.mylogging as ml
 from libqretprop.DeviceControllers import deviceTools
 from libqretprop.protocol import PacketType, SimplePacket
 
+
 if TYPE_CHECKING:
     from libqretprop.Devices.SensorMonitor import SensorMonitor
 
@@ -79,8 +80,8 @@ class ESPDevice:
                 try:
                     packet = SimplePacket.create(PacketType.HEARTBEAT)
                     loop = asyncio.get_event_loop()
-                    await loop.sock_sendall(self.socket, packet.pack())
-                    self._last_heartbeat_sequence = packet.header.sequence
+                    await loop.sock_sendall(self.socket, packet.encode())
+                    self._last_heartbeat_sequence = packet.sequence
                     self._heartbeat_ack_pending = True
                 except (BrokenPipeError, ConnectionResetError, OSError) as e:
                     ml.elog(f"{self.name} heartbeat send failed: {e}")

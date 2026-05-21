@@ -39,6 +39,7 @@ flowchart LR
 | **redis** | Logging pub/sub and real-time data relay |
 | **media** | [MediaMTX](https://github.com/bluenviron/mediamtx) RTSP/WebRTC relay for camera streams |
 | **logs** | Log aggregator that reads from Redis channels |
+| **mockdevice** | Mock client device **(only available in development)** |
 
 ## Setup
 
@@ -53,7 +54,9 @@ flowchart LR
 docker compose -f compose.dev.yml up
 ```
 
-This starts all services with file watching — code changes in `libqretprop/` and `config.yaml` trigger automatic restarts.
+This starts all necessary services with file watching — code changes in `libqretprop/` and `config.yaml` trigger automatic restarts.
+
+To also run the mock device for testing, add `--profile mock`
 
 ### Production (Docker)
 
@@ -68,6 +71,8 @@ Pulls pre-built images from `ghcr.io/queens-rocket-engineering-team/`.
 ```bash
 uv pip install -e .          # core dependencies
 uv pip install -e ".[gui]"   # optional: GUI tools (PySide6)
+
+make build-protocol # build qlcp library for binary protocol
 
 start_server                 # start the server
 ```
@@ -118,20 +123,9 @@ Once the server is running, an interactive CLI provides commands like `discover`
 
 ## Protocol
 
-Devices communicate using a custom binary protocol over TCP (port 50000). All packets share a 9-byte big-endian header:
+Devices communicate using a custom binary protocol over TCP (port 50000) and UDP (port 50001). Devices are discovered via SSDP multicast on `239.255.255.250:1900`. On discovery, the device opens a TCP connection to the server and sends its CONFIG. The server then time-syncs the device and normal operation begins (streaming, control commands, heartbeats).
 
-```
-Offset  Size  Type    Field      Description
-0       1     uint8   VERSION    Protocol version (0x02)
-1       1     uint8   TYPE       Packet type
-2       1     uint8   SEQUENCE   Wrapping 0-255 counter
-3       2     uint16  LENGTH     Total packet size including header
-5       4     uint32  TIMESTAMP  Milliseconds since boot/session
-```
-
-Devices are discovered via SSDP multicast on `239.255.255.250:1900`. On discovery, the device opens a TCP connection to the server and sends its CONFIG. The server then time-syncs the device and normal operation begins (streaming, control commands, heartbeats).
-
-See [PROTOCOL_WALKTHROUGH.md](PROTOCOL_WALKTHROUGH.md) for the full wire-format specification.
+For more information on protocol specifications, see [ctl-qlcp-lib](https://github.com/Queens-Rocket-Engineering-Team/ctl-qlcp-lib).
 
 ## ESP32 Setup
 

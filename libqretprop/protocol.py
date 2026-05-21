@@ -1,91 +1,125 @@
-"""Binary TCP protocol v2 for launch panel device communication.
-
-All devices communicate with the central server using structured binary packets.
-Big-endian byte order (network byte order). All packets share a 9-byte header
-with a LENGTH field for trivial TCP framing.
-"""
-
-import struct
 import time
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import ClassVar
 
-
-# ============================================================================
-# PROTOCOL CONSTANTS
-# ============================================================================
-
-PROTOCOL_VERSION = 2
-
-
-class PacketType(IntEnum):
-    # Emergency
-    ESTOP = 0x00
-
-    # Server -> Device
-    DISCOVERY = 0x01
-    TIMESYNC = 0x02
-    CONTROL = 0x03
-    STATUS_REQUEST = 0x04
-    STREAM_START = 0x05
-    STREAM_STOP = 0x06
-    GET_SINGLE = 0x07
-    HEARTBEAT = 0x08
-
-    # Device -> Server
-    CONFIG = 0x10
-    DATA = 0x11
-    STATUS = 0x12
-    ACK = 0x13
-    NACK = 0x14
-
-
-class DeviceStatus(IntEnum):
-    INACTIVE = 0
-    ACTIVE = 1
-    ERROR = 2
-    CALIBRATING = 3
-
-
-class ControlState(IntEnum):
-    CLOSED = 0
-    OPEN = 1
-    ERROR = 255
-
-
-class Unit(IntEnum):
-    VOLTS = 0x00
-    AMPS = 0x01
-    CELSIUS = 0x02
-    FAHRENHEIT = 0x03
-    KELVIN = 0x04
-    PSI = 0x05
-    BAR = 0x06
-    PASCAL = 0x07
-    GRAMS = 0x08
-    KILOGRAMS = 0x09
-    POUNDS = 0x0A
-    NEWTONS = 0x0B
-    SECONDS = 0x0C
-    MILLISECONDS = 0x0D
-    HERTZ = 0x0E
-    OHMS = 0x0F
-    UNITLESS = 0xFF
-
-
-class ErrorCode(IntEnum):
-    NONE = 0x00
-    UNKNOWN_TYPE = 0x01
-    INVALID_ID = 0x02
-    HARDWARE_FAULT = 0x03
-    BUSY = 0x04
-    NOT_STREAMING = 0x05
-    INVALID_PARAM = 0x06
-
+from libqretprop._protocol._qlcp import lib as _lib, ffi as _ffi
 
 # ============================================================================
-# PACKET HEADER (9 bytes)
+# CONSTANTS
+# ============================================================================
+
+_MAX_CONTROLS = 32
+_MAX_SENSORS  = 32
+_MAX_CONFIG   = 8192 # Much larger than any expected config JSON
+_ENCODE_BUF_SIZE = 8192  # Large enough for any packet type to avoid buffer-too-small errors on encoding
+
+# Make sure the compiled C library actually exported the header-size constant.
+# If this assert fails, the compiled extension or generated headers are out
+# of sync with the shared library and we should rebuild the protocol artifacts.
+if not hasattr(_lib, "QLCP_HEADER_SIZE"):
+     raise RuntimeError(
+         "QLCP_HEADER_SIZE missing from compiled qlcp library; rebuild required"
+     )
+HEADER_SIZE = int(_lib.QLCP_HEADER_SIZE)
+
+# ============================================================================
+# UTILS
+# ============================================================================
+
+class QLCPError(Exception):
+    """Raised when an error occurs in the QLCP protocol."""
+
+def _check(ret, context: str) -> None:
+    """Check the return code from a cffi call and raise an exception if it's an error."""
+    if ret == _lib.QLCP_OK:
+        return
+    names = {
+        _lib.QLCP_NULL_PTR:           "null pointer",
+        _lib.QLCP_NO_MEM:             "buffer too small",
+        _lib.QLCP_LEN_MISMATCH:       "length mismatch",
+        _lib.QLCP_VERSION_MISMATCH:   "protocol version mismatch",
+        _lib.QLCP_INVALID_PACKET_TYPE:"invalid packet type",
+    }
+    raise QLCPError(f"{context}: {names.get(ret, f'unknown error {ret}')}")
+
+
+def _encode_buf():
+    """Helper to create a new encoding buffer and length pointer for encoding packets."""
+    return _ffi.new(f"uint8_t[{_ENCODE_BUF_SIZE}]"), _ffi.new("size_t *", _ENCODE_BUF_SIZE)
+
+def get_packet_len(data: bytes) -> int:
+    """Get the total length of a QLCP packet from its header. Useful for determining how many bytes to read for a full packet."""
+    buf = _ffi.from_buffer(data)
+    data_len = _ffi.new("uint16_t *")
+    _check(_lib.qlcp_get_packet_len(data_len, buf, len(data)), "get_packet_len")
+    return int(data_len[0])
+
+# ============================================================================
+# ENUMS
+# ============================================================================
+
+PacketType = IntEnum("PacketType", {
+    "ESTOP":          _lib.QLCP_PT_ESTOP,
+    "DISCOVERY":      _lib.QLCP_PT_DISCOVERY,
+    "TIMESYNC":       _lib.QLCP_PT_TIMESYNC,
+    "CONTROL":        _lib.QLCP_PT_CONTROL,
+    "STATUS_REQUEST": _lib.QLCP_PT_STATUS_REQUEST,
+    "STREAM_START":   _lib.QLCP_PT_STREAM_START,
+    "STREAM_STOP":    _lib.QLCP_PT_STREAM_STOP,
+    "GET_SINGLE":     _lib.QLCP_PT_GET_SINGLE,
+    "HEARTBEAT":      _lib.QLCP_PT_HEARTBEAT,
+    "CONFIG":         _lib.QLCP_PT_CONFIG,
+    "DATA":           _lib.QLCP_PT_DATA,
+    "STATUS":         _lib.QLCP_PT_STATUS,
+    "ACK":            _lib.QLCP_PT_ACK,
+    "NACK":           _lib.QLCP_PT_NACK,
+})
+
+DeviceStatus = IntEnum("DeviceStatus", {
+    "INACTIVE":    _lib.QLCP_DS_INACTIVE,
+    "ACTIVE":      _lib.QLCP_DS_ACTIVE,
+    "ERROR":       _lib.QLCP_DS_ERROR,
+    "CALIBRATING": _lib.QLCP_DS_CALIBRATING,
+})
+
+ControlState = IntEnum("ControlState", {
+    "CLOSED": _lib.QLCP_CS_CLOSED,
+    "OPEN":   _lib.QLCP_CS_OPEN,
+    "ERROR":  _lib.QLCP_CS_ERROR,
+})
+
+Unit = IntEnum("Unit", {
+    "VOLTS":        _lib.QLCP_UNIT_VOLTS,
+    "AMPS":         _lib.QLCP_UNIT_AMPS,
+    "CELSIUS":      _lib.QLCP_UNIT_CELSIUS,
+    "FAHRENHEIT":   _lib.QLCP_UNIT_FAHRENHEIT,
+    "KELVIN":       _lib.QLCP_UNIT_KELVIN,
+    "PSI":          _lib.QLCP_UNIT_PSI,
+    "BAR":          _lib.QLCP_UNIT_BAR,
+    "PASCAL":       _lib.QLCP_UNIT_PASCAL,
+    "GRAMS":        _lib.QLCP_UNIT_GRAMS,
+    "KILOGRAMS":    _lib.QLCP_UNIT_KILOGRAMS,
+    "POUNDS":       _lib.QLCP_UNIT_POUNDS,
+    "NEWTONS":      _lib.QLCP_UNIT_NEWTONS,
+    "SECONDS":      _lib.QLCP_UNIT_SECONDS,
+    "MILLISECONDS": _lib.QLCP_UNIT_MILLISECONDS,
+    "HERTZ":        _lib.QLCP_UNIT_HERTZ,
+    "OHMS":         _lib.QLCP_UNIT_OHMS,
+    "UNITLESS":     _lib.QLCP_UNIT_UNITLESS,
+})
+
+ErrorCode = IntEnum("ErrorCode", {
+    "NONE":           _lib.QLCP_ERR_NONE,
+    "UNKNOWN_TYPE":   _lib.QLCP_ERR_UNKNOWN_TYPE,
+    "INVALID_ID":     _lib.QLCP_ERR_INVALID_ID,
+    "HARDWARE_FAULT": _lib.QLCP_ERR_HARDWARE_FAULT,
+    "BUSY":           _lib.QLCP_ERR_BUSY,
+    "NOT_STREAMING":  _lib.QLCP_ERR_NOT_STREAMING,
+    "INVALID_PARAM":  _lib.QLCP_ERR_INVALID_PARAM,
+})
+
+# ============================================================================
+# SEQUENCE AND TIMESTAMP
 # ============================================================================
 
 _sequence_counter = 0
@@ -97,96 +131,41 @@ def _next_sequence() -> int:
     _sequence_counter = (_sequence_counter + 1) & 0xFF
     return seq
 
-
 def _get_timestamp_ms() -> int:
     return int(time.monotonic() * 1000)
 
-
-@dataclass
-class PacketHeader:
-    """Common 9-byte header for all packets.
-
-    Format: >BBBHI
-    Byte 0:    version   (uint8)
-    Byte 1:    packet_type (uint8)
-    Byte 2:    sequence  (uint8)
-    Bytes 3-4: length    (uint16) - total packet size including header
-    Bytes 5-8: timestamp (uint32) - ms since boot/session
-    """
-    STRUCT_FORMAT: ClassVar[str] = ">BBBHI"
-    SIZE: ClassVar[int] = struct.calcsize(">BBBHI")  # 9
-    _STRUCT: ClassVar[struct.Struct] = struct.Struct(">BBBHI")  # Pre-compiled for performance
-
-    version: int
-    packet_type: PacketType
-    sequence: int
-    length: int
-    timestamp: int
-
-    def pack(self) -> bytes:
-        return struct.pack(
-            self.STRUCT_FORMAT,
-            self.version,
-            self.packet_type,
-            self.sequence,
-            self.length,
-            self.timestamp,
-        )
-
-    @classmethod
-    def unpack(cls, data: bytes) -> "PacketHeader":
-        if len(data) < cls.SIZE:
-            raise ValueError(f"Insufficient data for header: {len(data)} < {cls.SIZE}")
-
-        version, packet_type, sequence, length, timestamp = cls._STRUCT.unpack_from(data, 0)
-
-        return cls(
-            version=version,
-            packet_type=PacketType(packet_type),
-            sequence=sequence,
-            length=length,
-            timestamp=timestamp,
-        )
-
-
-def _make_header(packet_type: PacketType, total_length: int, sequence: int | None = None) -> PacketHeader:
-    if sequence is None:
-        sequence = _next_sequence()
-    return PacketHeader(
-        version=PROTOCOL_VERSION,
-        packet_type=packet_type,
-        sequence=sequence,
-        length=total_length,
-        timestamp=_get_timestamp_ms(),
-    )
-
-
 # ============================================================================
-# PACKET TYPES
+# PACKET TYPES AND ENCODING
 # ============================================================================
 
 @dataclass
 class SimplePacket:
-    """Header-only packet (9 bytes). Used for ESTOP, DISCOVERY, HEARTBEAT,
-    STREAM_STOP, GET_SINGLE, STATUS_REQUEST."""
-    header: PacketHeader
-
-    def pack(self) -> bytes:
-        return self.header.pack()
+    """Header-only packet. Used for ESTOP, DISCOVERY, HEARTBEAT,
+    TIMESYNC, STREAM_STOP, GET_SINGLE, STATUS_REQUEST."""
+    packet_type: PacketType
+    sequence: int
+    timestamp: int
 
     @classmethod
     def create(cls, packet_type: PacketType) -> "SimplePacket":
-        header = _make_header(packet_type, PacketHeader.SIZE)
-        return cls(header=header)
+        return cls(
+            packet_type=packet_type,
+            sequence=_next_sequence(),
+            timestamp=_get_timestamp_ms(),
+        )
 
-    @classmethod
-    def unpack(cls, data: bytes) -> "SimplePacket":
-        header = PacketHeader.unpack(data)
-        return cls(header=header)
+    def encode(self) -> bytes:
+        buf, buf_len = _encode_buf()
 
-
-# Keep DiscoveryPacket as an alias for clarity
-DiscoveryPacket = SimplePacket
+        pkt = _ffi.new("qlcp_header_only_packet *", {
+            "sequence":  self.sequence,
+            "timestamp": self.timestamp,
+        })
+        _check(
+            _lib.qlcp_encode_header_only(buf, buf_len, self.packet_type, pkt),
+            "encode_header_only"
+        )
+        return bytes(_ffi.buffer(buf, buf_len[0]))
 
 
 @dataclass
@@ -196,170 +175,175 @@ class ControlStatus:
 
 @dataclass
 class StatusPacket:
-    """Device status + Batched control states. Header + 1 byte status + 1 byte length + [command_id (1B) + command_state (1B)] * N. Total: 11 + 2*N bytes."""
-    PAYLOAD_FORMAT: ClassVar[str] = ">BB" # status (1B) + control count (1B)
-    READING_FORMAT: ClassVar[str] = ">BB" # command_id (1B) + command_state (1B)
-
-    header: PacketHeader
+    """Device status + batched control states."""
+    sequence: int
+    timestamp: int
     status: DeviceStatus
     control_states: list[ControlStatus] = field(default_factory=list)
 
-    def pack(self) -> bytes:
-        return self.header.pack() + struct.pack(self.PAYLOAD_FORMAT, self.status, len(self.control_states)) + b''.join(
-            struct.pack(self.READING_FORMAT, cs.id, cs.state) for cs in self.control_states
-        )
-
     @classmethod
     def create(cls, status: DeviceStatus, control_states: list[ControlStatus] | None = None) -> "StatusPacket":
-        header = _make_header(PacketType.STATUS, PacketHeader.SIZE + 2 + (len(control_states) * 2 if control_states else 0))
-        return cls(header=header, status=status, control_states=control_states or [])
+        return cls(
+            sequence=_next_sequence(),
+            timestamp=_get_timestamp_ms(),
+            status=status,
+            control_states=control_states or [],
+        )
 
-    @classmethod
-    def unpack(cls, data: bytes) -> "StatusPacket":
-        header = PacketHeader.unpack(data)
-        s = PacketHeader.SIZE
-        status, control_count = struct.unpack(cls.PAYLOAD_FORMAT, data[s:s + 2])
-        control_states = []
-        for i in range(control_count):
-            cmd_id, cmd_state = struct.unpack(cls.READING_FORMAT, data[s + 2 + i * 2:s + 2 + (i + 1) * 2])
-            control_states.append(ControlStatus(id=cmd_id, state=ControlState(cmd_state)))
-        return cls(header=header, status=DeviceStatus(status), control_states=control_states)
+    def encode(self) -> bytes:
+        buf, buf_len = _encode_buf()
+
+        control_arr = _ffi.new(f"qlcp_control_data[{_MAX_CONTROLS}]")
+        for i, ctrl in enumerate(self.control_states):
+            if i >= _MAX_CONTROLS:
+                raise QLCPError(f"too many controls in status packet: {len(self.control_states)} (max {_MAX_CONTROLS})")
+            control_arr[i].control_id = ctrl.id
+            control_arr[i].control_state = ctrl.state
+
+        pkt = _ffi.new("qlcp_status_packet *", {
+            "header": {"sequence": self.sequence, "timestamp": self.timestamp},
+            "device_status": self.status,
+            "control_data": control_arr,
+            "control_count": min(len(self.control_states), _MAX_CONTROLS),
+        })
+        _check(
+            _lib.qlcp_encode_status(buf, buf_len, pkt),
+            "encode_status"
+        )
+        return bytes(_ffi.buffer(buf, buf_len[0]))
 
 
 @dataclass
 class StreamStartPacket:
-    """Start streaming. Header + 2 bytes frequency_hz (uint16). Total: 11 bytes."""
-    PAYLOAD_FORMAT: ClassVar[str] = ">H"
-
-    header: PacketHeader
+    """Start streaming at the given frequency."""
+    sequence: int
+    timestamp: int
     frequency_hz: int
-
-    def pack(self) -> bytes:
-        return self.header.pack() + struct.pack(self.PAYLOAD_FORMAT, self.frequency_hz)
 
     @classmethod
     def create(cls, frequency_hz: int) -> "StreamStartPacket":
-        header = _make_header(PacketType.STREAM_START, PacketHeader.SIZE + 2)
-        return cls(header=header, frequency_hz=frequency_hz)
+        return cls(
+            sequence=_next_sequence(),
+            timestamp=_get_timestamp_ms(),
+            frequency_hz=frequency_hz,
+        )
 
-    @classmethod
-    def unpack(cls, data: bytes) -> "StreamStartPacket":
-        header = PacketHeader.unpack(data)
-        s = PacketHeader.SIZE
-        frequency_hz, = struct.unpack(cls.PAYLOAD_FORMAT, data[s:s + 2])
-        return cls(header=header, frequency_hz=frequency_hz)
+    def encode(self) -> bytes:
+        buf, buf_len = _encode_buf()
 
+        pkt = _ffi.new("qlcp_stream_start_packet *", {
+            "header": {"sequence": self.sequence, "timestamp": self.timestamp},
+            "stream_frequency": self.frequency_hz,
+        })
+        _check(
+            _lib.qlcp_encode_stream_start(buf, buf_len, pkt),
+            "encode_stream_start"
+        )
+        return bytes(_ffi.buffer(buf, buf_len[0]))
 
 @dataclass
 class ControlPacket:
-    """Control command. Header + command_id (1B) + command_state (1B). Total: 11 bytes."""
-    PAYLOAD_FORMAT: ClassVar[str] = ">BB"
-
-    header: PacketHeader
+    """Control command."""
+    sequence: int
+    timestamp: int
     command_id: int
     command_state: ControlState
 
-    def pack(self) -> bytes:
-        return self.header.pack() + struct.pack(
-            self.PAYLOAD_FORMAT, self.command_id, self.command_state
-        )
-
     @classmethod
     def create(cls, command_id: int, command_state: ControlState) -> "ControlPacket":
-        header = _make_header(PacketType.CONTROL, PacketHeader.SIZE + 2)
-        return cls(header=header, command_id=command_id, command_state=command_state)
+        return cls(
+            sequence=_next_sequence(),
+            timestamp=_get_timestamp_ms(),
+            command_id=command_id,
+            command_state=command_state,
+        )
 
-    @classmethod
-    def unpack(cls, data: bytes) -> "ControlPacket":
-        header = PacketHeader.unpack(data)
-        s = PacketHeader.SIZE
-        command_id, command_state = struct.unpack(cls.PAYLOAD_FORMAT, data[s:s + 2])
-        return cls(header=header, command_id=command_id, command_state=ControlState(command_state))
+    def encode(self) -> bytes:
+        buf, buf_len = _encode_buf()
+
+        pkt = _ffi.new("qlcp_control_packet *", {
+            "header": {"sequence": self.sequence, "timestamp": self.timestamp},
+            "command_id": self.command_id,
+            "command_state": self.command_state,
+        })
+        _check(
+            _lib.qlcp_encode_control(buf, buf_len, pkt),
+            "encode_control"
+        )
+        return bytes(_ffi.buffer(buf, buf_len[0]))
 
 
 @dataclass
 class AckPacket:
-    """ACK packet. Header + ack_packet_type (1B) + ack_sequence (1B) + error_code (1B).
-    Total: 12 bytes. error_code is always 0x00 for ACK."""
-    PAYLOAD_FORMAT: ClassVar[str] = ">BBB"
-
-    header: PacketHeader
+    """ACK packet."""
+    sequence: int
+    timestamp: int
     ack_packet_type: PacketType
     ack_sequence: int
-    error_code: ErrorCode
-
-    def pack(self) -> bytes:
-        return self.header.pack() + struct.pack(
-            self.PAYLOAD_FORMAT, self.ack_packet_type, self.ack_sequence, self.error_code
-        )
 
     @classmethod
     def create(cls, ack_packet_type: PacketType, ack_sequence: int = 0) -> "AckPacket":
-        header = _make_header(PacketType.ACK, PacketHeader.SIZE + 3)
         return cls(
-            header=header,
+            sequence=_next_sequence(),
+            timestamp=_get_timestamp_ms(),
             ack_packet_type=ack_packet_type,
             ack_sequence=ack_sequence,
-            error_code=ErrorCode.NONE,
         )
 
-    @classmethod
-    def unpack(cls, data: bytes) -> "AckPacket":
-        header = PacketHeader.unpack(data)
-        s = PacketHeader.SIZE
-        ack_type, ack_seq, err = struct.unpack(cls.PAYLOAD_FORMAT, data[s:s + 3])
-        return cls(
-            header=header,
-            ack_packet_type=PacketType(ack_type),
-            ack_sequence=ack_seq,
-            error_code=ErrorCode(err),
+    def encode(self) -> bytes:
+        buf, buf_len = _encode_buf()
+
+        pkt = _ffi.new("qlcp_ack_packet *", {
+            "header": {"sequence": self.sequence, "timestamp": self.timestamp},
+            "ack_packet_type": self.ack_packet_type,
+            "ack_sequence": self.ack_sequence,
+        })
+        _check(
+            _lib.qlcp_encode_ack(buf, buf_len, pkt),
+            "encode_ack"
         )
+        return bytes(_ffi.buffer(buf, buf_len[0]))
 
 
 @dataclass
 class NackPacket:
-    """NACK packet. Header + nack_packet_type (1B) + nack_sequence (1B) + error_code (1B).
-    Total: 12 bytes."""
-    PAYLOAD_FORMAT: ClassVar[str] = ">BBB"
-
-    header: PacketHeader
+    """NACK packet."""
+    sequence: int
+    timestamp: int
     nack_packet_type: PacketType
     nack_sequence: int
     error_code: ErrorCode
 
-    def pack(self) -> bytes:
-        return self.header.pack() + struct.pack(
-            self.PAYLOAD_FORMAT, self.nack_packet_type, self.nack_sequence, self.error_code
-        )
-
     @classmethod
     def create(cls, nack_packet_type: PacketType, nack_sequence: int = 0,
                error_code: ErrorCode = ErrorCode.UNKNOWN_TYPE) -> "NackPacket":
-        header = _make_header(PacketType.NACK, PacketHeader.SIZE + 3)
         return cls(
-            header=header,
+            sequence=_next_sequence(),
+            timestamp=_get_timestamp_ms(),
             nack_packet_type=nack_packet_type,
             nack_sequence=nack_sequence,
             error_code=error_code,
         )
 
-    @classmethod
-    def unpack(cls, data: bytes) -> "NackPacket":
-        header = PacketHeader.unpack(data)
-        s = PacketHeader.SIZE
-        nack_type, nack_seq, err = struct.unpack(cls.PAYLOAD_FORMAT, data[s:s + 3])
-        return cls(
-            header=header,
-            nack_packet_type=PacketType(nack_type),
-            nack_sequence=nack_seq,
-            error_code=ErrorCode(err),
-        )
+    def encode(self) -> bytes:
+        buf, buf_len = _encode_buf()
 
+        pkt = _ffi.new("qlcp_nack_packet *", {
+            "header": {"sequence": self.sequence, "timestamp": self.timestamp},
+            "nack_packet_type": self.nack_packet_type,
+            "nack_sequence": self.nack_sequence,
+            "nack_error_code": self.error_code,
+        })
+        _check(
+            _lib.qlcp_encode_nack(buf, buf_len, pkt),
+            "encode_nack"
+        )
+        return bytes(_ffi.buffer(buf, buf_len[0]))
 
 
 @dataclass
 class SensorReading:
-    """A single sensor reading within a batched DATA packet."""
+    """A single sensor reading within a DATA packet."""
     sensor_id: int
     unit: Unit
     value: float
@@ -367,119 +351,236 @@ class SensorReading:
 
 @dataclass
 class DataPacket:
-    """Batched sensor data. Header + count (1B) + [sensor_id (1B) + unit (1B) + value (4B float)] * N.
-    Total: 10 + 6*N bytes."""
-    READING_FORMAT: ClassVar[str] = ">BBf"
-    READING_SIZE: ClassVar[int] = 6
-    _READING_STRUCT: ClassVar[struct.Struct] = struct.Struct(">BBf")  # Pre-compiled for performance
-
-    header: PacketHeader
+    """Batched sensor data."""
+    sequence: int
+    timestamp: int
     readings: list[SensorReading] = field(default_factory=list)
 
-    def pack(self) -> bytes:
-        payload = struct.pack(">B", len(self.readings))
-        for r in self.readings:
-            payload += struct.pack(self.READING_FORMAT, r.sensor_id, r.unit, r.value)
-        return self.header.pack() + payload
-
     @classmethod
-    def create(cls, readings: list[SensorReading] | None = None, *,
-               sensor_id: int | None = None, data: float | None = None,
-               unit: Unit = Unit.UNITLESS) -> "DataPacket":
-        if readings is None:
-            if sensor_id is not None and data is not None:
-                readings = [SensorReading(sensor_id=sensor_id, unit=unit, value=data)]
-            else:
-                readings = []
-        total = PacketHeader.SIZE + 1 + cls.READING_SIZE * len(readings)
-        header = _make_header(PacketType.DATA, total)
-        return cls(header=header, readings=readings)
+    def create(cls, readings: list[SensorReading]) -> "DataPacket":
+        return cls(
+            sequence=_next_sequence(),
+            timestamp=_get_timestamp_ms(),
+            readings=readings,
+        )
 
-    @classmethod
-    def unpack(cls, data: bytes) -> "DataPacket":
-        header = PacketHeader.unpack(data)
-        s = PacketHeader.SIZE
-        count, = struct.unpack(">B", data[s:s + 1])
-        s += 1
-        readings = []
-        for _ in range(count):
-            sid, unit_val, value = cls._READING_STRUCT.unpack_from(data, s)
-            readings.append(SensorReading(sensor_id=sid, unit=Unit(unit_val), value=value))
-            s += cls.READING_SIZE
-        return cls(header=header, readings=readings)
+    def encode(self) -> bytes:
+        buf, buf_len = _encode_buf()
+
+        sensor_arr = _ffi.new(f"qlcp_sensor_data[{_MAX_SENSORS}]")
+        for i, reading in enumerate(self.readings):
+            if i >= _MAX_SENSORS:
+                break
+            sensor_arr[i].sensor_id = reading.sensor_id
+            sensor_arr[i].unit = reading.unit
+            sensor_arr[i].value = reading.value
+
+        pkt = _ffi.new("qlcp_data_packet *", {
+            "header": {"sequence": self.sequence, "timestamp": self.timestamp},
+            "sensor_data": sensor_arr,
+            "sensor_count": min(len(self.readings), _MAX_SENSORS),
+        })
+        _check(
+            _lib.qlcp_encode_data(buf, buf_len, pkt),
+            "encode_data"
+        )
+        return bytes(_ffi.buffer(buf, buf_len[0]))
 
 
 @dataclass
 class ConfigPacket:
-    """Device configuration (JSON payload).
-    Header + json_length (4B uint32) + json_data (UTF-8).
-    Total: 13 + json_len bytes."""
-    LENGTH_FORMAT: ClassVar[str] = ">I"
-
-    header: PacketHeader
+    """Device configuration (JSON payload)."""
+    sequence: int
+    timestamp: int
     config_json: str
-
-    def pack(self) -> bytes:
-        json_bytes = self.config_json.encode('utf-8')
-        return (
-            self.header.pack() +
-            struct.pack(self.LENGTH_FORMAT, len(json_bytes)) +
-            json_bytes
-        )
 
     @classmethod
     def create(cls, config_json: str) -> "ConfigPacket":
-        json_bytes = config_json.encode('utf-8')
-        total = PacketHeader.SIZE + 4 + len(json_bytes)
-        header = _make_header(PacketType.CONFIG, total)
-        return cls(header=header, config_json=config_json)
+        return cls(
+            sequence=_next_sequence(),
+            timestamp=_get_timestamp_ms(),
+            config_json=config_json,
+        )
 
-    @classmethod
-    def unpack(cls, data: bytes) -> "ConfigPacket":
-        header = PacketHeader.unpack(data)
-        s = PacketHeader.SIZE
-        json_length, = struct.unpack(cls.LENGTH_FORMAT, data[s:s + 4])
-        s += 4
-        config_json = data[s:s + json_length].decode('utf-8')
-        return cls(header=header, config_json=config_json)
+    def encode(self) -> bytes:
+        buf, buf_len = _encode_buf()
+
+        conf_bytes = self.config_json.encode()
+        conf_buf = _ffi.new(f"char[{_MAX_CONFIG}]", conf_bytes)
+        conf_buf_len = len(conf_bytes)
+
+        if conf_buf_len > _MAX_CONFIG:
+            raise QLCPError(f"config JSON too large: {conf_buf_len} bytes (max {_MAX_CONFIG})")
+
+        pkt = _ffi.new("qlcp_config_packet *", {
+            "header": {"sequence": self.sequence, "timestamp": self.timestamp},
+            "config_data": conf_buf,
+            "config_data_len": conf_buf_len,
+        })
+        _check(
+            _lib.qlcp_encode_config(buf, buf_len, pkt),
+            "encode_config"
+        )
+        return bytes(_ffi.buffer(buf, buf_len[0]))
 
 
 # ============================================================================
-# UTILITY FUNCTIONS
+# DECODING
 # ============================================================================
 
-def decode_packet(data: bytes):
-    """Decode a binary packet from data. Uses the LENGTH field in the header
-    to determine packet boundaries."""
-    if len(data) < PacketHeader.SIZE:
-        raise ValueError(f"Packet too small: {len(data)} bytes")
 
-    header = PacketHeader.unpack(data)
+# Reuse buffers for client->server decoding to avoid unncessary allocations on the critical data packet path
+# These are only used in a single thread so it's safe to reuse
+_ctrl_arr = _ffi.new(f"qlcp_control_data[{_MAX_CONTROLS}]")
+_sens_arr = _ffi.new(f"qlcp_sensor_data[{_MAX_SENSORS}]")
+_conf_buf = _ffi.new(f"char[{_MAX_CONFIG}]")
+_buffers = _ffi.new("qlcp_server_payload_buffers *", {
+    "control_data":     _ctrl_arr, "control_data_len": _MAX_CONTROLS,
+    "sensor_data":      _sens_arr, "sensor_data_len":  _MAX_SENSORS,
+    "config_data":      _conf_buf, "config_data_len":  _MAX_CONFIG,
+})
+_payload = _ffi.new("qlcp_server_payload *")
 
-    if len(data) < header.length:
-        raise ValueError(f"Incomplete packet: have {len(data)}, need {header.length}")
+# Cache for converting unit integers to enums without constructing a new enum for every sensor reading
+_unit_cache: dict[int, Unit] = {u.value: u for u in Unit}
 
-    packet_data = data[:header.length]
+ServerReceivedPacket = StatusPacket | DataPacket | ConfigPacket | AckPacket | NackPacket
+ClientReceivedPacket = SimplePacket | ControlPacket | StreamStartPacket | AckPacket | NackPacket
 
-    packet_map = {
-        PacketType.ESTOP: SimplePacket,
-        PacketType.DISCOVERY: SimplePacket,
-        PacketType.HEARTBEAT: SimplePacket,
-        PacketType.STREAM_STOP: SimplePacket,
-        PacketType.GET_SINGLE: SimplePacket,
-        PacketType.STATUS_REQUEST: SimplePacket,
-        PacketType.STATUS: StatusPacket,
-        PacketType.STREAM_START: StreamStartPacket,
-        PacketType.CONTROL: ControlPacket,
-        PacketType.ACK: AckPacket,
-        PacketType.NACK: NackPacket,
-        PacketType.TIMESYNC: SimplePacket,
-        PacketType.DATA: DataPacket,
-        PacketType.CONFIG: ConfigPacket,
-    }
+def decode_packet_server(data: bytes) -> ServerReceivedPacket:
+    """
+    Decode a client->server packet. For use by the main server when receiving packets from devices.
+    """
+    if len(data) < HEADER_SIZE:
+        raise QLCPError(f"packet too small: {len(data)} bytes")
 
-    packet_class = packet_map.get(header.packet_type)
-    if packet_class is None:
-        raise ValueError(f"Unknown packet type: {header.packet_type}")
+    buf = _ffi.from_buffer(data)  # zero-copy
 
-    return packet_class.unpack(packet_data)
+    _check(
+        _lib.qlcp_decode_client_to_server(_payload, _buffers, buf, len(data)),
+        "decode_packet"
+    )
+
+    return _server_payload_to_python(_payload)
+
+
+def _server_payload_to_python(payload):
+    """
+    Convert a decoded C payload struct into a Python dataclass based on the packet type. Do not call this directly — use decode_packet_server() instead.
+    """
+    payload_type = payload.packet_type
+    payload_data = payload.payload_data
+
+    if payload_type == _lib.QLCP_PT_STATUS:
+        return StatusPacket(
+            sequence=payload_data.status.header.sequence,
+            timestamp=payload_data.status.header.timestamp,
+            status=DeviceStatus(payload_data.status.device_status),
+            control_states=[
+                ControlStatus(
+                    id=payload_data.status.control_data[i].control_id,
+                    state=ControlState(payload_data.status.control_data[i].control_state),
+                )
+                for i in range(payload_data.status.control_count)
+            ],
+        )
+    elif payload_type == _lib.QLCP_PT_DATA:
+        return DataPacket(
+            sequence=payload_data.data.header.sequence,
+            timestamp=payload_data.data.header.timestamp,
+            readings=[
+                SensorReading(
+                    sensor_id=payload_data.data.sensor_data[i].sensor_id,
+                    value=payload_data.data.sensor_data[i].value,
+                    unit=_unit_cache[payload_data.data.sensor_data[i].unit],
+                )
+                for i in range(payload_data.data.sensor_count)
+            ],
+        )
+    elif payload_type == _lib.QLCP_PT_CONFIG:
+        return ConfigPacket(
+            sequence=payload_data.config.header.sequence,
+            timestamp=payload_data.config.header.timestamp,
+            config_json=_ffi.string(payload_data.config.config_data, payload_data.config.config_data_len).decode(),
+        )
+    elif payload_type == _lib.QLCP_PT_ACK:
+        return AckPacket(
+            sequence=payload_data.ack.header.sequence,
+            timestamp=payload_data.ack.header.timestamp,
+            ack_packet_type=PacketType(payload_data.ack.ack_packet_type),
+            ack_sequence=payload_data.ack.ack_sequence,
+        )
+    elif payload_type == _lib.QLCP_PT_NACK:
+        return NackPacket(
+            sequence=payload_data.nack.header.sequence,
+            timestamp=payload_data.nack.header.timestamp,
+            nack_packet_type=PacketType(payload_data.nack.nack_packet_type),
+            nack_sequence=payload_data.nack.nack_sequence,
+            error_code=ErrorCode(payload_data.nack.nack_error_code),
+        )
+    else:
+        raise QLCPError(f"unknown packet type: {payload_type}")
+
+def decode_packet_client(data: bytes) -> ClientReceivedPacket:
+    """Decode a server->client packet. For use by the mock device."""
+    if len(data) < HEADER_SIZE:
+        raise QLCPError(f"packet too small: {len(data)} bytes")
+
+    buf = _ffi.from_buffer(data)
+    payload = _ffi.new("qlcp_client_payload *")
+
+    _check(
+        _lib.qlcp_decode_server_to_client(payload, buf, len(data)),
+        "decode_packet_client"
+    )
+
+    return _client_payload_to_python(payload)
+
+
+def _client_payload_to_python(payload):
+    """
+    Convert a decoded C payload struct into a Python dataclass based on the packet type. Do not call this directly — use decode_packet_client() instead.
+    """
+    payload_type = payload.packet_type
+    payload_data = payload.payload_data
+
+    if payload_type in (
+        _lib.QLCP_PT_ESTOP, _lib.QLCP_PT_DISCOVERY, _lib.QLCP_PT_TIMESYNC,
+        _lib.QLCP_PT_STREAM_STOP, _lib.QLCP_PT_GET_SINGLE,
+        _lib.QLCP_PT_HEARTBEAT, _lib.QLCP_PT_STATUS_REQUEST,
+    ):
+        return SimplePacket(
+            packet_type=PacketType(payload_type),
+            sequence=payload_data.header_only.sequence,
+            timestamp=payload_data.header_only.timestamp,
+        )
+    elif payload_type == _lib.QLCP_PT_CONTROL:
+        return ControlPacket(
+            sequence=payload_data.control.header.sequence,
+            timestamp=payload_data.control.header.timestamp,
+            command_id=payload_data.control.command_id,
+            command_state=ControlState(payload_data.control.command_state),
+        )
+    elif payload_type == _lib.QLCP_PT_STREAM_START:
+        return StreamStartPacket(
+            sequence=payload_data.stream_start.header.sequence,
+            timestamp=payload_data.stream_start.header.timestamp,
+            frequency_hz=payload_data.stream_start.stream_frequency,
+        )
+    elif payload_type == _lib.QLCP_PT_ACK:
+        return AckPacket(
+            sequence=payload_data.ack.header.sequence,
+            timestamp=payload_data.ack.header.timestamp,
+            ack_packet_type=PacketType(payload_data.ack.ack_packet_type),
+            ack_sequence=payload_data.ack.ack_sequence,
+        )
+    elif payload_type == _lib.QLCP_PT_NACK:
+        return NackPacket(
+            sequence=payload_data.nack.header.sequence,
+            timestamp=payload_data.nack.header.timestamp,
+            nack_packet_type=PacketType(payload_data.nack.nack_packet_type),
+            nack_sequence=payload_data.nack.nack_sequence,
+            error_code=ErrorCode(payload_data.nack.nack_error_code),
+        )
+    else:
+        raise QLCPError(f"unexpected packet type from server: {payload_type:#04x}")

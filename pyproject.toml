@@ -22,6 +22,8 @@ dependencies = [
     "pyyaml>=6.0.3",
     "onvif-zeep-async>=4.0.4",
     "python-kasa>=0.10.2",
+    "cffi>=2.0.0",
+    "setuptools>=82.0.1",
 ]
 
 [dependency-groups]
@@ -63,3 +65,6 @@ ignore_missing_imports = true
 reportMissingTypeStubs=false   # pyqtgraph has issues
 reportPrivateUsage=false       # Leave this to ruff
 reportUnknownMemberType=false  # WAY too many problems with PySide6 and pyqtgraph to have this on
+
+[tool.setuptools.packages.find]
+include = ["libqretprop._protocol*"]

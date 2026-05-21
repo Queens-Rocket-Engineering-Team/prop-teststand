@@ -6,4 +6,7 @@ configs/
 .claude/
 recordings/
 
+libqretprop/_protocol
+libqretprop/_lib
+
 *.egg-info
