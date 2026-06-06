@@ -21,7 +21,26 @@ import socket
 import struct
 import time
 
-from libqretprop.protocol import HEADER_SIZE, AckPacket, ConfigPacket, ControlPacket, ControlState, ControlStatus, DataPacket, DeviceStatus, ErrorCode, NackPacket, PacketType, SensorReading, SimplePacket, StatusPacket, StreamStartPacket, Unit, decode_packet_client, get_packet_len
+from libqretprop.protocol import (
+    HEADER_SIZE,
+    AckPacket,
+    ConfigPacket,
+    ControlPacket,
+    ControlState,
+    ControlStatus,
+    DataPacket,
+    DeviceStatus,
+    ErrorCode,
+    NackPacket,
+    PacketType,
+    SensorReading,
+    SimplePacket,
+    StatusPacket,
+    StreamStartPacket,
+    Unit,
+    decode_packet_client,
+    get_packet_len,
+)
 
 import contextlib
 
@@ -40,20 +59,27 @@ class MockSensorDevice:
             "device_name": device_name,
             "device_type": "Sensor Monitor",
             "sensor_info": {
-                "thermocouple": {
-                    "TC1": {
-                        "sensor_index": "TC1",
-                        "type": "K",
-                        "unit": "C",
-                    },
-                    "TC2": {
-                        "sensor_index": "TC2",
-                        "type": "K",
-                        "unit": "C",
-                    }
-                },
+                "thermocouple": {},
                 "pressure_transducer": {
-                    "PT1": {
+                    "PT101": {
+                        "sensor_index": "PT1",
+                        "resistor_ohms": 350,
+                        "max_pressure_PSI": 500,
+                        "unit": "PSI",
+                    },
+                    "PT201": {
+                        "sensor_index": "PT1",
+                        "resistor_ohms": 350,
+                        "max_pressure_PSI": 500,
+                        "unit": "PSI",
+                    },
+                    "PT202": {
+                        "sensor_index": "PT1",
+                        "resistor_ohms": 350,
+                        "max_pressure_PSI": 500,
+                        "unit": "PSI",
+                    },
+                    "PT204": {
                         "sensor_index": "PT1",
                         "resistor_ohms": 350,
                         "max_pressure_PSI": 500,
@@ -62,20 +88,35 @@ class MockSensorDevice:
                 },
             },
             "controls": {
-                "AVDUMP": {
+                "AV-101": {
                     "control_index": "AV_DUMP",
                     "type": "valve",
                     "default_state": "CLOSED",
                 },
-                "AVFILL": {
+                "AV-201": {
                     "control_index": "AV_FILL",
+                    "type": "valve",
+                    "default_state": "CLOSED",
+                },
+                "AV-202": {
+                    "control_index": "AV_DUMP",
                     "type": "valve",
                     "default_state": "OPEN",
                 },
-                "AV3": {
+                "AV-203": {
                     "control_index": "AV_3",
                     "type": "valve",
+                    "default_state": "CLOSED",
+                },
+                "AV-204": {
+                    "control_index": "AV_4",
+                    "type": "valve",
                     "default_state": "OPEN",
+                },
+                "AV-205": {
+                    "control_index": "AV_5",
+                    "type": "valve",
+                    "default_state": "CLOSED",
                 },
             },
         }
@@ -88,8 +129,10 @@ class MockSensorDevice:
         # Control states
         self.valve_states = {
             "AVDUMP": "CLOSED",
-            "AVFILL": "OPEN",
-            "AV3": "OPEN",
+            "AVFILL": "CLOSED",
+            "AV3": "CLOSED",
+            "AV4": "CLOSED",
+            "AV5": "CLOSED  ",
         }
 
         # Streaming state
@@ -105,7 +148,7 @@ class MockSensorDevice:
         # Socket
         self.sock = None
         self.ssdp_sock = None
-        self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # Does not need to be None because no "connected" state for UDP
+        self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Does not need to be None because no "connected" state for UDP
         self.udp_sock.setblocking(False)
 
     def reset_device_state(self, announce: bool = False):
@@ -197,7 +240,7 @@ class MockSensorDevice:
         while True:
             try:
                 data, addr = await loop.sock_recvfrom(self.ssdp_sock, 1024)
-                message = data.decode('utf-8', errors='ignore')
+                message = data.decode("utf-8", errors="ignore")
 
                 if "M-SEARCH" in message and "urn:qretprop:espdevice:1" in message:
                     self.print_status(f"Received discovery from {addr[0]}", "SUCCESS")
@@ -274,10 +317,7 @@ class MockSensorDevice:
                         packet_data = buffer[:packet_len]
                         packet = decode_packet_client(packet_data)
 
-                        self.print_status(
-                            f"Decoded {packet.__class__.__name__} ({packet_len} bytes)",
-                            "SUCCESS"
-                        )
+                        self.print_status(f"Decoded {packet.__class__.__name__} ({packet_len} bytes)", "SUCCESS")
 
                         if isinstance(packet, SimplePacket) and packet.packet_type == PacketType.TIMESYNC:
                             # Convert our local monotonic time to server time by applying the offset, and write it into
@@ -433,10 +473,7 @@ class MockSensorDevice:
         await loop.sock_sendto(self.udp_sock, packet.encode(), (self.server_ip, self.server_udp_port))
 
         if random.random() < 0.1:
-            self.print_status(
-                f"Data: TC1={self.tc1_temp:.1f}C TC2={self.tc2_temp:.1f}C PT1={self.pt1_pressure:.1f}PSI",
-                "DATA"
-            )
+            self.print_status(f"Data: TC1={self.tc1_temp:.1f}C TC2={self.tc2_temp:.1f}C PT1={self.pt1_pressure:.1f}PSI", "DATA")
 
     async def send_single_reading(self, request_packet=None):
         self.print_status("Sending single reading", "INFO")
@@ -463,7 +500,9 @@ class MockSensorDevice:
         await loop.sock_sendall(self.sock, status.encode())
 
         self.print_status("Sent STATUS: ACTIVE", "INFO")
-        self.print_status(f"Control states: " + ", ".join(f"{name}={self.valve_states.get(name, 'UNKNOWN')}" for name in self.config["controls"]), "INFO")
+        self.print_status(
+            f"Control states: " + ", ".join(f"{name}={self.valve_states.get(name, 'UNKNOWN')}" for name in self.config["controls"]), "INFO"
+        )
 
     async def run(self):
         self.print_status("=== Mock Sensor Device Started ===", "SUCCESS")
@@ -511,6 +550,7 @@ async def async_main():
 
     device = MockSensorDevice(device_name=args.name, server_ip=args.server)
     await device.run()
+
 
 # Required as entrypoint for uv run
 def main():
