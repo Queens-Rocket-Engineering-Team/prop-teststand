@@ -28,10 +28,10 @@ MULTICAST_ADDRESS = "239.255.255.250"
 MULTICAST_PORT = 1900
 
 TCP_PORT = 50000
-UDP_PORT = 50001 # These wouldn't overlap but a different port number is useful for debugging
+UDP_PORT = 50001  # These wouldn't overlap but a different port number is useful for debugging
 
 AUTODISCOVER_ENABLED = True
-AUTODISCOVER_INTERVAL_S = 30.0 # seconds between SSDP discovery broadcasts
+AUTODISCOVER_INTERVAL_S = 30.0  # seconds between SSDP discovery broadcasts
 
 # Searching Globals #
 ssdpSearchSocket: socket.socket | None = None
@@ -44,6 +44,7 @@ deviceRegistry: dict[str, ESPDevice] = {}
 # ---------------------- #
 # Active Searching Tools #
 # ---------------------- #
+
 
 def sendDiscoveryBroadcast() -> None:
     global ssdpSearchSocket
@@ -65,6 +66,7 @@ def sendDiscoveryBroadcast() -> None:
 
     ssdpSearchSocket.sendto(ssdpRequest.encode(), (MULTICAST_ADDRESS, MULTICAST_PORT))
 
+
 async def autoDiscoveryLoop() -> None:
     """Periodically send SSDP discovery broadcasts every AUTODISCOVER_INTERVAL seconds."""
     while True:
@@ -73,6 +75,7 @@ async def autoDiscoveryLoop() -> None:
             await asyncio.sleep(AUTODISCOVER_INTERVAL_S)
         else:
             await asyncio.sleep(0.5)
+
 
 def _createSSDPSocket() -> socket.socket:
     """Create a send-only SSDP socket for broadcasting discovery."""
@@ -166,7 +169,7 @@ async def tcpListener() -> None:
                         deviceRegistry[deviceIP].listenerTask = listenerTask
 
                         ml.slog(f"Device {newDevice.name} registered from {deviceIP}")
-                        ml.log(f"{newDevice.name} CONNECTED") # Used by GUI to trigger device addition
+                        ml.log(f"{newDevice.name} CONNECTED")  # Used by GUI to trigger device addition
 
                         # ACK the CONFIG, then send initial TIMESYNC
 
@@ -188,6 +191,7 @@ async def tcpListener() -> None:
         except Exception as e:
             ml.elog(f"Error in TCP listener: {e}")
             await asyncio.sleep(0.1)
+
 
 async def udpListener() -> None:
     """Listen for incoming UDP packets from devices"""
@@ -255,9 +259,11 @@ async def udpListener() -> None:
 def getRegisteredDevices() -> dict[str, ESPDevice]:
     return deviceRegistry.copy()
 
+
 # ---------------------- #
 # Socket Management
 # ---------------------- #
+
 
 def closeDeviceConnections() -> None:
     global deviceRegistry
@@ -274,9 +280,11 @@ def closeDeviceConnections() -> None:
     deviceRegistry.clear()
     ml.slog("Closed all device sockets and cleared registry.")
 
+
 # ---------------------- #
 # Device Monitoring
 # ---------------------- #
+
 
 async def _monitorSingleDevice(device: ESPDevice) -> None:
     """Monitor a single device using LENGTH-based framing from v2 header."""
@@ -300,7 +308,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                     if len(buffer) < packet_len:
                         break  # Need more data
 
-                    packet_data = buffer[: packet_len]
+                    packet_data = buffer[:packet_len]
                     packet = decode_packet_server(packet_data)
 
                     ml.plog(f"Decoded {type(packet).__name__} from {device.name}")
@@ -314,7 +322,13 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                 control_names = list(device.controls.keys())
                                 if control_state.id < len(control_names):
                                     control_name = control_names[control_state.id]
-                                    state_str = "OPEN" if control_state.state == ControlState.OPEN else "CLOSED" if control_state.state == ControlState.CLOSED else "UNKNOWN"
+                                    state_str = (
+                                        "OPEN"
+                                        if control_state.state == ControlState.OPEN
+                                        else "CLOSED"
+                                        if control_state.state == ControlState.CLOSED
+                                        else "UNKNOWN"
+                                    )
                                     device.controls[control_name].state = state_str
                                     ml.log(f"{device.name} STATUS {control_name} {state_str}")
 
@@ -347,7 +361,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                         case _:
                             ml.elog(f"Received unexpected packet type {type(packet).__name__} from {device.name} over TCP")
 
-                    buffer = buffer[packet_len :]
+                    buffer = buffer[packet_len:]
 
                     # Periodic resync check
                     if (
@@ -374,9 +388,11 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
         if device.address in deviceRegistry:
             removeDevice(device)
 
+
 # ---------------------- #
 # Device Control Tools
 # ---------------------- #
+
 
 async def getSingle(device: ESPDevice) -> None:
     if device.socket:
@@ -470,6 +486,7 @@ async def setControl(device: SensorMonitor, controlName: str, controlState: str)
     else:
         ml.elog(f"No socket available for {device.name} to send CONTROL command.")
 
+
 async def getStatus(device: ESPDevice) -> None:
     if device.socket:
         try:
@@ -484,6 +501,20 @@ async def getStatus(device: ESPDevice) -> None:
     else:
         ml.elog(f"No socket available for {device.name} to send STATUS_REQUEST command.")
         removeDevice(device)
+
+
+async def emergencyStop(device: ESPDevice) -> None:
+    if device.socket:
+        try:
+            packet = SimplePacket.create(PacketType.ESTOP)
+            loop = asyncio.get_event_loop()
+            await loop.sock_sendall(device.socket, packet.encode())
+            ml.slog(f"Sent EMERGENCY STOP command to {device.name}")
+        except Exception as e:
+            ml.elog(f"Error sending EMERGENCY STOP command to {device.name}: {e}")
+            if device.address in deviceRegistry:
+                removeDevice(device)
+
 
 def cleanupDevice(device: ESPDevice) -> None:
     if device.address in deviceRegistry:
@@ -520,7 +551,7 @@ def removeDevice(device: ESPDevice) -> None:
         del deviceRegistry[device.address]
 
         ml.slog(f"{device.name} removed from registry.")
-        ml.log(f"{device.name} DISCONNECTED") # Used by GUI to trigger device removal
+        ml.log(f"{device.name} DISCONNECTED")  # Used by GUI to trigger device removal
 
 
 # ---------------------- #

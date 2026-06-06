@@ -44,8 +44,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
             clientPort = str(client.port)
 
         ml.slog(
-            f'{clientHost}:{clientPort} - "{request.method} {request.url.path} HTTP/1.1" '
-            f"{response.status_code} ({duration_ms:.0f}ms)",
+            f'{clientHost}:{clientPort} - "{request.method} {request.url.path} HTTP/1.1" {response.status_code} ({duration_ms:.0f}ms)',
         )
         return response
 
@@ -111,6 +110,7 @@ class AutoDiscoveryConfig(BaseModel):
     enabled: bool
     intervalSeconds: float
 
+
 class CameraInfo(BaseModel):
     ip: str
     hostname: str
@@ -133,6 +133,7 @@ class CameraRecordingFileInfo(BaseModel):
 
 class CameraRecordingList(BaseModel):
     recordings: list[CameraRecordingFileInfo]
+
 
 class KasaDeviceInfo(BaseModel):
     alias: str
@@ -270,6 +271,7 @@ async def controlCamera(
         message=f"User sent camera move command to {ip}: <{x_movement}, {y_movement}>",
     )
 
+
 @app.post("/v1/camera/recordings/start", summary="Start recording a camera's stream")
 async def startCameraRecording(
     ip: str,
@@ -286,6 +288,7 @@ async def startCameraRecording(
         status="sent",
         message=f"User sent camera recording start command to {ip}",
     )
+
 
 @app.post("/v1/camera/recordings/stop", summary="Stop recording a camera's stream")
 async def stopCameraRecording(
@@ -342,6 +345,7 @@ async def downloadCameraRecording(filename: str) -> FileResponse:
 
     return FileResponse(path=filePath, media_type="video/mp4", filename=filePath.name)
 
+
 @app.get("/v1/kasa", summary="Get the list of discovered Kasa devices")
 async def getKasaDevices() -> list[KasaDeviceInfo]:
     devices = list(kasaTools.kasaRegistry.values())
@@ -359,12 +363,14 @@ async def getKasaDevices() -> list[KasaDeviceInfo]:
         ml.elog(f"Failed to get Kasa device info: {e}")
         raise HTTPException(500, "Failed to get Kasa device info")
 
+
 @app.get("/v1/kasa/discover", summary="Discover Kasa devices on the network")
 async def discoverKasaDevices() -> list[KasaDeviceInfo]:
     ml.slog(f"User sent Kasa discover command")
     await kasaTools.discoverKasaDevices()
 
     return await getKasaDevices()
+
 
 @app.post("/v1/kasa", summary="Control a Kasa device's power state")
 async def controlKasaDevice(
@@ -410,15 +416,19 @@ async def updateAutodiscoverySettings(
     if intervalSeconds is not None:
         deviceTools.AUTODISCOVER_INTERVAL_S = intervalSeconds
 
-    ml.slog(
-        f"User updated autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, "
-        f"intervalSeconds={deviceTools.AUTODISCOVER_INTERVAL_S}s"
-    )
+    ml.slog(f"User updated autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, intervalSeconds={deviceTools.AUTODISCOVER_INTERVAL_S}s")
 
     return AutoDiscoveryConfig(
         enabled=deviceTools.AUTODISCOVER_ENABLED,
         intervalSeconds=deviceTools.AUTODISCOVER_INTERVAL_S,
     )
+
+
+@app.post("/v1/estop", summary="Emergency stop - stops all streaming and control commands immediately")
+async def emergencyStop() -> None:
+    devices = deviceTools.getRegisteredDevices()
+    for device in devices.values():
+        await deviceTools.emergencyStop(device)
 
 
 class ConfigsResponse(BaseModel):
@@ -435,6 +445,7 @@ async def getServerConfig() -> ConfigsResponse:
             cfg = json.loads(cfg)  # avoid double-encoding
         configs[getattr(dev, "name", getattr(dev, "id", "unknown"))] = cfg
     return ConfigsResponse(count=len(configs), configs=configs)
+
 
 @app.get("/status", summary="Gets the current state of each valve. Status is reported to redis log channel.")
 async def getStatus() -> None:

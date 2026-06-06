@@ -333,6 +333,11 @@ class MockSensorDevice:
 
                             await loop.sock_sendall(self.sock, ack.encode())
 
+                        elif isinstance(packet, SimplePacket) and packet.packet_type == PacketType.ESTOP:
+                            self.print_status("Received ESTOP - stopping stream and resetting state", "WARNING")
+                            await self.handle_stream_stop()
+                            self.reset_device_state(announce=True)
+
                         elif isinstance(packet, ControlPacket):
                             await self.handle_control_command(packet)
 
