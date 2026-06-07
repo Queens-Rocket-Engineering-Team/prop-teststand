@@ -46,6 +46,7 @@ deviceRegistry: dict[str, ESPDevice] = {}
 # Active Searching Tools #
 # ---------------------- #
 
+
 def sendDiscoveryBroadcast() -> None:
     global ssdpSearchSocket
 
@@ -192,6 +193,7 @@ async def tcpListener() -> None:
             ml.elog(f"Error in TCP listener: {e}")
             await asyncio.sleep(0.1)
 
+
 async def udpListener() -> None:
     """Listen for incoming UDP packets from devices"""
     loop = asyncio.get_event_loop()
@@ -321,6 +323,7 @@ def getRegisteredDevices() -> dict[str, ESPDevice]:
 # Socket Management
 # ---------------------- #
 
+
 def closeDeviceConnections() -> None:
     global deviceRegistry
 
@@ -336,9 +339,11 @@ def closeDeviceConnections() -> None:
     deviceRegistry.clear()
     ml.slog("Closed all device sockets and cleared registry.")
 
+
 # ---------------------- #
 # Device Monitoring
 # ---------------------- #
+
 
 async def _monitorSingleDevice(device: ESPDevice) -> None:
     """Monitor a single device using LENGTH-based framing from v2 header."""
@@ -441,6 +446,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
         ml.elog(f"Error receiving response from {device.name}: {e}")
         if device.address in deviceRegistry:
             removeDevice(device)
+
 
 # ---------------------- #
 # Data Packet Processing Tools
