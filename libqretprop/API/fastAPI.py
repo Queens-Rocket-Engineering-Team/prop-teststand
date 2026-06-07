@@ -424,6 +424,16 @@ async def updateAutodiscoverySettings(
     )
 
 
+@app.post("/v1/discover", summary="Send a SSP discover request for new ESP Devices")
+async def discoverDevices() -> CommandResponse:
+    ml.slog(f"User sent device discover command")
+    deviceTools.sendDiscoveryBroadcast()
+    return CommandResponse(
+        status="sent",
+        message="Discovery broadcast sent. Devices will auto-connect.",
+    )
+
+
 @app.post("/v1/estop", summary="Emergency stop - stops all streaming and control commands immediately")
 async def emergencyStop() -> None:
     devices = deviceTools.getRegisteredDevices()
