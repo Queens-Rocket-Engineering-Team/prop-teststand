@@ -55,6 +55,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project --no-dev
 
 
+RUN mkdir recordings
+RUN mkdir recordings/mediamtx
+RUN mkdir recordings/mumble
+
 # Install opus and ffmpeg for audio recording
 RUN apk add --no-cache opus opus-dev ffmpeg
 
