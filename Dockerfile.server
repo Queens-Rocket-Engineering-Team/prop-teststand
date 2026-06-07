@@ -20,6 +20,10 @@ WORKDIR /app
 
 COPY --from=qlcp-builder /build/qlcp/build/libqlcp.so /app/libqretprop/_lib/libqlcp.so
 
+# Install git for newest pymumble, which is required for recording
+RUN apk add --no-cache git
+
+# Use host dependencies by default during development to improve build times
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
@@ -50,6 +54,16 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --locked --no-install-project --no-dev
 
+
+# Install opus and ffmpeg for audio recording
+RUN apk add --no-cache opus opus-dev ffmpeg
+
+# opuslib doesn't find the library correctly on alpine, so we have to patch it to use the correct name
+RUN sed -i 's/lib_location = find_library(.opus.)/lib_location = "libopus.so.0"/' \
+    /app/.venv/lib/python3.13/site-packages/opuslib/api/__init__.py
+
+
+# Copy the project into the image
 ADD . /app
 
 RUN --mount=type=cache,target=/root/.cache/uv \

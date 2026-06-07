@@ -17,7 +17,7 @@ services:
 
     volumes:
       - ./config.yaml:/app/config.yaml # Mount local config file for development
-      - ./recordings/mediamtx:/app/recordings/mediamtx
+      - ./recordings:/app/recordings # Mount local directory for audio recordings
 
     develop:
       watch:
@@ -114,3 +114,23 @@ services:
         - action: sync+restart
           path: ./qretproptools/cli/mock_device
           target: /app/qretproptools/cli/mock_device
+  mumble:
+    image: mumblevoip/mumble-server:latest
+    ports:
+      - "64738:64738"
+      - "64738:64738/udp"
+    volumes:
+      - ./murmur.ini:/etc/mumble/murmur.ini
+      - murmur-data:/data
+
+  mumble-web:
+    image: rankenstein/mumble-web:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - MUMBLE_SERVER=mumble:64738
+    depends_on:
+      - mumble
+
+volumes:
+  murmur-data:
