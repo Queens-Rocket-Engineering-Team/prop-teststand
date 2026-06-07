@@ -88,32 +88,32 @@ class MockSensorDevice:
                 },
             },
             "controls": {
-                "AV-101": {
+                "AV101": {
                     "control_index": "AV_DUMP",
                     "type": "valve",
                     "default_state": "CLOSED",
                 },
-                "AV-201": {
+                "AV201": {
                     "control_index": "AV_FILL",
                     "type": "valve",
                     "default_state": "CLOSED",
                 },
-                "AV-202": {
+                "AV202": {
                     "control_index": "AV_DUMP",
                     "type": "valve",
                     "default_state": "OPEN",
                 },
-                "AV-203": {
+                "AV203": {
                     "control_index": "AV_3",
                     "type": "valve",
                     "default_state": "CLOSED",
                 },
-                "AV-204": {
+                "AV204": {
                     "control_index": "AV_4",
                     "type": "valve",
                     "default_state": "OPEN",
                 },
-                "AV-205": {
+                "AV205": {
                     "control_index": "AV_5",
                     "type": "valve",
                     "default_state": "CLOSED",
@@ -128,11 +128,12 @@ class MockSensorDevice:
 
         # Control states
         self.valve_states = {
-            "AVDUMP": "CLOSED",
-            "AVFILL": "CLOSED",
-            "AV3": "CLOSED",
-            "AV4": "CLOSED",
-            "AV5": "CLOSED  ",
+            "AV101": "CLOSED",
+            "AV201": "CLOSED",
+            "AV202": "OPEN",
+            "AV203": "CLOSED",
+            "AV204": "OPEN",
+            "AV205": "CLOSED",
         }
 
         # Streaming state
@@ -163,9 +164,12 @@ class MockSensorDevice:
         self.pt1_pressure = 14.7
 
         self.valve_states = {
-            "AVDUMP": "CLOSED",
-            "AVFILL": "OPEN",
-            "AV3": "OPEN",
+            "AV101": "CLOSED",
+            "AV201": "CLOSED",
+            "AV202": "OPEN",
+            "AV203": "CLOSED",
+            "AV204": "OPEN",
+            "AV205": "CLOSED",
         }
 
         self.timesync_offset = 0

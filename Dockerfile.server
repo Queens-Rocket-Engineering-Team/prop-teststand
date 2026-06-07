@@ -23,7 +23,7 @@ COPY --from=qlcp-builder /build/qlcp/build/libqlcp.so /app/libqretprop/_lib/libq
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --no-install-project --no-dev
+    uv sync --locked --no-install-project --no-dev
 
 # Only copy what _build_qlcp.py needs — insulates cffi build from unrelated changes
 COPY qlcp/include/ /app/qlcp/include/
@@ -48,11 +48,11 @@ COPY --from=cffi-builder /app/libqretprop/_protocol/ /app/libqretprop/_protocol/
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --no-install-project --no-dev
+    uv sync --locked --no-install-project --no-dev
 
 ADD . /app
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-dev
+    uv sync --locked --no-dev
 
-CMD ["uv", "run", "--no-dev", "start_server"]
+CMD ["uv", "run", "--no-sync", "--no-dev", "start_server"]
