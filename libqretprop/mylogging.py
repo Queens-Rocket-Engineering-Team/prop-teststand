@@ -74,7 +74,6 @@ def _publishLog(channel: str, message: str, color: str = "") -> None:
     """Enqueue a log message for background publishing with optional ANSI color (non-blocking)."""
     if redisClient is None:
         raise ValueError("Logger not initialized. Call initLogger() first.")
-
     item = (channel, message, color)
     try:
         _publishQueue.put_nowait(item)

@@ -21,9 +21,16 @@ class RedisConfig(TypedDict):
     ip: str
     port: int
 
+class MumbleConfig(TypedDict):
+    ip: str
+    port: int
+    recording_dir: str
+    temp_recording_dir: str
+
 class ServicesConfig(TypedDict):
     mediamtx: MediaMTXConfig
     redis: RedisConfig
+    mumble: MumbleConfig
 
 class ServerConfig(TypedDict):
     accounts: dict[str, AccountServiceConfig]
@@ -44,6 +51,12 @@ serverConfig: ServerConfig = {
         "redis": {
             "ip": "",
             "port": 0,
+        },
+        "mumble": {
+            "ip": "",
+            "port": 0,
+            "recording_dir": "",
+            "temp_recording_dir": "",
         },
     }
 }

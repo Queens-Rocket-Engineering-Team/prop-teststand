@@ -4,6 +4,7 @@ import csv
 import socket
 import time
 
+
 import libqretprop.mylogging as ml
 from libqretprop.Devices.ESPDevice import ESPDevice
 from libqretprop.Devices.SensorMonitor import SensorMonitor
@@ -28,10 +29,10 @@ MULTICAST_ADDRESS = "239.255.255.250"
 MULTICAST_PORT = 1900
 
 TCP_PORT = 50000
-UDP_PORT = 50001 # These wouldn't overlap but a different port number is useful for debugging
+UDP_PORT = 50001  # These wouldn't overlap but a different port number is useful for debugging
 
 AUTODISCOVER_ENABLED = True
-AUTODISCOVER_INTERVAL_S = 30.0 # seconds between SSDP discovery broadcasts
+AUTODISCOVER_INTERVAL_S = 30.0  # seconds between SSDP discovery broadcasts
 
 # Searching Globals #
 ssdpSearchSocket: socket.socket | None = None
@@ -65,6 +66,7 @@ def sendDiscoveryBroadcast() -> None:
 
     ssdpSearchSocket.sendto(ssdpRequest.encode(), (MULTICAST_ADDRESS, MULTICAST_PORT))
 
+
 async def autoDiscoveryLoop() -> None:
     """Periodically send SSDP discovery broadcasts every AUTODISCOVER_INTERVAL seconds."""
     while True:
@@ -73,6 +75,7 @@ async def autoDiscoveryLoop() -> None:
             await asyncio.sleep(AUTODISCOVER_INTERVAL_S)
         else:
             await asyncio.sleep(0.5)
+
 
 def _createSSDPSocket() -> socket.socket:
     """Create a send-only SSDP socket for broadcasting discovery."""
@@ -166,7 +169,7 @@ async def tcpListener() -> None:
                         deviceRegistry[deviceIP].listenerTask = listenerTask
 
                         ml.slog(f"Device {newDevice.name} registered from {deviceIP}")
-                        ml.log(f"{newDevice.name} CONNECTED") # Used by GUI to trigger device addition
+                        ml.log(f"{newDevice.name} CONNECTED")  # Used by GUI to trigger device addition
 
                         # ACK the CONFIG, then send initial TIMESYNC
 
@@ -188,6 +191,64 @@ async def tcpListener() -> None:
         except Exception as e:
             ml.elog(f"Error in TCP listener: {e}")
             await asyncio.sleep(0.1)
+
+async def udpListener() -> None:
+    """Listen for incoming UDP packets from devices"""
+    loop = asyncio.get_event_loop()
+    udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4 * 1024 * 1024)
+    udp_socket.bind(("0.0.0.0", UDP_PORT))
+    udp_socket.setblocking(False)
+
+    ml.slog(f"UDP listener started on port {UDP_PORT}")
+
+    UDP_BATCH_SIZE = 128  # Max packets per event-loop tick before yielding to TCP/other tasks
+
+    while True:
+        try:
+            data, addr = await loop.sock_recvfrom(udp_socket, 4096)
+
+            # Process first packet plus any already-buffered ones, up to UDP_BATCH_SIZE
+            # This prevents the UDP listener from blocking the event loop for too long if commands need to be processed
+            for _ in range(UDP_BATCH_SIZE):
+                deviceIP = addr[0]
+                if deviceIP in deviceRegistry:
+                    device = deviceRegistry[deviceIP]
+                    if isinstance(device, SensorMonitor):
+                        # Fast-path for DATA packets (100% of UDP traffic):
+                        # Check packet type from raw bytes without full decode_packet.
+                        packet_type = data[1]
+                        if packet_type == 0x11:  # PacketType.DATA
+                            start_time = time.monotonic()
+                            _, _, _, _, timestamp_ms, readings = _unpackDataPacketFast(data)
+                            t = timestamp_ms / 1000.0 if device.last_sync_time is not None else time.monotonic()
+                            sensor_names = device.sensor_names
+                            sensors = device.sensors
+                            for sid, _, value in readings:
+                                if sid < len(sensor_names):
+                                    sensor_name = sensor_names[sid]
+                                    sensors[sensor_name].data.append(value)
+                                    ml.log(f"{device.name} {t:.3f} {sensor_name}:{value:.2f}")
+                            device.times.append(t)
+                else:
+                    ml.elog(f"Received UDP packet from unknown device {deviceIP}")
+
+                try:
+                    data, addr = udp_socket.recvfrom(4096)
+                except BlockingIOError:
+                    break
+
+            await asyncio.sleep(0)  # Yield to let other tasks run
+
+        except asyncio.CancelledError:
+            ml.slog("UDP listener cancelled")
+            udp_socket.close()
+            raise
+        except Exception as e:
+            ml.elog(f"Error in UDP listener: {e}")
+            await asyncio.sleep(0.1)
+
 
 async def udpListener() -> None:
     """Listen for incoming UDP packets from devices"""
@@ -255,6 +316,7 @@ async def udpListener() -> None:
 def getRegisteredDevices() -> dict[str, ESPDevice]:
     return deviceRegistry.copy()
 
+
 # ---------------------- #
 # Socket Management
 # ---------------------- #
@@ -300,7 +362,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                     if len(buffer) < packet_len:
                         break  # Need more data
 
-                    packet_data = buffer[: packet_len]
+                    packet_data = buffer[:packet_len]
                     packet = decode_packet_server(packet_data)
 
                     ml.plog(f"Decoded {type(packet).__name__} from {device.name}")
@@ -314,7 +376,13 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                 control_names = list(device.controls.keys())
                                 if control_state.id < len(control_names):
                                     control_name = control_names[control_state.id]
-                                    state_str = "OPEN" if control_state.state == ControlState.OPEN else "CLOSED" if control_state.state == ControlState.CLOSED else "UNKNOWN"
+                                    state_str = (
+                                        "OPEN"
+                                        if control_state.state == ControlState.OPEN
+                                        else "CLOSED"
+                                        if control_state.state == ControlState.CLOSED
+                                        else "UNKNOWN"
+                                    )
                                     device.controls[control_name].state = state_str
                                     ml.log(f"{device.name} STATUS {control_name} {state_str}")
 
@@ -347,7 +415,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                         case _:
                             ml.elog(f"Received unexpected packet type {type(packet).__name__} from {device.name} over TCP")
 
-                    buffer = buffer[packet_len :]
+                    buffer = buffer[packet_len:]
 
                     # Periodic resync check
                     if (
@@ -375,8 +443,34 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
             removeDevice(device)
 
 # ---------------------- #
+# Data Packet Processing Tools
+# ---------------------- #
+
+def _unpackDataPacketFast(data: bytes) -> tuple[int, int, int, int, int, list[tuple[int, int, float]]]:
+    """Fast inline unpacking of DATA packets using pre-compiled structs.
+    Returns: (version, packet_type, sequence, length, timestamp, [(sensor_id, unit, value), ...])
+    Avoids SensorReading object allocation.
+    """
+    # Use PacketHeader's pre-compiled struct for fast header unpack
+    version, packet_type, sequence, length, timestamp = PacketHeader._STRUCT.unpack_from(data, 0)
+
+    # Parse reading count at byte 9
+    count = data[9]
+
+    # Parse readings using DataPacket's pre-compiled struct
+    readings = []
+    offset = 10
+    for _ in range(count):
+        sid, unit_val, value = DataPacket._READING_STRUCT.unpack_from(data, offset)
+        readings.append((sid, unit_val, value))
+        offset += DataPacket.READING_SIZE
+
+    return version, packet_type, sequence, length, timestamp, readings
+
+# ---------------------- #
 # Device Control Tools
 # ---------------------- #
+
 
 async def getSingle(device: ESPDevice) -> None:
     if device.socket:
@@ -470,6 +564,7 @@ async def setControl(device: SensorMonitor, controlName: str, controlState: str)
     else:
         ml.elog(f"No socket available for {device.name} to send CONTROL command.")
 
+
 async def getStatus(device: ESPDevice) -> None:
     if device.socket:
         try:
@@ -484,6 +579,20 @@ async def getStatus(device: ESPDevice) -> None:
     else:
         ml.elog(f"No socket available for {device.name} to send STATUS_REQUEST command.")
         removeDevice(device)
+
+
+async def emergencyStop(device: ESPDevice) -> None:
+    if device.socket:
+        try:
+            packet = SimplePacket.create(PacketType.ESTOP)
+            loop = asyncio.get_event_loop()
+            await loop.sock_sendall(device.socket, packet.encode())
+            ml.slog(f"Sent EMERGENCY STOP command to {device.name}")
+        except Exception as e:
+            ml.elog(f"Error sending EMERGENCY STOP command to {device.name}: {e}")
+            if device.address in deviceRegistry:
+                removeDevice(device)
+
 
 def cleanupDevice(device: ESPDevice) -> None:
     if device.address in deviceRegistry:
@@ -520,7 +629,7 @@ def removeDevice(device: ESPDevice) -> None:
         del deviceRegistry[device.address]
 
         ml.slog(f"{device.name} removed from registry.")
-        ml.log(f"{device.name} DISCONNECTED") # Used by GUI to trigger device removal
+        ml.log(f"{device.name} DISCONNECTED")  # Used by GUI to trigger device removal
 
 
 # ---------------------- #

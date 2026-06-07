@@ -22,7 +22,8 @@ SERVERCOMMANDS = [
     "CONTROLS",
     "WATCH",
     "REMOVE",
-    ]
+    "ESTOP",
+]
 
 DEVICECOMMANDS = [
     "GETS",
@@ -48,8 +49,7 @@ async def handleServerCommand(command: str, args: list) -> None:
     elif cmd in ("AUTODISCOVERY", "AUTOD"):
         if not args:
             ml.slog(
-                f"Autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, "
-                f"interval={deviceTools.AUTODISCOVER_INTERVAL_S}s",
+                f"Autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, interval={deviceTools.AUTODISCOVER_INTERVAL_S}s",
             )
             ml.slog("Usage: autodiscovery <on|off|interval <seconds>|status>")
             return
@@ -57,8 +57,7 @@ async def handleServerCommand(command: str, args: list) -> None:
         sub = args[0].lower()
         if sub in ("status", "show"):
             ml.slog(
-                f"Autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, "
-                f"interval={deviceTools.AUTODISCOVER_INTERVAL_S}s",
+                f"Autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, interval={deviceTools.AUTODISCOVER_INTERVAL_S}s",
             )
         elif sub in ("on", "enable", "enabled", "true"):
             deviceTools.AUTODISCOVER_ENABLED = True
@@ -153,6 +152,12 @@ async def handleServerCommand(command: str, args: list) -> None:
     elif cmd == "EXPO":
         deviceTools.exportDataToCSV()
         ml.slog("Data exported to test_data/")
+    elif cmd == "ESTOP":
+        devices = deviceTools.getRegisteredDevices()
+        for device in devices.values():
+            await deviceTools.emergencyStop(device)
+        ml.slog("Emergency stop sent to all devices")
+
 
 async def handleDeviceCommand(command: str, args: list) -> None:
     if not args:
@@ -214,6 +219,7 @@ async def handleDeviceCommand(command: str, args: list) -> None:
     except Exception as e:
         ml.elog(f"Error: {e}")
 
+
 async def processCommand(command: str) -> None:
     """Process a command and send it to all connected devices."""
     fullCommand = command.strip()
@@ -227,6 +233,7 @@ async def processCommand(command: str) -> None:
     else:
         ml.elog(f"Unknown command: {cmd}. Available commands: {', '.join(SERVERCOMMANDS + DEVICECOMMANDS)}")
 
+
 async def cliReader() -> AsyncGenerator[str, None]:
     """Read commands from CLI input."""
     while True:
@@ -237,6 +244,7 @@ async def cliReader() -> AsyncGenerator[str, None]:
             yield command.strip()
         except asyncio.CancelledError:
             break
+
 
 async def commandProcessor() -> None:
     """Process commands from various input sources."""

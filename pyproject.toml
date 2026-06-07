@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = [
     {name = "Noah Warren"}
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 
 dependencies = [
     # Running requirements
@@ -24,6 +24,8 @@ dependencies = [
     "python-kasa>=0.10.2",
     "cffi>=2.0.0",
     "setuptools>=82.0.1",
+    "opuslib>=3.0.1",
+    "pymumble",
 ]
 
 [dependency-groups]
@@ -44,6 +46,9 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = ["libqretprop", "qretproptools"]
 module-root = ""
+
+[tool.uv.sources]
+pymumble = { git = "https://git.sr.ht/~oopsbagel/pymumble" }
 
 [project.scripts]
 # CLI TOOLS

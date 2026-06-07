@@ -1,8 +1,12 @@
 import json
 import time
+from dataclasses import dataclass, field
+from threading import Lock
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 from urllib.parse import quote
 
+import asyncio
+from fastapi.responses import FileResponse
 import uvicorn
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,11 +15,16 @@ from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 from starlette.responses import FileResponse
+from mumble import Mumble
+from wave import Wave_write
+from pathlib import Path
 
 from libqretprop import mylogging as ml
 from libqretprop.DeviceControllers import cameraTools, deviceTools, kasaTools
 from libqretprop.Devices.SensorMonitor import SensorMonitor
 from libqretprop.GuiDataStream import router as log_router
+import libqretprop.mumbleRecording as mumbleRecording
+import libqretprop.configManager as config
 
 
 if TYPE_CHECKING:
@@ -44,8 +53,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
             clientPort = str(client.port)
 
         ml.slog(
-            f'{clientHost}:{clientPort} - "{request.method} {request.url.path} HTTP/1.1" '
-            f"{response.status_code} ({duration_ms:.0f}ms)",
+            f'{clientHost}:{clientPort} - "{request.method} {request.url.path} HTTP/1.1" {response.status_code} ({duration_ms:.0f}ms)',
         )
         return response
 
@@ -111,6 +119,7 @@ class AutoDiscoveryConfig(BaseModel):
     enabled: bool
     intervalSeconds: float
 
+
 class CameraInfo(BaseModel):
     ip: str
     hostname: str
@@ -133,6 +142,7 @@ class CameraRecordingFileInfo(BaseModel):
 
 class CameraRecordingList(BaseModel):
     recordings: list[CameraRecordingFileInfo]
+
 
 class KasaDeviceInfo(BaseModel):
     alias: str
@@ -270,6 +280,7 @@ async def controlCamera(
         message=f"User sent camera move command to {ip}: <{x_movement}, {y_movement}>",
     )
 
+
 @app.post("/v1/camera/recordings/start", summary="Start recording a camera's stream")
 async def startCameraRecording(
     ip: str,
@@ -286,6 +297,7 @@ async def startCameraRecording(
         status="sent",
         message=f"User sent camera recording start command to {ip}",
     )
+
 
 @app.post("/v1/camera/recordings/stop", summary="Stop recording a camera's stream")
 async def stopCameraRecording(
@@ -342,6 +354,7 @@ async def downloadCameraRecording(filename: str) -> FileResponse:
 
     return FileResponse(path=filePath, media_type="video/mp4", filename=filePath.name)
 
+
 @app.get("/v1/kasa", summary="Get the list of discovered Kasa devices")
 async def getKasaDevices() -> list[KasaDeviceInfo]:
     devices = list(kasaTools.kasaRegistry.values())
@@ -359,12 +372,14 @@ async def getKasaDevices() -> list[KasaDeviceInfo]:
         ml.elog(f"Failed to get Kasa device info: {e}")
         raise HTTPException(500, "Failed to get Kasa device info")
 
+
 @app.get("/v1/kasa/discover", summary="Discover Kasa devices on the network")
 async def discoverKasaDevices() -> list[KasaDeviceInfo]:
     ml.slog(f"User sent Kasa discover command")
     await kasaTools.discoverKasaDevices()
 
     return await getKasaDevices()
+
 
 @app.post("/v1/kasa", summary="Control a Kasa device's power state")
 async def controlKasaDevice(
@@ -410,15 +425,29 @@ async def updateAutodiscoverySettings(
     if intervalSeconds is not None:
         deviceTools.AUTODISCOVER_INTERVAL_S = intervalSeconds
 
-    ml.slog(
-        f"User updated autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, "
-        f"intervalSeconds={deviceTools.AUTODISCOVER_INTERVAL_S}s"
-    )
+    ml.slog(f"User updated autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, intervalSeconds={deviceTools.AUTODISCOVER_INTERVAL_S}s")
 
     return AutoDiscoveryConfig(
         enabled=deviceTools.AUTODISCOVER_ENABLED,
         intervalSeconds=deviceTools.AUTODISCOVER_INTERVAL_S,
     )
+
+
+@app.post("/v1/discover", summary="Send a SSP discover request for new ESP Devices")
+async def discoverDevices() -> CommandResponse:
+    ml.slog(f"User sent device discover command")
+    deviceTools.sendDiscoveryBroadcast()
+    return CommandResponse(
+        status="sent",
+        message="Discovery broadcast sent. Devices will auto-connect.",
+    )
+
+
+@app.post("/v1/estop", summary="Emergency stop - stops all streaming and control commands immediately")
+async def emergencyStop() -> None:
+    devices = deviceTools.getRegisteredDevices()
+    for device in devices.values():
+        await deviceTools.emergencyStop(device)
 
 
 class ConfigsResponse(BaseModel):
@@ -436,6 +465,7 @@ async def getServerConfig() -> ConfigsResponse:
         configs[getattr(dev, "name", getattr(dev, "id", "unknown"))] = cfg
     return ConfigsResponse(count=len(configs), configs=configs)
 
+
 @app.get("/status", summary="Gets the current state of each valve. Status is reported to redis log channel.")
 async def getStatus() -> None:
     devices = deviceTools.getRegisteredDevices()
@@ -443,3 +473,89 @@ async def getStatus() -> None:
     # Trigger a status request to all devices to get their latest states for the response and to log to the redis log channel
     for device in devices.values():
         await deviceTools.getStatus(device)
+
+
+@dataclass
+class AudioRecordingState:
+    mumble: Mumble | None = None
+    wav: Wave_write | None = None
+    file_name: str | None = None
+    lock: Lock = field(default_factory=Lock)
+
+def getAudioRecordingState(request: Request) -> AudioRecordingState:
+    state = getattr(request.app.state, "audio_recording", None)
+    if state is None:
+        state = AudioRecordingState()
+        request.app.state.audio_recording = state
+    return state
+
+@app.post("/v1/audio/start")
+def start(request: Request) -> dict[str, str]:
+    audioState = getAudioRecordingState(request)
+
+    with audioState.lock:
+        if audioState.mumble is not None:
+            return {"error": "already recording"}
+
+        MUMBLE_HOST = config.serverConfig["services"]["mumble"]["ip"]
+        MUMBLE_PORT = config.serverConfig["services"]["mumble"]["port"]
+        MUMBLE_TEMP_RECORDING_DIR = config.serverConfig["services"]["mumble"]["temp_recording_dir"]
+
+        mumble, wav, file_name = mumbleRecording.start_recording(MUMBLE_HOST, MUMBLE_PORT, "", MUMBLE_TEMP_RECORDING_DIR)
+        audioState.mumble = mumble
+        audioState.wav = wav
+        audioState.file_name = file_name
+
+        return {"status": "started"}
+
+@app.post("/v1/audio/stop")
+def stop(request: Request) -> dict[str, str | None]:
+    audioState = getAudioRecordingState(request)
+
+    MUMBLE_TEMP_RECORDING_DIR = config.serverConfig["services"]["mumble"]["temp_recording_dir"]
+    MUMBLE_RECORDING_DIR = config.serverConfig["services"]["mumble"]["recording_dir"]
+
+    with audioState.lock:
+        if audioState.mumble is None or audioState.wav is None:
+            return {"error": "not recording"}
+
+        file_name = audioState.file_name
+
+        mumbleRecording.stop_recording(audioState.mumble, audioState.wav, MUMBLE_TEMP_RECORDING_DIR, MUMBLE_RECORDING_DIR, file_name if file_name else "recording-unknown")
+
+        audioState.mumble = None
+        audioState.wav = None
+        audioState.file_name = None
+
+        return {"status": "stopped", "file": file_name}
+
+
+@app.get("/v1/audio/files")
+def list_recordings() -> dict[str, list[dict[str, str]]]:
+    MUMBLE_RECORDING_DIR = config.serverConfig["services"]["mumble"]["recording_dir"]
+    RECORDINGS_DIR = Path(MUMBLE_RECORDING_DIR)
+
+    files = [
+        {
+            "filename": f.name,
+            "download_path": f"/v1/audio/files/{f.name}",
+        }
+        for f in RECORDINGS_DIR.iterdir()
+        if f.suffix == ".opus"
+    ]
+
+    # Sort files by modified time, newest first
+    files.sort(key=lambda f: (RECORDINGS_DIR / f["filename"]).stat().st_mtime, reverse=True)
+    return {"files": files}
+
+@app.get("/v1/audio/files/{filename}")
+def download_recording(filename: str) -> FileResponse:
+    MUMBLE_RECORDING_DIR = config.serverConfig["services"]["mumble"]["recording_dir"]
+    RECORDINGS_DIR = Path(MUMBLE_RECORDING_DIR)
+
+    path = (RECORDINGS_DIR / filename).resolve()
+    if not str(path).startswith(str(RECORDINGS_DIR.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path, media_type="audio/opus", filename=filename)
