@@ -54,7 +54,6 @@ class MockSensorDevice:
         self.server_ip = server_ip
         self.server_port = 50000
         self.server_udp_port = 50001
-        self.server_udp_port = 50001
 
         # Device configuration
         self.config = {
@@ -443,7 +442,6 @@ class MockSensorDevice:
     async def stream_data(self):
         interval = 1.0 / self.stream_frequency
         next_send = time.monotonic()
-        next_send = time.monotonic()
 
         try:
             while self.streaming:
@@ -451,15 +449,7 @@ class MockSensorDevice:
                 if now < next_send:
                     await asyncio.sleep(0)
                     continue
-                now = time.monotonic()
-                if now < next_send:
-                    await asyncio.sleep(0)
-                    continue
                 await self.send_sensor_data()
-                next_send += interval
-                # If we've fallen behind, reset to avoid a catch-up burst
-                if time.monotonic() > next_send:
-                    next_send = time.monotonic() + interval
                 next_send += interval
                 # If we've fallen behind, reset to avoid a catch-up burst
                 if time.monotonic() > next_send:
