@@ -1,5 +1,8 @@
-.git
 **/.git
+
+# Re-include .git for hatch-vcs version resolution during build
+!.git
+
 .github
 .venv
 .vscode
@@ -10,6 +13,7 @@ __pycache__
 dist
 *.egg-info
 media
+
 qlcp/build
 libqretprop/_lib
 libqretprop/_protocol

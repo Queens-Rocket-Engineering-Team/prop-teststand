@@ -26,6 +26,7 @@ RUN mkdir -p libqretprop qretproptools && \
 # Install prop-teststand in the builder stage. This is the only Docker build
 # step that intentionally runs the Hatchling protocol build hook.
 RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=.git,target=/app/.git \
     uv sync --locked --no-dev
 
 # Stage 2: Final runtime image
@@ -66,6 +67,10 @@ COPY --from=protocol-builder /app/libqretprop/_protocol/ ./libqretprop/_protocol
 # here to avoid rebuilding qlcp in the runtime stage.
 RUN --mount=type=cache,target=/root/.cache/uv \
     SKIP_PROTOCOL_BUILD=1 uv sync --locked --no-dev
+
+# Copy over version information from previous stage
+# Done after uv sync to avoid getting overwritten
+COPY --from=protocol-builder /app/libqretprop/_version.py ./libqretprop/_version.py
 
 RUN uv run --no-sync --no-dev python -c "from libqretprop.protocol import PacketType; print(PacketType.ACK)"
 
