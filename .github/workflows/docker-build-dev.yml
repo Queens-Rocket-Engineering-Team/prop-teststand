@@ -12,6 +12,8 @@ jobs:
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
 
             - name: Log in to GitHub Container Registry
               uses: docker/login-action@v3
@@ -45,6 +47,7 @@ jobs:
             - name: Build and push Docker image (server)
               uses: docker/build-push-action@v5
               with:
+                  context: .
                   file: ./Dockerfile.server
                   platforms: linux/amd64,linux/arm64
                   push: true
@@ -54,6 +57,7 @@ jobs:
             - name: Build and push Docker image (logs)
               uses: docker/build-push-action@v5
               with:
+                  context: .
                   file: ./Dockerfile.logs
                   platforms: linux/amd64,linux/arm64
                   push: true
