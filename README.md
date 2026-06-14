@@ -46,7 +46,7 @@ flowchart LR
 ### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) (recommended)
-- Or: Python 3.11+ with [uv](https://docs.astral.sh/uv/)
+- Or: Python 3.12+ with [uv](https://docs.astral.sh/uv/)
 - Local non-Docker qlcp builds also require CMake and a C compiler
 
 ### Development (Docker)
