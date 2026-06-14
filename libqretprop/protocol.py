@@ -2,7 +2,8 @@ import time
 from dataclasses import dataclass, field
 from enum import IntEnum
 
-from libqretprop._protocol._qlcp import lib as _lib, ffi as _ffi
+from libqretprop._protocol._qlcp import ffi as _ffi
+from libqretprop._protocol._qlcp import lib as _lib
 
 # ============================================================================
 # CONSTANTS
@@ -17,9 +18,9 @@ _ENCODE_BUF_SIZE = 8192  # Large enough for any packet type to avoid buffer-too-
 # If this assert fails, the compiled extension or generated headers are out
 # of sync with the shared library and we should rebuild the protocol artifacts.
 if not hasattr(_lib, "QLCP_HEADER_SIZE"):
-     raise RuntimeError(
-         "QLCP_HEADER_SIZE missing from compiled qlcp library; rebuild required"
-     )
+    raise RuntimeError(
+        "QLCP_HEADER_SIZE missing from compiled qlcp library; rebuild required"
+    )
 HEADER_SIZE = int(_lib.QLCP_HEADER_SIZE)
 
 # ============================================================================

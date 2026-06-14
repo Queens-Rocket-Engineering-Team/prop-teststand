@@ -1,63 +1,48 @@
-# Stage 1: Build libqlcp.so from C source
-FROM python:3.13-alpine3.22@sha256:ab45bd32143151fe060d48218b91df43a289166e72ec7877823b1c972580bed3 AS qlcp-builder
+# Stage 1: Build qlcp artifacts through the Hatchling install hook
+FROM python:3.13-alpine3.22@sha256:ab45bd32143151fe060d48218b91df43a289166e72ec7877823b1c972580bed3 AS protocol-builder
 
-RUN apk add --no-cache gcc musl-dev cmake make
-
-COPY qlcp/ /build/qlcp/
-WORKDIR /build/qlcp/build
-
-RUN cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON && \
-    cmake --build . --target qlcp
-
-# Stage 2: Compile cffi Python extension against libqlcp.so
-FROM python:3.13-alpine3.22@sha256:ab45bd32143151fe060d48218b91df43a289166e72ec7877823b1c972580bed3 AS cffi-builder
-
-RUN apk add --no-cache gcc musl-dev
+RUN apk add --no-cache gcc musl-dev cmake make git
 
 COPY --from=ghcr.io/astral-sh/uv@sha256:9a23023be68b2ed09750ae636228e903a54a05ea56ed03a934d00fe9fbeded4b /uv /uvx /bin/
 
 WORKDIR /app
 
-COPY --from=qlcp-builder /build/qlcp/build/libqlcp.so /app/libqretprop/_lib/libqlcp.so
-
-# Install git for newest pymumble, which is required for recording
-RUN apk add --no-cache git
-
-# Use host dependencies by default during development to improve build times
+# Cache runtime Python dependencies in the builder stage before any qlcp or app
+# source is copied. This layer only needs to rerun when pyproject.toml or
+# uv.lock changes, and it does not install prop-teststand.
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --locked --no-install-project --no-dev
 
-# Only copy what _build_qlcp.py needs — insulates cffi build from unrelated changes
-COPY qlcp/include/ /app/qlcp/include/
-COPY scripts/build_qlcp.py /app/scripts/build_qlcp.py
-COPY libqretprop/__init__.py /app/libqretprop/__init__.py
-COPY scripts/expand_qlcp_header.sh /app/scripts/expand_qlcp_header.sh
+COPY pyproject.toml uv.lock hatch_build.py ./
+COPY qlcp/ ./qlcp/
 
-RUN sh /app/scripts/expand_qlcp_header.sh /app/qlcp/include/qlcp_lib.h /app/libqretprop/_lib/qlcp_lib_expanded.h
+# Hatchling package discovery needs the package directories to exist, but the
+# protocol build should stay cached independently from normal app source edits.
+RUN mkdir -p libqretprop qretproptools && \
+    touch libqretprop/__init__.py qretproptools/__init__.py
 
-RUN mkdir -p /app/libqretprop/_protocol && \
-    uv run python scripts/build_qlcp.py
+# Install prop-teststand in the builder stage. This is the only Docker build
+# step that intentionally runs the Hatchling protocol build hook.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev
 
-# Stage 3: Final runtime image
+# Stage 2: Final runtime image
 FROM python:3.13-alpine3.22@sha256:ab45bd32143151fe060d48218b91df43a289166e72ec7877823b1c972580bed3
 
 COPY --from=ghcr.io/astral-sh/uv@sha256:9a23023be68b2ed09750ae636228e903a54a05ea56ed03a934d00fe9fbeded4b /uv /uvx /bin/
 WORKDIR /app
 
-COPY --from=qlcp-builder /build/qlcp/build/libqlcp.so /app/libqretprop/_lib/libqlcp.so
-COPY --from=cffi-builder /app/libqretprop/_protocol/ /app/libqretprop/_protocol/
-
+# Cache runtime Python dependencies in the final image before copying app
+# source. This keeps normal source changes from invalidating dependency
+# installation.
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --locked --no-install-project --no-dev
 
-
-RUN mkdir recordings
-RUN mkdir recordings/mediamtx
-RUN mkdir recordings/mumble
+RUN mkdir -p recordings/mediamtx recordings/mumble
 
 # Install opus and ffmpeg for audio recording
 RUN apk add --no-cache opus opus-dev ffmpeg
@@ -66,11 +51,21 @@ RUN apk add --no-cache opus opus-dev ffmpeg
 RUN sed -i 's/lib_location = find_library(.opus.)/lib_location = "libopus.so.0"/' \
     /app/.venv/lib/python3.13/site-packages/opuslib/api/__init__.py
 
+# Copy only runtime source from the host. Generated protocol artifacts are
+# copied from protocol-builder so host artifacts cannot leak into the image.
+COPY pyproject.toml uv.lock hatch_build.py ./
+COPY config.yaml ./config.yaml
+COPY libqretprop/ ./libqretprop/
+COPY qretproptools/ ./qretproptools/
+COPY --from=protocol-builder /app/libqretprop/_lib/ ./libqretprop/_lib/
+COPY --from=protocol-builder /app/libqretprop/_protocol/ ./libqretprop/_protocol/
 
-# Copy the project into the image
-ADD . /app
-
+# Install the copied project source into the final image. The protocol artifacts
+# were copied from protocol-builder above, so skip the Hatchling protocol hook
+# here to avoid rebuilding qlcp in the runtime stage.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev
+    SKIP_PROTOCOL_BUILD=1 uv sync --locked --no-dev
+
+RUN uv run --no-sync --no-dev python -c "from libqretprop.protocol import PacketType; print(PacketType.ACK)"
 
 CMD ["uv", "run", "--no-sync", "--no-dev", "start_server"]

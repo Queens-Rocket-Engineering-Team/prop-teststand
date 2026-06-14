@@ -47,6 +47,7 @@ flowchart LR
 
 - [Docker](https://docs.docker.com/get-docker/) (recommended)
 - Or: Python 3.11+ with [uv](https://docs.astral.sh/uv/)
+- Local non-Docker qlcp builds also require CMake and a C compiler
 
 ### Development (Docker)
 
@@ -69,13 +70,13 @@ Pulls pre-built images from `ghcr.io/queens-rocket-engineering-team/`.
 ### Local (No Docker)
 
 ```bash
-uv pip install -e .          # core dependencies
-uv pip install -e ".[gui]"   # optional: GUI tools (PySide6)
-
-make build-protocol # build qlcp library for binary protocol
-
-start_server                 # start the server
+uv sync
+uv run start_server
 ```
+
+`uv sync` installs the environment. The qlcp native library and CFFI protocol
+extension are rebuilt automatically during package installation.
+Run `uv sync` again to force a local protocol rebuild.
 
 Redis must be running separately for logging to work.
 
