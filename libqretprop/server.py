@@ -11,8 +11,6 @@ from libqretprop.daemons.cliTerminal import commandProcessor
 from libqretprop.DeviceControllers import cameraTools, deviceTools, kasaTools
 
 
-PI_IP = "192.168.1.100"
-
 # Server state enumeration using Enum
 class ServerState(Enum):
     INITIALIZING = 0
