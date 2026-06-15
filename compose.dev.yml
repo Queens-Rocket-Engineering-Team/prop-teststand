@@ -28,6 +28,8 @@ services:
           # Exclude the project virtual environment
           ignore:
             - .venv/
+            - _lib/
+            - _protocol/
         # Rebuild the image if dependencies change by checking uv.lock
         - action: sync+restart
           path: ./config.yaml
@@ -35,6 +37,12 @@ services:
 
         - action: rebuild
           path: ./uv.lock
+        - action: rebuild
+          path: ./pyproject.toml
+        - action: rebuild
+          path: ./hatch_build.py
+        - action: rebuild
+          path: ./qlcp
   logs:
     build:
       context: .

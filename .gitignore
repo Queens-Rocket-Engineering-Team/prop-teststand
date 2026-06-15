@@ -4,7 +4,11 @@ build/
 data/
 configs/
 .claude/
+.codex
 recordings/
+dist/
+
+.ruff_cache/
 
 libqretprop/_protocol
 libqretprop/_lib

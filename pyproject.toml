@@ -22,8 +22,6 @@ dependencies = [
     "pyyaml>=6.0.3",
     "onvif-zeep-async>=4.0.4",
     "python-kasa>=0.10.2",
-    "cffi>=2.0.0",
-    "setuptools>=82.0.1",
     "opuslib>=3.0.1",
     "pymumble",
 ]
@@ -38,14 +36,22 @@ dev = [
     "pydantic>=2.11.7",
 ]
 
+[tool.uv]
+reinstall-package = ["prop-teststand"]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "hatch_build.py" },
+    { file = "qlcp/CMakeLists.txt" },
+    { file = "qlcp/src/**/*.c" },
+    { file = "qlcp/src/**/*.h" },
+    { file = "qlcp/include/**/*.h" },
+    { file = "qlcp/cmake/**/*.cmake" },
+    { file = "qlcp/cmake/**/*.in" },
+]
 
 [build-system]
-requires = ["uv_build>=0.7.21,<0.8.0"]
-build-backend = "uv_build"
-
-[tool.uv.build-backend]
-module-name = ["libqretprop", "qretproptools"]
-module-root = ""
+requires = ["hatchling>=1.27.0", "cffi>=2.0.0", "setuptools>=82.0.1"]
+build-backend = "hatchling.build"
 
 [tool.uv.sources]
 pymumble = { git = "https://git.sr.ht/~oopsbagel/pymumble" }
@@ -71,5 +77,34 @@ reportMissingTypeStubs=false   # pyqtgraph has issues
 reportPrivateUsage=false       # Leave this to ruff
 reportUnknownMemberType=false  # WAY too many problems with PySide6 and pyqtgraph to have this on
 
-[tool.setuptools.packages.find]
-include = ["libqretprop._protocol*"]
+[tool.hatch.build.hooks.custom]
+path = "hatch_build.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["libqretprop", "qretproptools"]
+exclude = [
+    "/libqretprop/_lib/qlcp_lib_expanded.h",
+    "/libqretprop/_protocol/_qlcp.c",
+    "/libqretprop/_protocol/*.o",
+]
+artifacts = [
+    "/libqretprop/_lib/libqlcp.so",
+    "/libqretprop/_protocol/__init__.py",
+    "/libqretprop/_protocol/_qlcp*.so",
+    "/libqretprop/_protocol/_qlcp.pyi",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/hatch_build.py",
+    "/pyproject.toml",
+    "/README.md",
+    "/libqretprop",
+    "/qretproptools",
+    "/qlcp",
+]
+exclude = [
+    "/libqretprop/_lib",
+    "/libqretprop/_protocol",
+    "/qlcp/build",
+]

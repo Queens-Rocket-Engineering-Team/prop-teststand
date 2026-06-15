@@ -1,5 +1,15 @@
+.git
+**/.git
 .github
 .venv
 .vscode
+.ruff_cache
+__pycache__
+**/__pycache__
+*.py[cod]
+dist
+*.egg-info
 media
 qlcp/build
+libqretprop/_lib
+libqretprop/_protocol
