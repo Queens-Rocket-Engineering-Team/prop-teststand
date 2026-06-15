@@ -10,7 +10,6 @@ __pycache__
 dist
 *.egg-info
 media
-
 qlcp/build
 libqretprop/_lib
 libqretprop/_protocol
