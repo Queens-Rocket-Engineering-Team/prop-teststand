@@ -12,5 +12,6 @@ dist/
 
 libqretprop/_protocol
 libqretprop/_lib
+libqretprop/_version.py
 
 *.egg-info

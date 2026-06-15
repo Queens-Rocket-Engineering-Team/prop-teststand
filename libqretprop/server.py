@@ -4,6 +4,7 @@ from enum import Enum
 
 import redis
 
+import libqretprop
 import libqretprop.configManager as config
 import libqretprop.mylogging as ml
 from libqretprop.API import fastAPI
@@ -42,7 +43,7 @@ async def main(noDiscovery: bool = False,
                               )
 
     ml.initLogger(redisClient)
-    ml.slog("Starting server...")
+    ml.slog(f"Starting server (version: {libqretprop.__version__})...")
 
     loop = asyncio.get_event_loop()
     daemons: dict[str, asyncio.Task[None]] = {}

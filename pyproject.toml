@@ -1,6 +1,6 @@
 [project]
 name = "prop-teststand"
-version = "0.1.0"
+dynamic = ["version"]
 authors = [
     {name = "Noah Warren"}
 ]
@@ -30,6 +30,7 @@ dependencies = [
 dev = [
     "ruff",
     "uv",
+    "hatch-vcs",
     "mypy",
     "matplotlib", # needed for plotting test data
     "ipykernel", # needed for jupyter
@@ -50,7 +51,7 @@ cache-keys = [
 ]
 
 [build-system]
-requires = ["hatchling>=1.27.0", "cffi>=2.0.0", "setuptools>=82.0.1"]
+requires = ["hatchling>=1.27.0", "hatch-vcs", "cffi>=2.0.0", "setuptools>=82.0.1"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
@@ -79,6 +80,13 @@ reportUnknownMemberType=false  # WAY too many problems with PySide6 and pyqtgrap
 
 [tool.hatch.build.hooks.custom]
 path = "hatch_build.py"
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0+unknown"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "libqretprop/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["libqretprop", "qretproptools"]
