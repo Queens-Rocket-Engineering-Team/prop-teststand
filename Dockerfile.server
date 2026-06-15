@@ -61,17 +61,20 @@ COPY qretproptools/ ./qretproptools/
 COPY --from=protocol-builder /app/libqretprop/_lib/ ./libqretprop/_lib/
 COPY --from=protocol-builder /app/libqretprop/_protocol/ ./libqretprop/_protocol/
 
-# Install the copied project source into the final image. The protocol artifacts
-# were copied from protocol-builder above, so skip the Hatchling protocol hook
-# here to avoid rebuilding qlcp in the runtime stage. Read the precomputed
-# version file so installed package metadata matches the runtime version.
+# Install the copied project source into the final image. Use an explicit
+# version when supplied, then any pre-generated version file, then a fallback.
+# The protocol artifacts were copied from protocol-builder above, so skip the
+# Hatchling protocol hook here to avoid rebuilding qlcp in the runtime stage.
+ARG PROP_TESTSTAND_VERSION
 RUN --mount=type=cache,target=/root/.cache/uv \
-    SKIP_PROTOCOL_BUILD=1 \
-    SETUPTOOLS_SCM_PRETEND_VERSION="$(python -c 'exec(open("libqretprop/_version.py").read()); print(__version__)')" \
-    uv sync --locked --no-dev
-
-# Restore the precomputed version file after uv sync in case hatch-vcs rewrote it.
-COPY libqretprop/_version.py ./libqretprop/_version.py
+    if [ -n "${PROP_TESTSTAND_VERSION}" ]; then \
+        version="${PROP_TESTSTAND_VERSION}"; \
+    elif [ -s libqretprop/_version.py ]; then \
+        version="$(python -c 'import runpy; print(runpy.run_path("libqretprop/_version.py")["__version__"])')"; \
+    else \
+        version="0+unknown"; \
+    fi && \
+    SKIP_PROTOCOL_BUILD=1 SETUPTOOLS_SCM_PRETEND_VERSION="${version}" uv sync --locked --no-dev
 
 RUN uv run --no-sync --no-dev python -c "from libqretprop.protocol import PacketType; print(PacketType.ACK)"
 
