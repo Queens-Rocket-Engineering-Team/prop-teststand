@@ -1,13 +1,18 @@
 import asyncio
 import socket
-from typing import Any, ClassVar
+import time
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import libqretprop.mylogging as ml
 from libqretprop.drivers.esp import ESPDriver
-from libqretprop.qlcp.config_models import ControlConfig, SensorConfig
 from libqretprop.qlcp.config_parser import parse_config
 from libqretprop.qlcp.enums import PacketType
 from libqretprop.qlcp.packets import SimplePacket
+from libqretprop.runtime.command_tracker import CommandRecord, CommandTracker
+
+
+if TYPE_CHECKING:
+    from libqretprop.qlcp.config_models import ControlConfig, SensorConfig
 
 
 class ESPDevice:
@@ -21,21 +26,22 @@ class ESPDevice:
     """
 
     RESYNC_INTERVAL_S: ClassVar[float] = 600.0  # 10 minutes
+    COMMAND_ACK_TIMEOUT_S: ClassVar[float] = 10.0
     HEARTBEAT_INTERVAL_S: ClassVar[float] = 5.0
     HEARTBEAT_ACK_MISS_LIMIT: ClassVar[int] = 3
 
     def __init__(
         self,
-        socket: socket.socket,
+        tcp_socket: socket.socket,
         address: str,
         jsonConfig: dict[str, Any],
     ) -> None:
         parsed_config = parse_config(jsonConfig)
 
-        self.socket = socket
+        self.socket: socket.socket | None = tcp_socket
         self.address = address
         self.qlcp_config = parsed_config
-        self.driver = ESPDriver(socket, address, config=parsed_config)
+        self.driver = ESPDriver(tcp_socket, address, config=parsed_config)
         self.jsonConfig = jsonConfig
         self.listenerTask: asyncio.Task[Any]
 
@@ -51,54 +57,79 @@ class ESPDevice:
             control_name: control.default.name for control_name, control in self.controls.items()
         }
         self.sensor_names: list[str] = list(self.sensors.keys())
+        self.command_tracker = CommandTracker()
 
         # Timesync state: track when last sync completed for periodic resync
         self.last_sync_time: float | None = None  # server monotonic time of last sync
         self._resync_pending: bool = False
 
-        # Pending control commands awaiting ACK (sequence -> (control_name, state))
-        self._pending_controls: dict[int, tuple[str, str]] = {}
-
         self.is_responsive: bool = True
-        self._heartbeat_ack_pending: bool = False
-        self._last_heartbeat_sequence: int | None = None
         self._missed_heartbeat_acks: int = 0
 
         self.heartbeat_task = asyncio.create_task(self.heartbeat())
 
-    def handleHeartbeatAck(self, ack_sequence: int) -> None:
-        if self._heartbeat_ack_pending and ack_sequence != self._last_heartbeat_sequence:
-            ml.plog(
-                f"{self.name} HEARTBEAT ACK sequence mismatch: expected {self._last_heartbeat_sequence}, got {ack_sequence}",
-            )
+    def handleHeartbeatAck(self, command: CommandRecord | None) -> None:
+        if command is None:
+            return
 
-        self._heartbeat_ack_pending = False
         self._missed_heartbeat_acks = 0
         self.is_responsive = True
 
     def setControlState(self, controlName: str, state: str) -> None:
         self.control_states[controlName.upper()] = state
 
+    def _expireCommandTimeouts(self) -> bool:
+        for expired in self.command_tracker.expire_pending(
+            now=time.monotonic(),
+            timeout_s=self.COMMAND_ACK_TIMEOUT_S,
+        ):
+            if expired.packet_type == PacketType.HEARTBEAT:
+                if self._handleMissedHeartbeat(expired):
+                    return True
+            else:
+                ml.plog(
+                    f"{self.name} command timeout: {expired.packet_type.name} seq={expired.packet_sequence}",
+                )
+
+        return False
+
+    def _handleMissedHeartbeat(self, command: CommandRecord) -> bool:
+        self._missed_heartbeat_acks += 1
+
+        if self._missed_heartbeat_acks < self.HEARTBEAT_ACK_MISS_LIMIT:
+            ml.plog(
+                f"{self.name} missed HEARTBEAT ACK seq={command.packet_sequence} "
+                f"({self._missed_heartbeat_acks}/{self.HEARTBEAT_ACK_MISS_LIMIT})",
+            )
+            return False
+
+        from libqretprop.DeviceControllers import deviceTools  # noqa: PLC0415
+
+        self.is_responsive = False
+        ml.elog(f"{self.name} marked unresponsive: missed {self._missed_heartbeat_acks} HEARTBEAT ACKs")
+        deviceTools.removeDevice(self)
+        return True
+
     async def heartbeat(self) -> None:
         """Send a heartbeat to the device every 5 seconds to keep TCP alive."""
         while True:
             if self.socket:
-                if self._heartbeat_ack_pending:
-                    self._missed_heartbeat_acks += 1
-                    if self._missed_heartbeat_acks >= self.HEARTBEAT_ACK_MISS_LIMIT:
-                        from libqretprop.DeviceControllers import deviceTools  # noqa: PLC0415
+                if self._expireCommandTimeouts():
+                    break
 
-                        self.is_responsive = False
-                        ml.elog(f"{self.name} marked unresponsive: missed {self._missed_heartbeat_acks} HEARTBEAT ACKs")
-                        deviceTools.removeDevice(self)
-                        break
-
+                command: CommandRecord | None = None
                 try:
                     packet = SimplePacket.create(PacketType.HEARTBEAT)
+                    command = self.command_tracker.mark_sent(
+                        self.address,
+                        PacketType.HEARTBEAT,
+                        packet.sequence,
+                        now=time.monotonic(),
+                    )
                     await self.driver.send_packet(packet)
-                    self._last_heartbeat_sequence = packet.sequence
-                    self._heartbeat_ack_pending = True
                 except (BrokenPipeError, ConnectionResetError, OSError) as e:
+                    if command is not None:
+                        self.command_tracker.discard(command.command_id)
                     from libqretprop.DeviceControllers import deviceTools  # noqa: PLC0415
 
                     ml.elog(f"{self.name} heartbeat send failed: {e}")

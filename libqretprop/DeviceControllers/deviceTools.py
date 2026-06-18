@@ -21,6 +21,7 @@ from libqretprop.qlcp.packets import (
     StatusPacket,
     StreamStartPacket,
 )
+from libqretprop.runtime.command_tracker import CommandRecord
 
 
 MULTICAST_ADDRESS = "239.255.255.250"
@@ -38,6 +39,64 @@ ssdpSearchSocket: socket.socket | None = None
 # Listening Globals #
 tcpListenerSocket: socket.socket | None = None
 deviceRegistry: dict[str, ESPDevice] = {}
+
+TrackedCommandPacket = SimplePacket | ControlPacket | StreamStartPacket
+
+
+def _commandPacketMetadata(
+    packet: TrackedCommandPacket,
+) -> tuple[PacketType, int, int | None, ControlState | None]:
+    match packet:
+        case SimplePacket(packet_type=packet_type, sequence=sequence):
+            return packet_type, sequence, None, None
+        case ControlPacket(sequence=sequence, command_id=command_id, command_state=command_state):
+            return PacketType.CONTROL, sequence, command_id, command_state
+        case StreamStartPacket(sequence=sequence):
+            return PacketType.STREAM_START, sequence, None, None
+
+    raise TypeError(f"Unsupported tracked command packet: {type(packet).__name__}")
+
+
+def _trackSentCommand(device: ESPDevice, packet: TrackedCommandPacket) -> CommandRecord:
+    packet_type, sequence, control_id, requested_state = _commandPacketMetadata(packet)
+    return device.command_tracker.mark_sent(
+        device.address,
+        packet_type,
+        sequence,
+        now=time.monotonic(),
+        control_id=control_id,
+        requested_state=requested_state,
+    )
+
+
+async def _sendTrackedCommand(device: ESPDevice, packet: TrackedCommandPacket) -> CommandRecord:
+    command = _trackSentCommand(device, packet)
+    try:
+        await device.driver.send_packet(packet)
+    except Exception:
+        device.command_tracker.discard(command.command_id)
+        raise
+
+    return command
+
+
+def _markCommandAck(device: ESPDevice, packet: AckPacket) -> CommandRecord | None:
+    return device.command_tracker.mark_acked(
+        device.address,
+        packet.ack_packet_type,
+        packet.ack_sequence,
+        now=time.monotonic(),
+    )
+
+
+def _markCommandNack(device: ESPDevice, packet: NackPacket) -> CommandRecord | None:
+    return device.command_tracker.mark_nacked(
+        device.address,
+        packet.nack_packet_type,
+        packet.nack_sequence,
+        packet.error_code,
+        now=time.monotonic(),
+    )
 
 
 # ---------------------- #
@@ -155,11 +214,11 @@ async def tcpListener() -> None:
                 await newDevice.driver.send_packet(ack)
 
                 timesync = SimplePacket.create(PacketType.TIMESYNC)
-                await newDevice.driver.send_packet(timesync)
+                await _sendTrackedCommand(newDevice, timesync)
                 ml.plog(f"Sent initial TIMESYNC to {newDevice.name}")
 
                 status_request = SimplePacket.create(PacketType.STATUS_REQUEST)
-                await newDevice.driver.send_packet(status_request)
+                await _sendTrackedCommand(newDevice, status_request)
                 ml.plog(f"Sent initial STATUS_REQUEST to {newDevice.name}")
 
         except asyncio.CancelledError:
@@ -266,7 +325,13 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
 
     try:
         while True:
-            data = await loop.sock_recv(device.socket, 4096)
+            tcp_socket = device.socket
+            if tcp_socket is None:
+                ml.elog(f"Device {device.name} has no socket.")
+                removeDevice(device)
+                break
+
+            data = await loop.sock_recv(tcp_socket, 4096)
             if not data:
                 ml.elog(f"Device {device.name} disconnected.")
                 removeDevice(device)
@@ -306,21 +371,35 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                     ml.log(f"{device.name} STATUS {control_name} {state_str}")
 
                         case AckPacket():
+                            command = _markCommandAck(device, packet)
+                            if command is None:
+                                ml.plog(
+                                    f"{device.name} unmatched ACK for {packet.ack_packet_type.name} seq={packet.ack_sequence}",
+                                )
+
                             if packet.ack_packet_type == PacketType.TIMESYNC:
                                 device.last_sync_time = time.monotonic()
                                 device._resync_pending = False
                                 ml.plog(f"{device.name} TIMESYNC completed")
                             elif packet.ack_packet_type == PacketType.HEARTBEAT:
-                                device.handleHeartbeatAck(packet.ack_sequence)
+                                device.handleHeartbeatAck(command)
                                 ml.plog(f"{device.name} HEARTBEAT ACK seq={packet.ack_sequence}")
                             elif packet.ack_packet_type == PacketType.CONTROL:
-                                # Check for pending control command
-                                if packet.ack_sequence in device._pending_controls:
-                                    control_name, state = device._pending_controls.pop(packet.ack_sequence)
-
-                                    # Send status log for control ACK
-                                    state_str = "OPEN" if state == "OPEN" else "CLOSED" if state == "CLOSE" else "UNKNOWN"
-                                    if control_name in device.controls:
+                                if (
+                                    command is not None
+                                    and command.control_id is not None
+                                    and command.requested_state is not None
+                                ):
+                                    control_names = list(device.controls.keys())
+                                    if command.control_id < len(control_names):
+                                        control_name = control_names[command.control_id]
+                                        state_str = (
+                                            "OPEN"
+                                            if command.requested_state == ControlState.OPEN
+                                            else "CLOSED"
+                                            if command.requested_state == ControlState.CLOSED
+                                            else "UNKNOWN"
+                                        )
                                         device.setControlState(control_name, state_str)
                                         ml.log(f"{device.name} STATUS {control_name} {state_str}")
                                 else:
@@ -329,6 +408,11 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                 ml.plog(f"{device.name} ACK for {packet.ack_packet_type.name} seq={packet.ack_sequence}")
 
                         case NackPacket():
+                            command = _markCommandNack(device, packet)
+                            if command is None:
+                                ml.plog(
+                                    f"{device.name} unmatched NACK for {packet.nack_packet_type.name} seq={packet.nack_sequence} error={packet.error_code.name}",
+                                )
                             ml.plog(f"{device.name} NACK for {packet.nack_packet_type.name} error={packet.error_code.name}")
 
                         case _:
@@ -344,7 +428,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                     ):
                         device._resync_pending = True
                         timesync = SimplePacket.create(PacketType.TIMESYNC)
-                        await device.driver.send_packet(timesync)
+                        await _sendTrackedCommand(device, timesync)
                         ml.plog(f"{device.name} resync sent (stale >{ESPDevice.RESYNC_INTERVAL_S / 60:.0f} min)")
 
                 except ValueError:
@@ -370,7 +454,7 @@ async def getSingle(device: ESPDevice) -> None:
     if device.socket:
         try:
             packet = SimplePacket.create(PacketType.GET_SINGLE)
-            await device.driver.send_packet(packet)
+            await _sendTrackedCommand(device, packet)
             ml.slog(f"Sent GET_SINGLE command to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending GET_SINGLE command to {device.name}: {e}")
@@ -390,7 +474,7 @@ async def startStreaming(device: ESPDevice, Hz: int) -> None:
     if device.socket:
         try:
             packet = StreamStartPacket.create(frequency_hz=Hz)
-            await device.driver.send_packet(packet)
+            await _sendTrackedCommand(device, packet)
             ml.slog(f"Sent STREAM_START ({Hz} Hz) to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending STREAM_START command to {device.name}: {e}")
@@ -406,7 +490,7 @@ async def stopStreaming(device: ESPDevice) -> None:
     if device.socket:
         try:
             packet = SimplePacket.create(PacketType.STREAM_STOP)
-            await device.driver.send_packet(packet)
+            await _sendTrackedCommand(device, packet)
             ml.slog(f"Sent STREAM_STOP command to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending STREAM_STOP command to {device.name}: {e}")
@@ -438,17 +522,10 @@ async def setControl(device: ESPDevice, controlName: str, controlState: str) -> 
     if device.socket:
         try:
             packet = ControlPacket.create(command_id=command_id, command_state=state)
-
-            # Store pending control BEFORE sending (to avoid race condition)
-            device._pending_controls[packet.sequence] = (controlName, controlState.upper())
-
-            await device.driver.send_packet(packet)
+            await _sendTrackedCommand(device, packet)
             ml.slog(f"Sent CONTROL command (id={command_id}, {controlName} {controlState}) to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending CONTROL command to {device.name}: {e}")
-            # Clean up pending control on send failure
-            if packet.sequence in device._pending_controls:
-                device._pending_controls.pop(packet.sequence)
             if device.address in deviceRegistry:
                 removeDevice(device)
     else:
@@ -459,7 +536,7 @@ async def getStatus(device: ESPDevice) -> None:
     if device.socket:
         try:
             packet = SimplePacket.create(PacketType.STATUS_REQUEST)
-            await device.driver.send_packet(packet)
+            await _sendTrackedCommand(device, packet)
             ml.slog(f"Sent STATUS_REQUEST command to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending STATUS_REQUEST command to {device.name}: {e}")
@@ -474,7 +551,7 @@ async def emergencyStop(device: ESPDevice) -> None:
     if device.socket:
         try:
             packet = SimplePacket.create(PacketType.ESTOP)
-            await device.driver.send_packet(packet)
+            await _sendTrackedCommand(device, packet)
             ml.slog(f"Sent EMERGENCY STOP command to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending EMERGENCY STOP command to {device.name}: {e}")
