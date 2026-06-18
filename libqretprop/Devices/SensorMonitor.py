@@ -2,14 +2,13 @@ import socket
 import time
 from typing import Any
 
-from libqretprop.DeviceControllers import deviceTools
-from libqretprop.Devices.Control import Control
 from libqretprop.Devices.ESPDevice import ESPDevice
-from libqretprop.Devices.sensors.Current import Current
-from libqretprop.Devices.sensors.LoadCell import LoadCell
-from libqretprop.Devices.sensors.PressureTransducer import PressureTransducer
-from libqretprop.Devices.sensors.Resistance import Resistance
-from libqretprop.Devices.sensors.Thermocouple import Thermocouple
+from libqretprop.qlcp.config_models import (
+    ControlConfig,
+    DeviceConfig,
+    SensorConfig,
+)
+from libqretprop.qlcp.config_parser import parse_config
 
 
 class SensorMonitor(ESPDevice):
@@ -22,89 +21,41 @@ class SensorMonitor(ESPDevice):
     """
 
     def __init__(self, socket: socket.socket, address: str, config: dict[str, Any]) -> None:
+        parsed_config = parse_config(config)
         super().__init__(socket, address, config)
 
         # Storing the default information inherited from the parent class
         self.socket = socket
         self.address = address
-        self.jsonConfig: dict[str, str] = config
+        self.jsonConfig: dict[str, Any] = config
+        self.qlcp_config = parsed_config
 
-        self.name: str = config.get("device_name")
-        self.type = config.get("device_type")
+        self.name = parsed_config.name
+        self.type = parsed_config.device_type
 
         self.startTime = time.monotonic()  # Start time for the device, used for uptime tracking
         self.times: list[float] = []
-        self.sensors, self.controls = self._initializeFromConfig(config)
+        self.sensors, self.controls = self._initializeFromConfig(parsed_config)
+        self.sensor_data: dict[str, list[float]] = {sensor_name: [] for sensor_name in self.sensors}
+        self.control_states: dict[str, str] = {
+            control_name: control.default.name for control_name, control in self.controls.items()
+        }
         self.sensor_names: list[str] = list(self.sensors.keys()) # Cache sensor names to avoid rebuilding list
 
-    # JSON.loads returns a dictionary where attributes are defined with string titles and can contain whatever as values.
     def _initializeFromConfig(
-        self, config: dict[str, Any]
-    ) -> tuple[dict[str, Thermocouple | LoadCell | PressureTransducer | Current | Resistance], dict[str, Control]]:
+        self,
+        config: DeviceConfig,
+    ) -> tuple[dict[str, SensorConfig], dict[str, ControlConfig]]:
         """Initialize all devices and sensors from the config file."""
 
-        sensors: dict[str, Thermocouple | LoadCell | PressureTransducer | Current | Resistance] = {}
-        controls: dict[str, Control] = {}
+        sensors: dict[str, SensorConfig] = {}
+        controls: dict[str, ControlConfig] = {}
 
-        sensorInfo = config.get("sensor_info", {})
+        for sensor_config in config.sensors_by_id.values():
+            sensors[sensor_config.name] = sensor_config
 
-        for name, details in sensorInfo.get("thermocouple", {}).items():
-            sensors[name] = Thermocouple(
-                name=name,
-                sensor_index=details.get("sensor_index"),
-                thermoType=details.get("type", "K"),
-                unit=details.get("unit", "C"),
-            )
-
-        for name, details in sensorInfo.get("pressure_transducer", {}).items():
-            sensors[name] = PressureTransducer(
-                name=name,
-                sensor_index=details.get("sensor_index"),
-                resistorOhms=details.get("resistor_ohms", 350),
-                maxPressurePSI=details.get("max_pressure_PSI", 500),
-                unit=details.get("unit", "PSI"),
-            )
-
-        for name, details in sensorInfo.get("load_cell", {}).items():
-            sensors[name] = LoadCell(
-                name=name,
-                sensor_index=details.get("sensor_index"),
-                loadRatingN=details.get("load_rating_N", 1000),
-                excitationV=details.get("excitation_V", 5.0),
-                sensitivityvV=details.get("sensitivity_vV", 2.0),
-                unit=details.get("unit", "N"),
-            )
-
-        for name, details in sensorInfo.get("resistance_sensor", {}).items():
-            sensors[name] = Resistance(
-                name=name,
-                sensor_index=details.get("sensor_index"),
-                injectedCurrentuA=details.get("injected_current_uA", 1000),
-                rShort=details.get("r_short", 50),
-                unit=details.get("unit", "ohms"),
-            )
-
-        for name, details in sensorInfo.get("current_sensor", {}).items():
-            sensors[name] = Current(
-                name=name,
-                sensor_index=details.get("sensor_index"),
-                shuntResistorOhms=details.get("shunt_resistor_ohms", 0.1),
-                csaGain=details.get("csa_gain", 50),
-                unit=details.get("unit", "A"),
-            )
-
-        # Register valves
-        for name, details in config.get("controls", {}).items():
-            control_index = details.get("control_index", None)
-            controlType = details.get("type")
-            defaultState = details.get("default_state")
-
-            controls[name.upper()] = Control(
-                name=name.upper(),
-                controlType=controlType,
-                control_index=control_index,
-                defaultState=defaultState,
-            )
+        for control_config in config.controls_by_id.values():
+            controls[control_config.name.upper()] = control_config
 
         return sensors, controls
 
@@ -117,13 +68,23 @@ class SensorMonitor(ESPDevice):
 
         for sensorName, sensor in self.sensors.items():
             if sensorName in vals:
-                sensor.data.append(vals[sensorName])
+                self.sensor_data[sensor.name].append(vals[sensorName])
 
         self.times.append(time.monotonic() - self.startTime)
 
-    def openValve(self, valveName: str) -> None:  # FIXME Open loop for now. Add check against redis log later.
-        """Open the valve based on its default state."""
-        deviceTools.setControl(self, valveName, "OPEN")
+    def addDataPoint(self, sensorName: str, value: float) -> None:
+        self.sensor_data[sensorName].append(value)
 
-    def closeValve(self, valveName: str) -> None:  # FIXME Open loop for now. Add check against redis log later.
-        deviceTools.setControl(self, valveName, "CLOSE")
+    def setControlState(self, controlName: str, state: str) -> None:
+        self.control_states[controlName.upper()] = state
+
+    async def openValve(self, valveName: str) -> None:  # FIXME Open loop for now. Add check against redis log later.
+        """Open the valve based on its default state."""
+        from libqretprop.DeviceControllers import deviceTools  # noqa: PLC0415
+
+        await deviceTools.setControl(self, valveName, "OPEN")
+
+    async def closeValve(self, valveName: str) -> None:  # FIXME Open loop for now. Add check against redis log later.
+        from libqretprop.DeviceControllers import deviceTools  # noqa: PLC0415
+
+        await deviceTools.setControl(self, valveName, "CLOSE")

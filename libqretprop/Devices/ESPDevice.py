@@ -3,8 +3,8 @@ import socket
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import libqretprop.mylogging as ml
-from libqretprop.DeviceControllers import deviceTools
-from libqretprop.protocol import PacketType, SimplePacket
+from libqretprop.qlcp.enums import PacketType
+from libqretprop.qlcp.packets import SimplePacket
 
 
 if TYPE_CHECKING:
@@ -72,6 +72,8 @@ class ESPDevice:
                 if self._heartbeat_ack_pending:
                     self._missed_heartbeat_acks += 1
                     if self._missed_heartbeat_acks >= self.HEARTBEAT_ACK_MISS_LIMIT:
+                        from libqretprop.DeviceControllers import deviceTools
+
                         self.is_responsive = False
                         ml.elog(f"{self.name} marked unresponsive: missed {self._missed_heartbeat_acks} HEARTBEAT ACKs")
                         deviceTools.removeDevice(self)
@@ -84,6 +86,8 @@ class ESPDevice:
                     self._last_heartbeat_sequence = packet.sequence
                     self._heartbeat_ack_pending = True
                 except (BrokenPipeError, ConnectionResetError, OSError) as e:
+                    from libqretprop.DeviceControllers import deviceTools
+
                     ml.elog(f"{self.name} heartbeat send failed: {e}")
                     deviceTools.removeDevice(self)
                     break

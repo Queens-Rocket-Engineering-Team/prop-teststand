@@ -24,6 +24,7 @@ dependencies = [
     "python-kasa>=0.10.2",
     "opuslib>=3.0.1",
     "pymumble",
+    "pytest>=9.0.2",
 ]
 
 [dependency-groups]

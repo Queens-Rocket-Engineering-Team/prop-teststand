@@ -15,35 +15,35 @@ Usage:
 
 import argparse
 import asyncio
+import contextlib
 import json
 import random
 import socket
 import struct
 import time
 
-
-from libqretprop.protocol import (
-    HEADER_SIZE,
+from libqretprop.qlcp.constants import HEADER_SIZE
+from libqretprop.qlcp.decoding import decode_packet_client
+from libqretprop.qlcp.enums import (
+    ControlState,
+    DeviceStatus,
+    ErrorCode,
+    PacketType,
+    Unit,
+)
+from libqretprop.qlcp.framing import get_packet_len
+from libqretprop.qlcp.packets import (
     AckPacket,
     ConfigPacket,
     ControlPacket,
-    ControlState,
     ControlStatus,
     DataPacket,
-    DeviceStatus,
-    ErrorCode,
     NackPacket,
-    PacketType,
     SensorReading,
     SimplePacket,
     StatusPacket,
     StreamStartPacket,
-    Unit,
-    decode_packet_client,
-    get_packet_len,
 )
-
-import contextlib
 
 
 class MockSensorDevice:
@@ -472,6 +472,7 @@ class MockSensorDevice:
             SensorReading(sensor_id=0, unit=Unit.CELSIUS, value=self.tc1_temp),
             SensorReading(sensor_id=1, unit=Unit.CELSIUS, value=self.tc2_temp),
             SensorReading(sensor_id=2, unit=Unit.PSI, value=self.pt1_pressure),
+            SensorReading(sensor_id=3, unit=Unit.PSI, value=self.pt1_pressure * 1.5),
         ]
 
         packet = DataPacket.create(readings)
