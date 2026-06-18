@@ -7,20 +7,19 @@ import time
 import libqretprop.mylogging as ml
 from libqretprop.Devices.ESPDevice import ESPDevice
 from libqretprop.Devices.SensorMonitor import SensorMonitor
-from libqretprop.protocol import (
-    HEADER_SIZE,
+from libqretprop.qlcp.constants import HEADER_SIZE
+from libqretprop.qlcp.decoding import decode_packet_server
+from libqretprop.qlcp.enums import ControlState, PacketType
+from libqretprop.qlcp.framing import get_packet_len
+from libqretprop.qlcp.packets import (
     AckPacket,
     ConfigPacket,
     ControlPacket,
-    ControlState,
     DataPacket,
     NackPacket,
-    PacketType,
     SimplePacket,
     StatusPacket,
     StreamStartPacket,
-    decode_packet_server,
-    get_packet_len,
 )
 
 
@@ -223,7 +222,6 @@ async def udpListener() -> None:
                             readings = packet.readings
                             t = timestamp_ms / 1000.0 if device.last_sync_time is not None else time.monotonic()
                             sensor_names = device.sensor_names
-                            sensors = device.sensors
 
                             for reading in readings:
                                 sid = reading.sensor_id
@@ -231,7 +229,7 @@ async def udpListener() -> None:
 
                                 if sid < len(sensor_names):
                                     sensor_name = sensor_names[sid]
-                                    sensors[sensor_name].data.append(value)
+                                    device.addDataPoint(sensor_name, value)
                                     ml.log(f"{device.name} {t:.3f} {sensor_name}:{value:.2f}")
                             device.times.append(t)
                         else:
@@ -328,7 +326,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                         if control_state.state == ControlState.CLOSED
                                         else "UNKNOWN"
                                     )
-                                    device.controls[control_name].state = state_str
+                                    device.setControlState(control_name, state_str)
                                     ml.log(f"{device.name} STATUS {control_name} {state_str}")
 
                         case AckPacket():
@@ -347,7 +345,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                     # Send status log for control ACK
                                     state_str = "OPEN" if state == "OPEN" else "CLOSED" if state == "CLOSE" else "UNKNOWN"
                                     if isinstance(device, SensorMonitor) and control_name in device.controls:
-                                        device.controls[control_name].state = state_str
+                                        device.setControlState(control_name, state_str)
                                         ml.log(f"{device.name} STATUS {control_name} {state_str}")
                                 else:
                                     ml.plog(f"{device.name} ACK for CONTROL seq={packet.ack_sequence}")
@@ -572,7 +570,7 @@ def exportDataToCSV() -> None:
                 header = ["Time", *sensorNames]
                 writer.writerow(header)
                 for i in range(len(device.times)):
-                    row = [device.times[i]] + [sensor.data[i] for sensor in device.sensors.values()]
+                    row = [device.times[i]] + [device.sensor_data[sensor.name][i] for sensor in device.sensors.values()]
                     writer.writerow(row)
 
             ml.slog(f"Exported data to {deviceFilename} for device: {device.name}")

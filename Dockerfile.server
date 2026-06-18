@@ -76,6 +76,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     fi && \
     SKIP_PROTOCOL_BUILD=1 SETUPTOOLS_SCM_PRETEND_VERSION="${version}" uv sync --locked --no-dev
 
-RUN uv run --no-sync --no-dev python -c "from libqretprop.protocol import PacketType; print(PacketType.ACK)"
+RUN uv run --no-sync --no-dev python -c "from libqretprop.qlcp.enums import PacketType; print(PacketType.ACK)"
 
 CMD ["uv", "run", "--no-sync", "--no-dev", "start_server"]
