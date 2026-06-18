@@ -21,7 +21,6 @@ import libqretprop.configManager as config
 from libqretprop import mumbleRecording
 from libqretprop import mylogging as ml
 from libqretprop.DeviceControllers import cameraTools, deviceTools, kasaTools
-from libqretprop.Devices.SensorMonitor import SensorMonitor
 from libqretprop.GuiDataStream import router as log_router
 
 
@@ -218,7 +217,7 @@ async def sendDeviceCommand(
             controlName = cmd.args[0].upper()
             controlState = cmd.args[1].upper()
 
-            if not isinstance(device, SensorMonitor) or controlName not in device.controls:
+            if controlName not in device.controls:
                 continue
 
             anyCommandsSent = True
@@ -251,7 +250,7 @@ async def getCameras() -> CameraList:
 
 @app.post("/v1/cameras/reconnect", summary="Reconnect all cameras")
 async def reconnectCameras() -> CameraList:
-    ml.slog(f"User sent camera reconnect")
+    ml.slog("User sent camera reconnect")
     await cameraTools.connectAllCameras()
     return await getCameras()
 
@@ -373,7 +372,7 @@ async def getKasaDevices() -> list[KasaDeviceInfo]:
 
 @app.get("/v1/kasa/discover", summary="Discover Kasa devices on the network")
 async def discoverKasaDevices() -> list[KasaDeviceInfo]:
-    ml.slog(f"User sent Kasa discover command")
+    ml.slog("User sent Kasa discover command")
     await kasaTools.discoverKasaDevices()
 
     return await getKasaDevices()
@@ -433,7 +432,7 @@ async def updateAutodiscoverySettings(
 
 @app.post("/v1/discover", summary="Send a SSP discover request for new ESP Devices")
 async def discoverDevices() -> CommandResponse:
-    ml.slog(f"User sent device discover command")
+    ml.slog("User sent device discover command")
     deviceTools.sendDiscoveryBroadcast()
     return CommandResponse(
         status="sent",

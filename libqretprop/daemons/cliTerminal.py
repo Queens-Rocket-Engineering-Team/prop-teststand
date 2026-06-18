@@ -5,7 +5,6 @@ import aioconsole
 
 import libqretprop.mylogging as ml
 from libqretprop.DeviceControllers import deviceTools
-from libqretprop.Devices.SensorMonitor import SensorMonitor
 
 
 SERVERCOMMANDS = [
@@ -15,7 +14,6 @@ SERVERCOMMANDS = [
     "AUTODISCOVERY",
     "AUTOD",
     "LIST",
-    "EXPO",
     "HELP",
     "INFO",
     "SENSORS",
@@ -92,8 +90,7 @@ async def handleServerCommand(command: str, args: list) -> None:
             ml.slog(f"Connected devices ({len(devices)}):")
             for device in devices.values():
                 ml.slog(f"  {device.name} ({device.type}) - {device.address}")
-                if isinstance(device, SensorMonitor):
-                    ml.slog(f"    Sensors: {len(device.sensors)}, Controls: {len(device.controls)}")
+                ml.slog(f"    Sensors: {len(device.sensors)}, Controls: {len(device.controls)}")
     elif cmd == "REMOVE":
         if not args:
             ml.slog("Usage: remove <device_name>")
@@ -126,13 +123,12 @@ async def handleServerCommand(command: str, args: list) -> None:
         ml.slog(f"Device: {device.name}")
         ml.slog(f"  Type: {device.type}")
         ml.slog(f"  Address: {device.address}")
-        if isinstance(device, SensorMonitor):
-            ml.slog(f"  Sensors ({len(device.sensors)}):")
-            for idx, name in enumerate(device.sensors.keys()):
-                ml.slog(f"    [{idx}] {name}")
-            ml.slog(f"  Controls ({len(device.controls)}):")
-            for idx, name in enumerate(device.controls.keys()):
-                ml.slog(f"    [{idx}] {name}")
+        ml.slog(f"  Sensors ({len(device.sensors)}):")
+        for idx, name in enumerate(device.sensors.keys()):
+            ml.slog(f"    [{idx}] {name}")
+        ml.slog(f"  Controls ({len(device.controls)}):")
+        for idx, name in enumerate(device.controls.keys()):
+            ml.slog(f"    [{idx}] {name}")
     elif cmd == "HELP":
         ml.slog("Available commands:")
         ml.slog("  discover           - Discover devices")
@@ -147,11 +143,7 @@ async def handleServerCommand(command: str, args: list) -> None:
         ml.slog("  open <dev> <ctrl>  - Open valve/control")
         ml.slog("  close <dev> <ctrl> - Close valve/control")
         ml.slog("  status <device>    - Get device status / control states")
-        ml.slog("  expo               - Export data to CSV")
         ml.slog("  quit               - Exit")
-    elif cmd == "EXPO":
-        deviceTools.exportDataToCSV()
-        ml.slog("Data exported to test_data/")
     elif cmd == "ESTOP":
         devices = deviceTools.getRegisteredDevices()
         for device in devices.values():
@@ -174,10 +166,6 @@ async def handleDeviceCommand(command: str, args: list) -> None:
 
     if not device:
         ml.slog(f"Device '{device_name}' not found. Use 'list' to see devices.")
-        return
-
-    if not isinstance(device, SensorMonitor):
-        ml.slog(f"Device is not a sensor monitor")
         return
 
     cmd = command.upper()
