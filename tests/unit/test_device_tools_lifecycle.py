@@ -97,3 +97,20 @@ def test_estop_with_no_socket_removes_device() -> None:
         assert device.address not in deviceTools.deviceRegistry
     finally:
         deviceTools.deviceRegistry.clear()
+
+
+def test_legacy_esp_log_sink_keeps_gui_parse_strings(monkeypatch: pytest.MonkeyPatch) -> None:
+    messages: list[str] = []
+    monkeypatch.setattr(deviceTools.ml, "log", messages.append)
+    device = _make_device(name="PANDA")
+    sink = deviceTools._LegacyESPLogSink()
+
+    sink.device_connected(device)
+    sink.control_status(device, "VALVE", "OPEN")
+    sink.device_disconnected(device)
+
+    assert messages == [
+        "PANDA CONNECTED",
+        "PANDA STATUS VALVE OPEN",
+        "PANDA DISCONNECTED",
+    ]
