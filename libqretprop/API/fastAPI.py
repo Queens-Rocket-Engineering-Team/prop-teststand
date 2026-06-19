@@ -1,4 +1,3 @@
-import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -468,10 +467,7 @@ class ConfigsResponse(BaseModel):
 async def getServerConfig() -> ConfigsResponse:
     configs: dict[str, dict] = {}
     for dev in deviceTools.deviceRegistry.values():
-        cfg = dev.jsonConfig
-        if isinstance(cfg, str):
-            cfg = json.loads(cfg)  # avoid double-encoding
-        configs[getattr(dev, "name", getattr(dev, "id", "unknown"))] = cfg
+        configs[getattr(dev, "name", getattr(dev, "id", "unknown"))] = dev.qlcp_config.raw_config
     return ConfigsResponse(count=len(configs), configs=configs)
 
 

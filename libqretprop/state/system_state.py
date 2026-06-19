@@ -25,8 +25,8 @@ from libqretprop.state.models import (
 
 
 if TYPE_CHECKING:
-    from libqretprop.Devices.ESPDevice import ESPDevice
     from libqretprop.qlcp.config_models import ControlConfig, DeviceConfig, SensorConfig
+    from libqretprop.runtime.esp_device_session import ESPDeviceSession
 
 
 StateEvent = dict[str, object]
@@ -45,7 +45,7 @@ class _DeviceState:
     connection_key: str
     config: DeviceConfig
     connected: bool
-    device: ESPDevice | None = None
+    device: ESPDeviceSession | None = None
     reported_controls: dict[int, _ReportedControlState] = field(default_factory=dict)
     disconnected_at: float | None = None
 
@@ -62,7 +62,7 @@ class SystemState:
     def state_version(self) -> int:
         return self._state_version
 
-    def register_device(self, device: ESPDevice) -> StateEvent:
+    def register_device(self, device: ESPDeviceSession) -> StateEvent:
         self._devices_by_name[device.name] = _DeviceState(
             device_name=device.name,
             address=device.address,
@@ -76,7 +76,7 @@ class SystemState:
             device=self._snapshot_device(self._devices_by_name[device.name]).to_dict(),
         )
 
-    def mark_disconnected(self, device: ESPDevice) -> StateEvent | None:
+    def mark_disconnected(self, device: ESPDeviceSession) -> StateEvent | None:
         device_state = self._devices_by_name.get(device.name)
         if device_state is None or device_state.connection_key != device.connection_key:
             return None
@@ -93,7 +93,7 @@ class SystemState:
 
     def update_control_state(
         self,
-        device: ESPDevice,
+        device: ESPDeviceSession,
         control_id: int,
         state: ControlState | str,
         *,

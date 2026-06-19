@@ -5,7 +5,6 @@ from typing import Any, cast
 
 import pytest
 
-from libqretprop.Devices.ESPDevice import ESPDevice
 from libqretprop.qlcp.config_parser import parse_config
 from libqretprop.qlcp.enums import ControlState, DeviceStatus, ErrorCode, PacketType
 from libqretprop.qlcp.packets import (
@@ -17,6 +16,7 @@ from libqretprop.qlcp.packets import (
 )
 from libqretprop.runtime.command_tracker import CommandLifecycle, CommandTracker
 from libqretprop.runtime.esp_connection_runtime import ESPConnectionRuntime
+from libqretprop.runtime.esp_device_session import ESPDeviceSession
 from libqretprop.state.system_state import SystemState
 
 
@@ -82,22 +82,21 @@ def _make_runtime() -> tuple[ESPConnectionRuntime, CommandTracker, SystemState, 
     return runtime, tracker, state, stream
 
 
-def _make_device(
+def _make_session(
     runtime: ESPConnectionRuntime,
     *,
     address: str = "10.0.0.2",
     connection_key: str = "conn-a",
     name: str = "TEST-DEVICE",
-) -> ESPDevice:
+) -> ESPDeviceSession:
     config = parse_config(_make_config(name=name))
     control_states = {
         control.name.upper(): control.default.name
         for control in config.controls_by_id.values()
     }
-    device = SimpleNamespace(
+    session = SimpleNamespace(
         address=address,
         connection_key=connection_key,
-        connection_runtime=runtime,
         name=config.name,
         type=config.device_type,
         qlcp_config=config,
@@ -107,7 +106,6 @@ def _make_device(
         },
         control_states=control_states,
         sensor_names=[],
-        jsonConfig=config.raw_config,
         socket=None,
         driver=FakeDriver(),
         last_sync_time=None,
@@ -117,10 +115,23 @@ def _make_device(
     )
 
     def set_control_state(control_name: str, state: str) -> None:
-        device.control_states[control_name.upper()] = state
+        session.control_states[control_name.upper()] = state
 
-    device.setControlState = set_control_state
-    return cast(ESPDevice, device)
+    def control_name_for_id(control_id: int | None) -> str | None:
+        if control_id is None:
+            return None
+        control = config.controls_by_id.get(control_id)
+        return None if control is None else control.name
+
+    def record_heartbeat_ack(command: object | None) -> None:
+        if command is not None:
+            session._missed_heartbeat_acks = 0
+            session.is_responsive = True
+
+    session.set_control_state = set_control_state
+    session.control_name_for_id = control_name_for_id
+    session.record_heartbeat_ack = record_heartbeat_ack
+    return cast(ESPDeviceSession, session)
 
 
 def test_runtime_registers_valid_device() -> None:
@@ -131,16 +142,18 @@ def test_runtime_registers_valid_device() -> None:
         peer_sock.setblocking(False)
 
         try:
-            device = await runtime.register_configured_device(
+            session = await runtime.register_configured_device(
                 server_sock,
                 "10.0.0.2",
                 _make_config(),
                 config_sequence=12,
             )
 
-            assert device.connection_key == "esp-1"
-            assert device.connection_runtime is runtime
-            assert runtime.devices["10.0.0.2"] is device
+            assert isinstance(session, ESPDeviceSession)
+            assert session.connection_key == "esp-1"
+            assert session.monitor_task is not None
+            assert session.heartbeat_task is not None
+            assert runtime.devices["10.0.0.2"] is session
             assert state.snapshot().devices[0].name == "TEST-DEVICE"
             assert stream.events[0]["type"] == "device.registered"
         finally:
@@ -153,8 +166,8 @@ def test_runtime_registers_valid_device() -> None:
 
 def test_runtime_replaces_existing_device_and_fails_pending_commands() -> None:
     runtime, tracker, state, stream = _make_runtime()
-    old_device = _make_device(runtime, address="10.0.0.2", connection_key="conn-old")
-    other_device = _make_device(runtime, address="10.0.0.4", connection_key="conn-other", name="OTHER")
+    old_device = _make_session(runtime, address="10.0.0.2", connection_key="conn-old")
+    other_device = _make_session(runtime, address="10.0.0.4", connection_key="conn-other", name="OTHER")
     runtime.devices[old_device.address] = old_device
     runtime.devices[other_device.address] = other_device
     state.register_device(old_device)
@@ -178,7 +191,7 @@ def test_runtime_replaces_existing_device_and_fails_pending_commands() -> None:
 
 def test_runtime_removal_marks_device_disconnected() -> None:
     runtime, _tracker, state, stream = _make_runtime()
-    device = _make_device(runtime)
+    device = _make_session(runtime)
     runtime.devices[device.address] = device
     state.register_device(device)
 
@@ -191,7 +204,7 @@ def test_runtime_removal_marks_device_disconnected() -> None:
 
 def test_runtime_ack_routes_through_tracker_and_updates_control_state() -> None:
     runtime, tracker, state, stream = _make_runtime()
-    device = _make_device(runtime)
+    device = _make_session(runtime)
     runtime.devices[device.address] = device
     state.register_device(device)
     command = tracker.mark_sent(
@@ -224,7 +237,7 @@ def test_runtime_ack_routes_through_tracker_and_updates_control_state() -> None:
 
 def test_runtime_nack_routes_through_tracker_without_control_update() -> None:
     runtime, tracker, state, stream = _make_runtime()
-    device = _make_device(runtime)
+    device = _make_session(runtime)
     runtime.devices[device.address] = device
     state.register_device(device)
     command = tracker.mark_sent(
@@ -258,7 +271,7 @@ def test_runtime_nack_routes_through_tracker_without_control_update() -> None:
 
 def test_runtime_status_updates_reported_control_state() -> None:
     runtime, _tracker, state, stream = _make_runtime()
-    device = _make_device(runtime)
+    device = _make_session(runtime)
     runtime.devices[device.address] = device
     state.register_device(device)
 
@@ -282,19 +295,19 @@ def test_runtime_uses_injected_legacy_log_sink() -> None:
         def __init__(self) -> None:
             self.messages: list[tuple[str, str, str | None]] = []
 
-        def device_connected(self, device: ESPDevice) -> None:
+        def device_connected(self, device: ESPDeviceSession) -> None:
             self.messages.append(("connected", device.name, None))
 
-        def device_disconnected(self, device: ESPDevice) -> None:
+        def device_disconnected(self, device: ESPDeviceSession) -> None:
             self.messages.append(("disconnected", device.name, None))
 
-        def control_status(self, device: ESPDevice, control_name: str, state: str) -> None:
+        def control_status(self, device: ESPDeviceSession, control_name: str, state: str) -> None:
             self.messages.append(("status", f"{device.name}:{control_name}", state))
 
     runtime, _tracker, state, _stream = _make_runtime()
     legacy_log_sink = LegacyLogSink()
     runtime.legacy_log_sink = legacy_log_sink
-    device = _make_device(runtime)
+    device = _make_session(runtime)
     runtime.devices[device.address] = device
     state.register_device(device)
 
@@ -318,7 +331,7 @@ def test_runtime_uses_injected_legacy_log_sink() -> None:
 def test_runtime_command_visibility_policy_for_status_request_and_estop() -> None:
     async def run() -> None:
         runtime, tracker, _state, stream = _make_runtime()
-        device = _make_device(runtime)
+        device = _make_session(runtime)
 
         status_request = await runtime.send_tracked_command(
             device,
@@ -357,5 +370,54 @@ def test_runtime_command_visibility_policy_for_status_request_and_estop() -> Non
                 },
             },
         ]
+
+    asyncio.run(run())
+
+
+def test_session_monitor_routes_packets_to_runtime() -> None:
+    async def run() -> None:
+        packet_seen = asyncio.Event()
+        packets: list[object] = []
+
+        class RuntimeStub:
+            async def handle_packet(self, session: ESPDeviceSession, packet: object) -> None:
+                packets.append(packet)
+                packet_seen.set()
+
+            def remove_device(self, session: ESPDeviceSession) -> None:
+                packet_seen.set()
+
+            @staticmethod
+            def needs_resync(session: ESPDeviceSession) -> bool:
+                return False
+
+            async def send_timesync(self, session: ESPDeviceSession) -> None:
+                raise AssertionError("unexpected resync")
+
+        session_sock, peer_sock = socket.socketpair()
+        session_sock.setblocking(False)
+        peer_sock.setblocking(False)
+        session = ESPDeviceSession(
+            session_sock,
+            "10.0.0.2",
+            _make_config(),
+            connection_key="conn-a",
+        )
+        task = asyncio.create_task(session.monitor(cast(ESPConnectionRuntime, RuntimeStub())))
+
+        try:
+            loop = asyncio.get_running_loop()
+            packet = AckPacket.create(PacketType.HEARTBEAT, ack_sequence=7)
+            await loop.sock_sendall(peer_sock, packet.encode())
+            await asyncio.wait_for(packet_seen.wait(), timeout=1)
+
+            assert isinstance(packets[0], AckPacket)
+            assert packets[0].ack_packet_type == PacketType.HEARTBEAT
+            assert packets[0].ack_sequence == 7
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            session_sock.close()
+            peer_sock.close()
 
     asyncio.run(run())

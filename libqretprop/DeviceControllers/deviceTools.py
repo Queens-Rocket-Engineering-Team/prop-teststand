@@ -5,7 +5,6 @@ import socket
 import time
 
 import libqretprop.mylogging as ml
-from libqretprop.Devices.ESPDevice import ESPDevice
 from libqretprop.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
 from libqretprop.qlcp.decoding import decode_packet_server
 from libqretprop.qlcp.enums import ControlState, PacketType
@@ -17,6 +16,7 @@ from libqretprop.qlcp.packets import (
     StreamStartPacket,
 )
 from libqretprop.runtime.esp_connection_runtime import TrackedCommandPacket, esp_runtime
+from libqretprop.runtime.esp_device_session import ESPDeviceSession
 
 
 MULTICAST_ADDRESS = "239.255.255.250"
@@ -39,37 +39,21 @@ deviceRegistry = esp_runtime.devices
 class _LegacyESPLogSink:
     """Temporary GUI compatibility sink for legacy text-log device events."""
 
-    def device_connected(self, device: ESPDevice) -> None:
-        ml.log(f"{device.name} CONNECTED")
+    def device_connected(self, session: ESPDeviceSession) -> None:
+        ml.log(f"{session.name} CONNECTED")
 
-    def device_disconnected(self, device: ESPDevice) -> None:
-        ml.log(f"{device.name} DISCONNECTED")
+    def device_disconnected(self, session: ESPDeviceSession) -> None:
+        ml.log(f"{session.name} DISCONNECTED")
 
-    def control_status(self, device: ESPDevice, control_name: str, state: str) -> None:
-        ml.log(f"{device.name} STATUS {control_name} {state}")
+    def control_status(self, session: ESPDeviceSession, control_name: str, state: str) -> None:
+        ml.log(f"{session.name} STATUS {control_name} {state}")
 
 
 esp_runtime.legacy_log_sink = _LegacyESPLogSink()
 
 
-def _isCurrentConnection(device: ESPDevice) -> bool:
-    return esp_runtime.is_current_connection(device)
-
-
-def _disconnectRegisteredDevice(device: ESPDevice) -> None:
-    esp_runtime._disconnect_registered_device(device)
-
-
-def _disconnectRegisteredDevicesWithName(device_name: str) -> None:
-    esp_runtime.disconnect_registered_devices_with_name(device_name)
-
-
-def _trackSentCommand(device: ESPDevice, packet: TrackedCommandPacket):
-    return esp_runtime._track_sent_command(device, packet)
-
-
-async def _sendTrackedCommand(device: ESPDevice, packet: TrackedCommandPacket):
-    return await esp_runtime.send_tracked_command(device, packet)
+async def _send_tracked_command(session: ESPDeviceSession, packet: TrackedCommandPacket):
+    return await esp_runtime.send_tracked_command(session, packet)
 
 
 # ---------------------- #
@@ -239,7 +223,7 @@ async def udpListener() -> None:
             await asyncio.sleep(0.1)
 
 
-def getRegisteredDevices() -> dict[str, ESPDevice]:
+def getRegisteredDevices() -> dict[str, ESPDeviceSession]:
     return esp_runtime.get_registered_devices()
 
 
@@ -252,35 +236,22 @@ def closeDeviceConnections() -> None:
     esp_runtime.close_all()
 
 
-# ---------------------- #
-# Device Monitoring
-# ---------------------- #
-
-
-async def _monitorSingleDevice(device: ESPDevice) -> None:
-    await esp_runtime.monitor_device(device)
-
-# ---------------------- #
-# Device Control Tools
-# ---------------------- #
-
-
-async def getSingle(device: ESPDevice) -> None:
+async def getSingle(device: ESPDeviceSession) -> None:
     if device.socket:
         try:
             packet = SimplePacket.create(PacketType.GET_SINGLE)
-            await _sendTrackedCommand(device, packet)
+            await _send_tracked_command(device, packet)
             ml.slog(f"Sent GET_SINGLE command to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending GET_SINGLE command to {device.name}: {e}")
             if device.address in deviceRegistry:
-                removeDevice(device)
+                remove_device(device)
     else:
         ml.elog(f"No socket available for {device.name} to send GET_SINGLE command.")
-        removeDevice(device)
+        remove_device(device)
 
 
-async def startStreaming(device: ESPDevice, Hz: int) -> None:
+async def startStreaming(device: ESPDeviceSession, Hz: int) -> None:
     if not Hz or Hz < 1 or Hz > 65535:
         ml.elog(f"Invalid frequency: {Hz}. Must be between 1-65535 Hz.")
         return
@@ -288,33 +259,33 @@ async def startStreaming(device: ESPDevice, Hz: int) -> None:
     if device.socket:
         try:
             packet = StreamStartPacket.create(frequency_hz=Hz)
-            await _sendTrackedCommand(device, packet)
+            await _send_tracked_command(device, packet)
             ml.slog(f"Sent STREAM_START ({Hz} Hz) to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending STREAM_START command to {device.name}: {e}")
             if device.address in deviceRegistry:
-                removeDevice(device)
+                remove_device(device)
     else:
         ml.elog(f"No socket available for {device.name} to send STREAM_START command.")
-        removeDevice(device)
+        remove_device(device)
 
 
-async def stopStreaming(device: ESPDevice) -> None:
+async def stopStreaming(device: ESPDeviceSession) -> None:
     if device.socket:
         try:
             packet = SimplePacket.create(PacketType.STREAM_STOP)
-            await _sendTrackedCommand(device, packet)
+            await _send_tracked_command(device, packet)
             ml.slog(f"Sent STREAM_STOP command to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending STREAM_STOP command to {device.name}: {e}")
             if device.address in deviceRegistry:
-                removeDevice(device)
+                remove_device(device)
     else:
         ml.elog(f"No socket available for {device.name} to send STREAM_STOP command.")
-        removeDevice(device)
+        remove_device(device)
 
 
-async def setControl(device: ESPDevice, controlName: str, controlState: str) -> None:
+async def setControl(device: ESPDeviceSession, controlName: str, controlState: str) -> None:
     controlName = controlName.upper()
     controlState = controlState.upper()
 
@@ -326,58 +297,56 @@ async def setControl(device: ESPDevice, controlName: str, controlState: str) -> 
         ml.elog(f"Invalid state '{controlState}'. Valid: OPEN, CLOSE")
         return
 
-    control_names = list(device.controls.keys())
-    command_id = control_names.index(controlName)
-
+    command_id = device.controls[controlName].id
     state = ControlState.OPEN if controlState == "OPEN" else ControlState.CLOSED
 
     if device.socket:
         try:
             packet = ControlPacket.create(command_id=command_id, command_state=state)
-            await _sendTrackedCommand(device, packet)
+            await _send_tracked_command(device, packet)
             ml.slog(f"Sent CONTROL command (id={command_id}, {controlName} {controlState}) to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending CONTROL command to {device.name}: {e}")
             if device.address in deviceRegistry:
-                removeDevice(device)
+                remove_device(device)
     else:
         ml.elog(f"No socket available for {device.name} to send CONTROL command.")
-        removeDevice(device)
+        remove_device(device)
 
 
-async def getStatus(device: ESPDevice) -> None:
+async def getStatus(device: ESPDeviceSession) -> None:
     if device.socket:
         try:
             packet = SimplePacket.create(PacketType.STATUS_REQUEST)
-            await _sendTrackedCommand(device, packet)
+            await _send_tracked_command(device, packet)
             ml.slog(f"Sent STATUS_REQUEST command to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending STATUS_REQUEST command to {device.name}: {e}")
             if device.address in deviceRegistry:
-                removeDevice(device)
+                remove_device(device)
     else:
         ml.elog(f"No socket available for {device.name} to send STATUS_REQUEST command.")
-        removeDevice(device)
+        remove_device(device)
 
 
-async def emergencyStop(device: ESPDevice) -> None:
+async def emergencyStop(device: ESPDeviceSession) -> None:
     if device.socket:
         try:
             packet = SimplePacket.create(PacketType.ESTOP)
-            await _sendTrackedCommand(device, packet)
+            await _send_tracked_command(device, packet)
             ml.slog(f"Sent EMERGENCY STOP command to {device.name}")
         except Exception as e:
             ml.elog(f"Error sending EMERGENCY STOP command to {device.name}: {e}")
             if device.address in deviceRegistry:
-                removeDevice(device)
+                remove_device(device)
     else:
         ml.elog(f"No socket available for {device.name} to send EMERGENCY STOP command.")
-        removeDevice(device)
+        remove_device(device)
 
 
-def cleanupDevice(device: ESPDevice) -> None:
+def cleanup_device(device: ESPDeviceSession) -> None:
     esp_runtime.cleanup_device(device)
 
 
-def removeDevice(device: ESPDevice) -> None:
+def remove_device(device: ESPDeviceSession) -> None:
     esp_runtime.remove_device(device)
