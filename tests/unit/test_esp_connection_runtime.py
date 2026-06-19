@@ -105,7 +105,6 @@ def _make_session(
             for control in config.controls_by_id.values()
         },
         control_states=control_states,
-        sensor_names=[],
         socket=None,
         driver=FakeDriver(),
         last_sync_time=None,

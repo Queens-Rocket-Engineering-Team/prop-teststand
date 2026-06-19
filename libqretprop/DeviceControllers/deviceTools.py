@@ -2,21 +2,19 @@ import asyncio
 import contextlib
 import json
 import socket
-import time
 
 import libqretprop.mylogging as ml
 from libqretprop.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
-from libqretprop.qlcp.decoding import decode_packet_server
 from libqretprop.qlcp.enums import ControlState, PacketType
 from libqretprop.qlcp.packets import (
     ConfigPacket,
     ControlPacket,
-    DataPacket,
     SimplePacket,
     StreamStartPacket,
 )
 from libqretprop.runtime.esp_connection_runtime import TrackedCommandPacket, esp_runtime
 from libqretprop.runtime.esp_device_session import ESPDeviceSession
+from libqretprop.runtime.telemetry_ingest import TelemetryIngest
 
 
 MULTICAST_ADDRESS = "239.255.255.250"
@@ -34,6 +32,7 @@ ssdpSearchSocket: socket.socket | None = None
 # Listening Globals #
 tcpListenerSocket: socket.socket | None = None
 deviceRegistry = esp_runtime.devices
+telemetry_ingest = TelemetryIngest(esp_runtime)
 
 
 class _LegacyESPLogSink:
@@ -185,27 +184,7 @@ async def udpListener() -> None:
             # This prevents the UDP listener from blocking the event loop for too long if commands need to be processed
             for _ in range(UDP_BATCH_SIZE):
                 deviceIP = addr[0]
-                if deviceIP in deviceRegistry:
-                    device = deviceRegistry[deviceIP]
-                    packet = decode_packet_server(data)
-
-                    if isinstance(packet, DataPacket):
-                        timestamp_ms = packet.timestamp
-                        readings = packet.readings
-                        t = timestamp_ms / 1000.0 if device.last_sync_time is not None else time.monotonic()
-                        sensor_names = device.sensor_names
-
-                        for reading in readings:
-                            sid = reading.sensor_id
-                            value = reading.value
-
-                            if sid < len(sensor_names):
-                                sensor_name = sensor_names[sid]
-                                ml.log(f"{device.name} {t:.3f} {sensor_name}:{value:.2f}")
-                    else:
-                        ml.elog(f"Received non-DATA packet over UDP from {device.name}. Ignoring.")
-                else:
-                    ml.elog(f"Received UDP packet from unknown device {deviceIP}")
+                telemetry_ingest.handle_datagram(data, deviceIP)
 
                 try:
                     data, addr = udp_socket.recvfrom(4096)

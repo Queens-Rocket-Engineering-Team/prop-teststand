@@ -82,10 +82,6 @@ class ESPDeviceSession:
             for control in self.qlcp_config.controls_by_id.values()
         }
 
-    @property
-    def sensor_names(self) -> list[str]:
-        return list(self.sensors)
-
     async def monitor(self, runtime: ESPConnectionRuntime) -> None:
         """Read TCP packets and delegate session side effects to the runtime."""
         try:
