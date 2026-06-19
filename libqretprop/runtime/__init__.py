@@ -5,6 +5,7 @@ from libqretprop.runtime.command_tracker import (
     CommandLifecycle,
     CommandRecord,
     CommandTracker,
+    command_tracker,
 )
 
 
@@ -13,4 +14,5 @@ __all__ = [
     "CommandLifecycle",
     "CommandRecord",
     "CommandTracker",
+    "command_tracker",
 ]

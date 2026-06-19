@@ -21,7 +21,8 @@ from libqretprop.qlcp.packets import (
     StatusPacket,
     StreamStartPacket,
 )
-from libqretprop.runtime.command_tracker import CommandRecord
+from libqretprop.runtime.command_tracker import CommandRecord, command_tracker
+from libqretprop.state import system_state
 
 
 MULTICAST_ADDRESS = "239.255.255.250"
@@ -43,6 +44,34 @@ deviceRegistry: dict[str, ESPDevice] = {}
 TrackedCommandPacket = SimplePacket | ControlPacket | StreamStartPacket
 
 
+def _isCurrentConnection(device: ESPDevice) -> bool:
+    registered_device = deviceRegistry.get(device.address)
+    return (
+        registered_device is not None
+        and registered_device.connection_key == device.connection_key
+    )
+
+
+def _disconnectRegisteredDevice(device: ESPDevice) -> None:
+    cleanupDevice(device)
+    system_state.mark_disconnected(device)
+    deviceRegistry.pop(device.address, None)
+
+
+def _disconnectRegisteredDevicesWithName(device_name: str) -> None:
+    matching_devices = [
+        device
+        for device in deviceRegistry.values()
+        if device.name == device_name
+    ]
+
+    for device in matching_devices:
+        ml.elog(
+            f"Device {device.name} reconnected from a new address. Closing old connection at {device.address}.",
+        )
+        _disconnectRegisteredDevice(device)
+
+
 def _commandPacketMetadata(
     packet: TrackedCommandPacket,
 ) -> tuple[PacketType, int, int | None, ControlState | None]:
@@ -59,14 +88,17 @@ def _commandPacketMetadata(
 
 def _trackSentCommand(device: ESPDevice, packet: TrackedCommandPacket) -> CommandRecord:
     packet_type, sequence, control_id, requested_state = _commandPacketMetadata(packet)
-    return device.command_tracker.mark_sent(
-        device.address,
-        packet_type,
-        sequence,
+    command = command_tracker.mark_sent(
+        connection_key=device.connection_key,
+        device_name=device.name,
+        device_address=device.address,
+        packet_type=packet_type,
+        packet_sequence=sequence,
         now=time.monotonic(),
         control_id=control_id,
         requested_state=requested_state,
     )
+    return command
 
 
 async def _sendTrackedCommand(device: ESPDevice, packet: TrackedCommandPacket) -> CommandRecord:
@@ -74,29 +106,31 @@ async def _sendTrackedCommand(device: ESPDevice, packet: TrackedCommandPacket) -
     try:
         await device.driver.send_packet(packet)
     except Exception:
-        device.command_tracker.discard(command.command_id)
+        command_tracker.discard(command.command_id)
         raise
 
     return command
 
 
 def _markCommandAck(device: ESPDevice, packet: AckPacket) -> CommandRecord | None:
-    return device.command_tracker.mark_acked(
-        device.address,
-        packet.ack_packet_type,
-        packet.ack_sequence,
+    command = command_tracker.mark_acked(
+        connection_key=device.connection_key,
+        packet_type=packet.ack_packet_type,
+        packet_sequence=packet.ack_sequence,
         now=time.monotonic(),
     )
+    return command
 
 
 def _markCommandNack(device: ESPDevice, packet: NackPacket) -> CommandRecord | None:
-    return device.command_tracker.mark_nacked(
-        device.address,
-        packet.nack_packet_type,
-        packet.nack_sequence,
-        packet.error_code,
+    command = command_tracker.mark_nacked(
+        connection_key=device.connection_key,
+        packet_type=packet.nack_packet_type,
+        packet_sequence=packet.nack_sequence,
+        error_code=packet.error_code,
         now=time.monotonic(),
     )
+    return command
 
 
 # ---------------------- #
@@ -195,12 +229,14 @@ async def tcpListener() -> None:
                 # Prevents issues with devices rebooting and reconnecting before the disconnect is detected
                 if deviceIP in deviceRegistry:
                     ml.elog(f"Device {deviceIP} attempted to connect and is already registered. Closing old connection.")
-                    cleanupDevice(deviceRegistry[deviceIP])
-                    del deviceRegistry[deviceIP]
+                    old_device = deviceRegistry[deviceIP]
+                    _disconnectRegisteredDevice(old_device)
 
                 newDevice = ESPDevice(client_socket, deviceIP, config_dict)
+                _disconnectRegisteredDevicesWithName(newDevice.name)
 
                 deviceRegistry[deviceIP] = newDevice
+                system_state.register_device(newDevice)
 
                 listenerTask = loop.create_task(_monitorSingleDevice(newDevice))
                 deviceRegistry[deviceIP].listenerTask = listenerTask
@@ -301,6 +337,8 @@ def closeDeviceConnections() -> None:
     global deviceRegistry
 
     for device in deviceRegistry.values():
+        system_state.mark_disconnected(device)
+        command_tracker.fail_connection(device.connection_key, reason="server_shutdown")
         if device.socket:
             try:
                 device.listenerTask.cancel()
@@ -368,6 +406,7 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                         else "UNKNOWN"
                                     )
                                     device.setControlState(control_name, state_str)
+                                    system_state.update_control_state(device, control_state.id, control_state.state)
                                     ml.log(f"{device.name} STATUS {control_name} {state_str}")
 
                         case AckPacket():
@@ -401,6 +440,11 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                             else "UNKNOWN"
                                         )
                                         device.setControlState(control_name, state_str)
+                                        system_state.update_control_state(
+                                            device,
+                                            command.control_id,
+                                            command.requested_state,
+                                        )
                                         ml.log(f"{device.name} STATUS {control_name} {state_str}")
                                 else:
                                     ml.plog(f"{device.name} ACK for CONTROL seq={packet.ack_sequence}")
@@ -459,8 +503,7 @@ async def getSingle(device: ESPDevice) -> None:
         except Exception as e:
             ml.elog(f"Error sending GET_SINGLE command to {device.name}: {e}")
             if device.address in deviceRegistry:
-                _removed = deviceRegistry.pop(device.address)
-                ml.slog(f"{_removed.name} removed from registry")
+                removeDevice(device)
     else:
         ml.elog(f"No socket available for {device.name} to send GET_SINGLE command.")
         removeDevice(device)
@@ -479,8 +522,7 @@ async def startStreaming(device: ESPDevice, Hz: int) -> None:
         except Exception as e:
             ml.elog(f"Error sending STREAM_START command to {device.name}: {e}")
             if device.address in deviceRegistry:
-                _removed = deviceRegistry.pop(device.address)
-                ml.slog(f"{device.name} removed from registry")
+                removeDevice(device)
     else:
         ml.elog(f"No socket available for {device.name} to send STREAM_START command.")
         removeDevice(device)
@@ -495,8 +537,7 @@ async def stopStreaming(device: ESPDevice) -> None:
         except Exception as e:
             ml.elog(f"Error sending STREAM_STOP command to {device.name}: {e}")
             if device.address in deviceRegistry:
-                _removed = deviceRegistry.pop(device.address)
-                ml.slog(f"{device.name} removed from registry")
+                removeDevice(device)
     else:
         ml.elog(f"No socket available for {device.name} to send STREAM_STOP command.")
         removeDevice(device)
@@ -530,6 +571,7 @@ async def setControl(device: ESPDevice, controlName: str, controlState: str) -> 
                 removeDevice(device)
     else:
         ml.elog(f"No socket available for {device.name} to send CONTROL command.")
+        removeDevice(device)
 
 
 async def getStatus(device: ESPDevice) -> None:
@@ -557,18 +599,20 @@ async def emergencyStop(device: ESPDevice) -> None:
             ml.elog(f"Error sending EMERGENCY STOP command to {device.name}: {e}")
             if device.address in deviceRegistry:
                 removeDevice(device)
+    else:
+        ml.elog(f"No socket available for {device.name} to send EMERGENCY STOP command.")
+        removeDevice(device)
 
 
 def cleanupDevice(device: ESPDevice) -> None:
-    if device.address in deviceRegistry:
-        if device.socket:
-            try:
-                device.socket.close()
-                ml.slog(f"Closed socket for {device.name}")
-            except OSError as e:
-                ml.elog(f"Error closing socket for {device.name}: {e}")
-            finally:
-                device.socket = None
+    if device.socket:
+        try:
+            device.socket.close()
+            ml.slog(f"Closed socket for {device.name}")
+        except OSError as e:
+            ml.elog(f"Error closing socket for {device.name}: {e}")
+        finally:
+            device.socket = None
 
     # Cancel any per-device listener task to avoid it running against a closed socket
     listener_task = getattr(device, "listenerTask", None)
@@ -587,11 +631,16 @@ def cleanupDevice(device: ESPDevice) -> None:
         except Exception as e:
             ml.elog(f"Error cancelling heartbeat task for {device.name}: {e}")
 
+    command_tracker.fail_connection(device.connection_key, reason="connection_cleanup")
+
 
 def removeDevice(device: ESPDevice) -> None:
-    if device.address in deviceRegistry:
-        cleanupDevice(device)
-        del deviceRegistry[device.address]
+    cleanupDevice(device)
+    system_state.mark_disconnected(device)
 
+    if _isCurrentConnection(device):
+        del deviceRegistry[device.address]
         ml.slog(f"{device.name} removed from registry.")
         ml.log(f"{device.name} DISCONNECTED")  # Used by GUI to trigger device removal
+    else:
+        ml.plog(f"Ignored stale removal for {device.name} at {device.address}")
