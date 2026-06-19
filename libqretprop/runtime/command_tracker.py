@@ -20,11 +20,20 @@ OPERATOR_VISIBLE_PACKET_TYPES = frozenset(
         PacketType.STREAM_START,
         PacketType.STREAM_STOP,
         PacketType.GET_SINGLE,
-        PacketType.STATUS_REQUEST,
     },
 )
 MAINTENANCE_PACKET_TYPES = frozenset(
     {
+        PacketType.HEARTBEAT,
+        PacketType.TIMESYNC,
+    },
+)
+ACK_EXPECTED_PACKET_TYPES = frozenset(
+    {
+        PacketType.CONTROL,
+        PacketType.STREAM_START,
+        PacketType.STREAM_STOP,
+        PacketType.GET_SINGLE,
         PacketType.HEARTBEAT,
         PacketType.TIMESYNC,
     },
@@ -60,6 +69,7 @@ class CommandRecord:
     packet_type: PacketType
     packet_sequence: int
     sent_at: float
+    ack_expected: bool = True
     state: CommandLifecycle = CommandLifecycle.SENT
     acked_at: float | None = None
     nacked_at: float | None = None
@@ -67,6 +77,7 @@ class CommandRecord:
     nack_error_code: ErrorCode | None = None
     failure_reason: str | None = None
     control_id: int | None = None
+    control_name: str | None = None
     requested_state: ControlState | None = None
 
     @property
@@ -79,7 +90,7 @@ class CommandRecord:
 
     @property
     def is_pending(self) -> bool:
-        return self.state == CommandLifecycle.SENT
+        return self.ack_expected and self.state == CommandLifecycle.SENT
 
 
 @dataclass
@@ -170,7 +181,9 @@ class CommandTracker:
         *,
         now: float | None = None,
         control_id: int | None = None,
+        control_name: str | None = None,
         requested_state: ControlState | None = None,
+        ack_expected: bool | None = None,
     ) -> CommandRecord:
         record = CommandRecord(
             command_id=self._next_command_id,
@@ -180,15 +193,20 @@ class CommandTracker:
             packet_type=packet_type,
             packet_sequence=packet_sequence,
             sent_at=self._timestamp(now),
+            ack_expected=self._ack_expected(packet_type) if ack_expected is None else ack_expected,
             control_id=control_id,
+            control_name=control_name,
             requested_state=requested_state,
         )
 
         self._next_command_id += 1
-        self._replace_duplicate_pending(record)
-        self._pending_records[record.command_id] = record
-        self._pending[record.key] = record.command_id
         self._mark_sent_summary(record)
+        if record.ack_expected:
+            self._replace_duplicate_pending(record)
+            self._pending_records[record.command_id] = record
+            self._pending[record.key] = record.command_id
+        else:
+            self._complete_record(record)
         return record
 
     def mark_acked(
@@ -280,12 +298,19 @@ class CommandTracker:
 
     def discard(self, command_id: int) -> CommandRecord | None:
         record = self._pending_records.pop(command_id, None)
-        if record is None:
-            return None
+        if record is not None:
+            self._pending.pop(record.key, None)
+            self._decrement_summary_pending(record)
+            return record
 
-        self._pending.pop(record.key, None)
-        self._decrement_summary_pending(record)
-        return record
+        for recent_record in tuple(self._recent_completed):
+            if recent_record.command_id != command_id:
+                continue
+
+            self._recent_completed.remove(recent_record)
+            return recent_record
+
+        return None
 
     def _pop_pending(
         self,
@@ -327,7 +352,8 @@ class CommandTracker:
         summary.device_name = record.device_name
         summary.device_address = record.device_address
         summary.last_sent_at = record.sent_at
-        summary.pending_count += 1
+        if record.ack_expected:
+            summary.pending_count += 1
 
     def _update_completed_summary(self, record: CommandRecord) -> None:
         summary = self._get_summary_for_record(record)
@@ -370,6 +396,10 @@ class CommandTracker:
         for summary_key in list(self._summaries):
             if summary_key[0] == connection_key:
                 self._summaries.pop(summary_key)
+
+    @staticmethod
+    def _ack_expected(packet_type: PacketType) -> bool:
+        return packet_type in ACK_EXPECTED_PACKET_TYPES
 
 
 command_tracker = CommandTracker()

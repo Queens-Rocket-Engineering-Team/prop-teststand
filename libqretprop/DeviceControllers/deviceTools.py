@@ -22,6 +22,7 @@ from libqretprop.qlcp.packets import (
     StreamStartPacket,
 )
 from libqretprop.runtime.command_tracker import CommandRecord, command_tracker
+from libqretprop.runtime.state_stream import state_stream
 from libqretprop.state import system_state
 
 
@@ -44,6 +45,15 @@ deviceRegistry: dict[str, ESPDevice] = {}
 TrackedCommandPacket = SimplePacket | ControlPacket | StreamStartPacket
 
 
+def _publishStateEvent(event: dict[str, object] | None) -> None:
+    state_stream.publish(event)
+
+
+def _publishFailedCommandEvents(commands: list[CommandRecord]) -> None:
+    for command in commands:
+        _publishStateEvent(system_state.record_command_timed_out(command))
+
+
 def _isCurrentConnection(device: ESPDevice) -> bool:
     registered_device = deviceRegistry.get(device.address)
     return (
@@ -54,7 +64,7 @@ def _isCurrentConnection(device: ESPDevice) -> bool:
 
 def _disconnectRegisteredDevice(device: ESPDevice) -> None:
     cleanupDevice(device)
-    system_state.mark_disconnected(device)
+    _publishStateEvent(system_state.mark_disconnected(device))
     deviceRegistry.pop(device.address, None)
 
 
@@ -86,8 +96,20 @@ def _commandPacketMetadata(
     raise TypeError(f"Unsupported tracked command packet: {type(packet).__name__}")
 
 
+def _controlNameForCommand(device: ESPDevice, control_id: int | None) -> str | None:
+    if control_id is None:
+        return None
+
+    control = device.qlcp_config.controls_by_id.get(control_id)
+    if control is None:
+        return None
+
+    return control.name
+
+
 def _trackSentCommand(device: ESPDevice, packet: TrackedCommandPacket) -> CommandRecord:
     packet_type, sequence, control_id, requested_state = _commandPacketMetadata(packet)
+    control_name = _controlNameForCommand(device, control_id)
     command = command_tracker.mark_sent(
         connection_key=device.connection_key,
         device_name=device.name,
@@ -96,6 +118,7 @@ def _trackSentCommand(device: ESPDevice, packet: TrackedCommandPacket) -> Comman
         packet_sequence=sequence,
         now=time.monotonic(),
         control_id=control_id,
+        control_name=control_name,
         requested_state=requested_state,
     )
     return command
@@ -109,6 +132,7 @@ async def _sendTrackedCommand(device: ESPDevice, packet: TrackedCommandPacket) -
         command_tracker.discard(command.command_id)
         raise
 
+    _publishStateEvent(system_state.record_command_sent(command))
     return command
 
 
@@ -236,7 +260,7 @@ async def tcpListener() -> None:
                 _disconnectRegisteredDevicesWithName(newDevice.name)
 
                 deviceRegistry[deviceIP] = newDevice
-                system_state.register_device(newDevice)
+                _publishStateEvent(system_state.register_device(newDevice))
 
                 listenerTask = loop.create_task(_monitorSingleDevice(newDevice))
                 deviceRegistry[deviceIP].listenerTask = listenerTask
@@ -337,8 +361,10 @@ def closeDeviceConnections() -> None:
     global deviceRegistry
 
     for device in deviceRegistry.values():
-        system_state.mark_disconnected(device)
-        command_tracker.fail_connection(device.connection_key, reason="server_shutdown")
+        _publishStateEvent(system_state.mark_disconnected(device))
+        _publishFailedCommandEvents(
+            command_tracker.fail_connection(device.connection_key, reason="server_shutdown"),
+        )
         if device.socket:
             try:
                 device.listenerTask.cancel()
@@ -406,7 +432,9 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                         else "UNKNOWN"
                                     )
                                     device.setControlState(control_name, state_str)
-                                    system_state.update_control_state(device, control_state.id, control_state.state)
+                                    _publishStateEvent(
+                                        system_state.update_control_state(device, control_state.id, control_state.state),
+                                    )
                                     ml.log(f"{device.name} STATUS {control_name} {state_str}")
 
                         case AckPacket():
@@ -422,16 +450,22 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                 ml.plog(f"{device.name} TIMESYNC completed")
                             elif packet.ack_packet_type == PacketType.HEARTBEAT:
                                 device.handleHeartbeatAck(command)
+                                if command is not None:
+                                    _publishStateEvent(system_state.record_command_acked(command))
                                 ml.plog(f"{device.name} HEARTBEAT ACK seq={packet.ack_sequence}")
                             elif packet.ack_packet_type == PacketType.CONTROL:
+                                if command is not None:
+                                    _publishStateEvent(system_state.record_command_acked(command))
                                 if (
                                     command is not None
                                     and command.control_id is not None
                                     and command.requested_state is not None
                                 ):
-                                    control_names = list(device.controls.keys())
-                                    if command.control_id < len(control_names):
-                                        control_name = control_names[command.control_id]
+                                    ack_control_name = command.control_name or _controlNameForCommand(
+                                        device,
+                                        command.control_id,
+                                    )
+                                    if ack_control_name is not None:
                                         state_str = (
                                             "OPEN"
                                             if command.requested_state == ControlState.OPEN
@@ -439,16 +473,20 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                             if command.requested_state == ControlState.CLOSED
                                             else "UNKNOWN"
                                         )
-                                        device.setControlState(control_name, state_str)
-                                        system_state.update_control_state(
-                                            device,
-                                            command.control_id,
-                                            command.requested_state,
+                                        device.setControlState(ack_control_name, state_str)
+                                        _publishStateEvent(
+                                            system_state.update_control_state(
+                                                device,
+                                                command.control_id,
+                                                command.requested_state,
+                                            ),
                                         )
-                                        ml.log(f"{device.name} STATUS {control_name} {state_str}")
+                                        ml.log(f"{device.name} STATUS {ack_control_name} {state_str}")
                                 else:
                                     ml.plog(f"{device.name} ACK for CONTROL seq={packet.ack_sequence}")
                             else:
+                                if command is not None:
+                                    _publishStateEvent(system_state.record_command_acked(command))
                                 ml.plog(f"{device.name} ACK for {packet.ack_packet_type.name} seq={packet.ack_sequence}")
 
                         case NackPacket():
@@ -457,6 +495,8 @@ async def _monitorSingleDevice(device: ESPDevice) -> None:
                                 ml.plog(
                                     f"{device.name} unmatched NACK for {packet.nack_packet_type.name} seq={packet.nack_sequence} error={packet.error_code.name}",
                                 )
+                            else:
+                                _publishStateEvent(system_state.record_command_nacked(command))
                             ml.plog(f"{device.name} NACK for {packet.nack_packet_type.name} error={packet.error_code.name}")
 
                         case _:
@@ -631,12 +671,14 @@ def cleanupDevice(device: ESPDevice) -> None:
         except Exception as e:
             ml.elog(f"Error cancelling heartbeat task for {device.name}: {e}")
 
-    command_tracker.fail_connection(device.connection_key, reason="connection_cleanup")
+    _publishFailedCommandEvents(
+        command_tracker.fail_connection(device.connection_key, reason="connection_cleanup"),
+    )
 
 
 def removeDevice(device: ESPDevice) -> None:
     cleanupDevice(device)
-    system_state.mark_disconnected(device)
+    _publishStateEvent(system_state.mark_disconnected(device))
 
     if _isCurrentConnection(device):
         del deviceRegistry[device.address]

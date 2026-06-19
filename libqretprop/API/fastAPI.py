@@ -8,7 +8,7 @@ from urllib.parse import quote
 from wave import Wave_write
 
 import uvicorn
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, WebSocket, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -22,6 +22,7 @@ from libqretprop import mumbleRecording
 from libqretprop import mylogging as ml
 from libqretprop.DeviceControllers import cameraTools, deviceTools, kasaTools
 from libqretprop.GuiDataStream import router as log_router
+from libqretprop.runtime.state_stream import state_stream
 from libqretprop.state import system_state
 
 
@@ -174,6 +175,11 @@ async def getHealth() -> dict:
 @app.get("/v1/state", summary="Get a structured snapshot of server state")
 async def getState() -> dict[str, Any]:
     return system_state.to_dict()
+
+
+@app.websocket("/ws/state")
+async def websocket_state(websocket: WebSocket) -> None:
+    await state_stream.handle_client(websocket)
 
 
 @app.post(

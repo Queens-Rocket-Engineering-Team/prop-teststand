@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from libqretprop.qlcp.enums import ControlState, PacketType
 from libqretprop.runtime.command_tracker import (
+    MAINTENANCE_PACKET_TYPES,
     OPERATOR_VISIBLE_PACKET_TYPES,
     CommandRecord,
     CommandTracker,
@@ -26,6 +27,9 @@ from libqretprop.state.models import (
 if TYPE_CHECKING:
     from libqretprop.Devices.ESPDevice import ESPDevice
     from libqretprop.qlcp.config_models import ControlConfig, DeviceConfig, SensorConfig
+
+
+StateEvent = dict[str, object]
 
 
 @dataclass(slots=True)
@@ -52,8 +56,13 @@ class SystemState:
     def __init__(self, *, command_tracker: CommandTracker | None = None) -> None:
         self._devices_by_name: dict[str, _DeviceState] = {}
         self._command_tracker = runtime_command_tracker if command_tracker is None else command_tracker
+        self._state_version = 0
 
-    def register_device(self, device: ESPDevice) -> None:
+    @property
+    def state_version(self) -> int:
+        return self._state_version
+
+    def register_device(self, device: ESPDevice) -> StateEvent:
         self._devices_by_name[device.name] = _DeviceState(
             device_name=device.name,
             address=device.address,
@@ -62,15 +71,25 @@ class SystemState:
             connected=True,
             device=device,
         )
+        return self._make_event(
+            "device.registered",
+            device=self._snapshot_device(self._devices_by_name[device.name]).to_dict(),
+        )
 
-    def mark_disconnected(self, device: ESPDevice) -> None:
+    def mark_disconnected(self, device: ESPDevice) -> StateEvent | None:
         device_state = self._devices_by_name.get(device.name)
         if device_state is None or device_state.connection_key != device.connection_key:
-            return
+            return None
 
         device_state.connected = False
         device_state.device = device
         device_state.disconnected_at = time.monotonic()
+        return self._make_event(
+            "device.disconnected",
+            device_name=device_state.device_name,
+            device_address=device_state.address,
+            connection_key=device_state.connection_key,
+        )
 
     def update_control_state(
         self,
@@ -79,17 +98,46 @@ class SystemState:
         state: ControlState | str,
         *,
         now: float | None = None,
-    ) -> None:
+    ) -> StateEvent | None:
         device_state = self._devices_by_name.get(device.name)
         if device_state is None:
-            return
+            return None
         if device_state.connection_key != device.connection_key:
-            return
+            return None
+
+        control = device_state.config.controls_by_id.get(control_id)
+        if control is None:
+            return None
 
         device_state.reported_controls[control_id] = _ReportedControlState(
             state=self._control_state_name(state),
             timestamp=time.monotonic() if now is None else now,
         )
+        control_snapshot = self._snapshot_control(
+            device_state,
+            control,
+        )
+        return self._make_event(
+            "control.updated",
+            device_name=device_state.device_name,
+            control_id=control_id,
+            control_name=control_snapshot.name,
+            reported_state=control_snapshot.reported_state,
+            reported_timestamp=control_snapshot.reported_timestamp,
+            pending_command_id=control_snapshot.pending_command_id,
+        )
+
+    def record_command_sent(self, command: CommandRecord) -> StateEvent | None:
+        return self._command_event("command.sent", command)
+
+    def record_command_acked(self, command: CommandRecord) -> StateEvent | None:
+        return self._command_event("command.acked", command)
+
+    def record_command_nacked(self, command: CommandRecord) -> StateEvent | None:
+        return self._command_event("command.nacked", command)
+
+    def record_command_timed_out(self, command: CommandRecord) -> StateEvent | None:
+        return self._command_event("command.timed_out", command)
 
     def snapshot(self) -> SystemSnapshot:
         devices = [
@@ -99,6 +147,7 @@ class SystemState:
         commands = self._snapshot_commands()
 
         return SystemSnapshot(
+            state_version=self._state_version,
             devices=devices,
             commands=commands,
         )
@@ -227,11 +276,13 @@ class SystemState:
             sequence=command.packet_sequence,
             state=command.state.value,
             sent_at=command.sent_at,
+            ack_expected=command.ack_expected,
             acked_at=command.acked_at,
             nacked_at=command.nacked_at,
             timed_out_at=command.timed_out_at,
             nack_error_code=command.nack_error_code.name if command.nack_error_code is not None else None,
             control_id=command.control_id,
+            control_name=command.control_name,
             requested_state=command.requested_state.name if command.requested_state is not None else None,
         )
 
@@ -240,6 +291,46 @@ class SystemState:
         if isinstance(state, ControlState):
             return state.name
         return state.upper()
+
+    def _command_event(self, event_type: str, command: CommandRecord) -> StateEvent | None:
+        if command.packet_type == PacketType.HEARTBEAT:
+            return self._heartbeat_event(command.connection_key)
+        if command.packet_type in MAINTENANCE_PACKET_TYPES:
+            return None
+        if command.packet_type not in OPERATOR_VISIBLE_PACKET_TYPES:
+            return None
+
+        return self._make_event(
+            event_type,
+            command=self._snapshot_command(command).to_dict(),
+        )
+
+    def _heartbeat_event(self, connection_key: str) -> StateEvent | None:
+        device_state = self._device_state_for_connection(connection_key)
+        if device_state is None:
+            return None
+
+        return self._make_event(
+            "heartbeat.updated",
+            device_name=device_state.device_name,
+            device_address=device_state.address,
+            connection_key=device_state.connection_key,
+            heartbeat=self._snapshot_heartbeat(device_state).to_dict(),
+        )
+
+    def _device_state_for_connection(self, connection_key: str) -> _DeviceState | None:
+        for device_state in self._devices_by_name.values():
+            if device_state.connection_key == connection_key:
+                return device_state
+        return None
+
+    def _make_event(self, event_type: str, **payload: object) -> StateEvent:
+        self._state_version += 1
+        return {
+            "type": event_type,
+            "state_version": self._state_version,
+            **payload,
+        }
 
 
 system_state = SystemState()
