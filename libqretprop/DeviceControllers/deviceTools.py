@@ -7,23 +7,16 @@ import time
 import libqretprop.mylogging as ml
 from libqretprop.Devices.ESPDevice import ESPDevice
 from libqretprop.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
-from libqretprop.qlcp.constants import HEADER_SIZE
 from libqretprop.qlcp.decoding import decode_packet_server
 from libqretprop.qlcp.enums import ControlState, PacketType
-from libqretprop.qlcp.framing import get_packet_len
 from libqretprop.qlcp.packets import (
-    AckPacket,
     ConfigPacket,
     ControlPacket,
     DataPacket,
-    NackPacket,
     SimplePacket,
-    StatusPacket,
     StreamStartPacket,
 )
-from libqretprop.runtime.command_tracker import CommandRecord, command_tracker
-from libqretprop.runtime.state_stream import state_stream
-from libqretprop.state import system_state
+from libqretprop.runtime.esp_connection_runtime import TrackedCommandPacket, esp_runtime
 
 
 MULTICAST_ADDRESS = "239.255.255.250"
@@ -40,121 +33,43 @@ ssdpSearchSocket: socket.socket | None = None
 
 # Listening Globals #
 tcpListenerSocket: socket.socket | None = None
-deviceRegistry: dict[str, ESPDevice] = {}
-
-TrackedCommandPacket = SimplePacket | ControlPacket | StreamStartPacket
+deviceRegistry = esp_runtime.devices
 
 
-def _publishStateEvent(event: dict[str, object] | None) -> None:
-    state_stream.publish(event)
+class _LegacyESPLogSink:
+    """Temporary GUI compatibility sink for legacy text-log device events."""
+
+    def device_connected(self, device: ESPDevice) -> None:
+        ml.log(f"{device.name} CONNECTED")
+
+    def device_disconnected(self, device: ESPDevice) -> None:
+        ml.log(f"{device.name} DISCONNECTED")
+
+    def control_status(self, device: ESPDevice, control_name: str, state: str) -> None:
+        ml.log(f"{device.name} STATUS {control_name} {state}")
 
 
-def _publishFailedCommandEvents(commands: list[CommandRecord]) -> None:
-    for command in commands:
-        _publishStateEvent(system_state.record_command_timed_out(command))
+esp_runtime.legacy_log_sink = _LegacyESPLogSink()
 
 
 def _isCurrentConnection(device: ESPDevice) -> bool:
-    registered_device = deviceRegistry.get(device.address)
-    return (
-        registered_device is not None
-        and registered_device.connection_key == device.connection_key
-    )
+    return esp_runtime.is_current_connection(device)
 
 
 def _disconnectRegisteredDevice(device: ESPDevice) -> None:
-    cleanupDevice(device)
-    _publishStateEvent(system_state.mark_disconnected(device))
-    deviceRegistry.pop(device.address, None)
+    esp_runtime._disconnect_registered_device(device)
 
 
 def _disconnectRegisteredDevicesWithName(device_name: str) -> None:
-    matching_devices = [
-        device
-        for device in deviceRegistry.values()
-        if device.name == device_name
-    ]
-
-    for device in matching_devices:
-        ml.elog(
-            f"Device {device.name} reconnected from a new address. Closing old connection at {device.address}.",
-        )
-        _disconnectRegisteredDevice(device)
+    esp_runtime.disconnect_registered_devices_with_name(device_name)
 
 
-def _commandPacketMetadata(
-    packet: TrackedCommandPacket,
-) -> tuple[PacketType, int, int | None, ControlState | None]:
-    match packet:
-        case SimplePacket(packet_type=packet_type, sequence=sequence):
-            return packet_type, sequence, None, None
-        case ControlPacket(sequence=sequence, command_id=command_id, command_state=command_state):
-            return PacketType.CONTROL, sequence, command_id, command_state
-        case StreamStartPacket(sequence=sequence):
-            return PacketType.STREAM_START, sequence, None, None
-
-    raise TypeError(f"Unsupported tracked command packet: {type(packet).__name__}")
+def _trackSentCommand(device: ESPDevice, packet: TrackedCommandPacket):
+    return esp_runtime._track_sent_command(device, packet)
 
 
-def _controlNameForCommand(device: ESPDevice, control_id: int | None) -> str | None:
-    if control_id is None:
-        return None
-
-    control = device.qlcp_config.controls_by_id.get(control_id)
-    if control is None:
-        return None
-
-    return control.name
-
-
-def _trackSentCommand(device: ESPDevice, packet: TrackedCommandPacket) -> CommandRecord:
-    packet_type, sequence, control_id, requested_state = _commandPacketMetadata(packet)
-    control_name = _controlNameForCommand(device, control_id)
-    command = command_tracker.mark_sent(
-        connection_key=device.connection_key,
-        device_name=device.name,
-        device_address=device.address,
-        packet_type=packet_type,
-        packet_sequence=sequence,
-        now=time.monotonic(),
-        control_id=control_id,
-        control_name=control_name,
-        requested_state=requested_state,
-    )
-    return command
-
-
-async def _sendTrackedCommand(device: ESPDevice, packet: TrackedCommandPacket) -> CommandRecord:
-    command = _trackSentCommand(device, packet)
-    try:
-        await device.driver.send_packet(packet)
-    except Exception:
-        command_tracker.discard(command.command_id)
-        raise
-
-    _publishStateEvent(system_state.record_command_sent(command))
-    return command
-
-
-def _markCommandAck(device: ESPDevice, packet: AckPacket) -> CommandRecord | None:
-    command = command_tracker.mark_acked(
-        connection_key=device.connection_key,
-        packet_type=packet.ack_packet_type,
-        packet_sequence=packet.ack_sequence,
-        now=time.monotonic(),
-    )
-    return command
-
-
-def _markCommandNack(device: ESPDevice, packet: NackPacket) -> CommandRecord | None:
-    command = command_tracker.mark_nacked(
-        connection_key=device.connection_key,
-        packet_type=packet.nack_packet_type,
-        packet_sequence=packet.nack_sequence,
-        error_code=packet.error_code,
-        now=time.monotonic(),
-    )
-    return command
+async def _sendTrackedCommand(device: ESPDevice, packet: TrackedCommandPacket):
+    return await esp_runtime.send_tracked_command(device, packet)
 
 
 # ---------------------- #
@@ -249,37 +164,13 @@ async def tcpListener() -> None:
             if isinstance(packet, ConfigPacket):
                 config_dict = json.loads(packet.config_json)
 
-                # If a device with the same IP is already registered, close the old connection before registering the new one
-                # Prevents issues with devices rebooting and reconnecting before the disconnect is detected
-                if deviceIP in deviceRegistry:
-                    ml.elog(f"Device {deviceIP} attempted to connect and is already registered. Closing old connection.")
-                    old_device = deviceRegistry[deviceIP]
-                    _disconnectRegisteredDevice(old_device)
-
-                newDevice = ESPDevice(client_socket, deviceIP, config_dict)
-                _disconnectRegisteredDevicesWithName(newDevice.name)
-
-                deviceRegistry[deviceIP] = newDevice
-                _publishStateEvent(system_state.register_device(newDevice))
-
-                listenerTask = loop.create_task(_monitorSingleDevice(newDevice))
-                deviceRegistry[deviceIP].listenerTask = listenerTask
-
-                ml.slog(f"Device {newDevice.name} registered from {deviceIP}")
-                ml.log(f"{newDevice.name} CONNECTED")  # Used by GUI to trigger device addition
-
-                # ACK the CONFIG, then send initial TIMESYNC
-
-                ack = AckPacket.create(PacketType.CONFIG, packet.sequence)
-                await newDevice.driver.send_packet(ack)
-
-                timesync = SimplePacket.create(PacketType.TIMESYNC)
-                await _sendTrackedCommand(newDevice, timesync)
-                ml.plog(f"Sent initial TIMESYNC to {newDevice.name}")
-
-                status_request = SimplePacket.create(PacketType.STATUS_REQUEST)
-                await _sendTrackedCommand(newDevice, status_request)
-                ml.plog(f"Sent initial STATUS_REQUEST to {newDevice.name}")
+                await esp_runtime.register_configured_device(
+                    client_socket,
+                    deviceIP,
+                    config_dict,
+                    packet.sequence,
+                    loop=loop,
+                )
 
         except asyncio.CancelledError:
             ml.slog("TCP listener cancelled")
@@ -349,7 +240,7 @@ async def udpListener() -> None:
 
 
 def getRegisteredDevices() -> dict[str, ESPDevice]:
-    return deviceRegistry.copy()
+    return esp_runtime.get_registered_devices()
 
 
 # ---------------------- #
@@ -358,23 +249,7 @@ def getRegisteredDevices() -> dict[str, ESPDevice]:
 
 
 def closeDeviceConnections() -> None:
-    global deviceRegistry
-
-    for device in deviceRegistry.values():
-        _publishStateEvent(system_state.mark_disconnected(device))
-        _publishFailedCommandEvents(
-            command_tracker.fail_connection(device.connection_key, reason="server_shutdown"),
-        )
-        if device.socket:
-            try:
-                device.listenerTask.cancel()
-                device.socket.close()
-                ml.slog(f"Closed socket for device {device.name}")
-            except OSError as e:
-                ml.elog(f"Error closing socket for device {device.name}: {e}")
-
-    deviceRegistry.clear()
-    ml.slog("Closed all device sockets and cleared registry.")
+    esp_runtime.close_all()
 
 
 # ---------------------- #
@@ -383,151 +258,7 @@ def closeDeviceConnections() -> None:
 
 
 async def _monitorSingleDevice(device: ESPDevice) -> None:
-    """Monitor a single device using LENGTH-based framing from v2 header."""
-    loop = asyncio.get_event_loop()
-    buffer = b""
-
-    try:
-        while True:
-            tcp_socket = device.socket
-            if tcp_socket is None:
-                ml.elog(f"Device {device.name} has no socket.")
-                removeDevice(device)
-                break
-
-            data = await loop.sock_recv(tcp_socket, 4096)
-            if not data:
-                ml.elog(f"Device {device.name} disconnected.")
-                removeDevice(device)
-                break
-
-            buffer += data
-
-            # Use LENGTH field for framing
-            while len(buffer) >= HEADER_SIZE:
-                try:
-                    packet_len = get_packet_len(buffer)
-                    if len(buffer) < packet_len:
-                        break  # Need more data
-
-                    packet_data = buffer[:packet_len]
-                    packet = decode_packet_server(packet_data)
-
-                    ml.plog(f"Decoded {type(packet).__name__} from {device.name}")
-
-                    match packet:
-                        case DataPacket():
-                            ml.elog(f"Unexpected DATA packet received over TCP from {device.name}. This should be sent over UDP. Ignoring.")
-
-                        case StatusPacket(control_states=control_states) if control_states:
-                            for control_state in control_states:
-                                control_names = list(device.controls.keys())
-                                if control_state.id < len(control_names):
-                                    control_name = control_names[control_state.id]
-                                    state_str = (
-                                        "OPEN"
-                                        if control_state.state == ControlState.OPEN
-                                        else "CLOSED"
-                                        if control_state.state == ControlState.CLOSED
-                                        else "UNKNOWN"
-                                    )
-                                    device.setControlState(control_name, state_str)
-                                    _publishStateEvent(
-                                        system_state.update_control_state(device, control_state.id, control_state.state),
-                                    )
-                                    ml.log(f"{device.name} STATUS {control_name} {state_str}")
-
-                        case AckPacket():
-                            command = _markCommandAck(device, packet)
-                            if command is None:
-                                ml.plog(
-                                    f"{device.name} unmatched ACK for {packet.ack_packet_type.name} seq={packet.ack_sequence}",
-                                )
-
-                            if packet.ack_packet_type == PacketType.TIMESYNC:
-                                device.last_sync_time = time.monotonic()
-                                device._resync_pending = False
-                                ml.plog(f"{device.name} TIMESYNC completed")
-                            elif packet.ack_packet_type == PacketType.HEARTBEAT:
-                                device.handleHeartbeatAck(command)
-                                if command is not None:
-                                    _publishStateEvent(system_state.record_command_acked(command))
-                                ml.plog(f"{device.name} HEARTBEAT ACK seq={packet.ack_sequence}")
-                            elif packet.ack_packet_type == PacketType.CONTROL:
-                                if command is not None:
-                                    _publishStateEvent(system_state.record_command_acked(command))
-                                if (
-                                    command is not None
-                                    and command.control_id is not None
-                                    and command.requested_state is not None
-                                ):
-                                    ack_control_name = command.control_name or _controlNameForCommand(
-                                        device,
-                                        command.control_id,
-                                    )
-                                    if ack_control_name is not None:
-                                        state_str = (
-                                            "OPEN"
-                                            if command.requested_state == ControlState.OPEN
-                                            else "CLOSED"
-                                            if command.requested_state == ControlState.CLOSED
-                                            else "UNKNOWN"
-                                        )
-                                        device.setControlState(ack_control_name, state_str)
-                                        _publishStateEvent(
-                                            system_state.update_control_state(
-                                                device,
-                                                command.control_id,
-                                                command.requested_state,
-                                            ),
-                                        )
-                                        ml.log(f"{device.name} STATUS {ack_control_name} {state_str}")
-                                else:
-                                    ml.plog(f"{device.name} ACK for CONTROL seq={packet.ack_sequence}")
-                            else:
-                                if command is not None:
-                                    _publishStateEvent(system_state.record_command_acked(command))
-                                ml.plog(f"{device.name} ACK for {packet.ack_packet_type.name} seq={packet.ack_sequence}")
-
-                        case NackPacket():
-                            command = _markCommandNack(device, packet)
-                            if command is None:
-                                ml.plog(
-                                    f"{device.name} unmatched NACK for {packet.nack_packet_type.name} seq={packet.nack_sequence} error={packet.error_code.name}",
-                                )
-                            else:
-                                _publishStateEvent(system_state.record_command_nacked(command))
-                            ml.plog(f"{device.name} NACK for {packet.nack_packet_type.name} error={packet.error_code.name}")
-
-                        case _:
-                            ml.elog(f"Received unexpected packet type {type(packet).__name__} from {device.name} over TCP")
-
-                    buffer = buffer[packet_len:]
-
-                    # Periodic resync check
-                    if (
-                        not device._resync_pending
-                        and device.last_sync_time is not None
-                        and time.monotonic() - device.last_sync_time > ESPDevice.RESYNC_INTERVAL_S
-                    ):
-                        device._resync_pending = True
-                        timesync = SimplePacket.create(PacketType.TIMESYNC)
-                        await _sendTrackedCommand(device, timesync)
-                        ml.plog(f"{device.name} resync sent (stale >{ESPDevice.RESYNC_INTERVAL_S / 60:.0f} min)")
-
-                except ValueError:
-                    break
-                except Exception as e:
-                    ml.elog(f"Error decoding packet from {device.name}: {e}")
-                    buffer = buffer[1:]
-
-    except asyncio.CancelledError:
-        ml.slog(f"Stopped monitoring {device.name}")
-        raise
-    except Exception as e:
-        ml.elog(f"Error receiving response from {device.name}: {e}")
-        if device.address in deviceRegistry:
-            removeDevice(device)
+    await esp_runtime.monitor_device(device)
 
 # ---------------------- #
 # Device Control Tools
@@ -645,44 +376,8 @@ async def emergencyStop(device: ESPDevice) -> None:
 
 
 def cleanupDevice(device: ESPDevice) -> None:
-    if device.socket:
-        try:
-            device.socket.close()
-            ml.slog(f"Closed socket for {device.name}")
-        except OSError as e:
-            ml.elog(f"Error closing socket for {device.name}: {e}")
-        finally:
-            device.socket = None
-
-    # Cancel any per-device listener task to avoid it running against a closed socket
-    listener_task = getattr(device, "listenerTask", None)
-    if listener_task is not None:
-        try:
-            listener_task.cancel()
-            ml.slog(f"Cancelled listener task for {device.name}")
-        except Exception as e:
-            ml.elog(f"Error cancelling listener task for {device.name}: {e}")
-
-    heartbeat_task = getattr(device, "heartbeat_task", None)
-    if heartbeat_task is not None:
-        try:
-            heartbeat_task.cancel()
-            ml.slog(f"Cancelled heartbeat task for {device.name}")
-        except Exception as e:
-            ml.elog(f"Error cancelling heartbeat task for {device.name}: {e}")
-
-    _publishFailedCommandEvents(
-        command_tracker.fail_connection(device.connection_key, reason="connection_cleanup"),
-    )
+    esp_runtime.cleanup_device(device)
 
 
 def removeDevice(device: ESPDevice) -> None:
-    cleanupDevice(device)
-    _publishStateEvent(system_state.mark_disconnected(device))
-
-    if _isCurrentConnection(device):
-        del deviceRegistry[device.address]
-        ml.slog(f"{device.name} removed from registry.")
-        ml.log(f"{device.name} DISCONNECTED")  # Used by GUI to trigger device removal
-    else:
-        ml.plog(f"Ignored stale removal for {device.name} at {device.address}")
+    esp_runtime.remove_device(device)
