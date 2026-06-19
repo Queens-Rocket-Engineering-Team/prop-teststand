@@ -1,0 +1,181 @@
+from types import SimpleNamespace
+from typing import Any, cast
+
+import pytest
+
+from libqretprop.qlcp.config_parser import parse_config
+from libqretprop.qlcp.enums import PacketType, Unit
+from libqretprop.qlcp.packets import AckPacket, DataPacket, SensorReading
+from libqretprop.runtime.esp_device_session import ESPDeviceSession
+from libqretprop.runtime.telemetry_ingest import (
+    LogLegacyTelemetrySink,
+    TelemetryBatch,
+    TelemetryIngest,
+    TelemetryReading,
+)
+
+
+class FakeRuntime:
+    def __init__(self) -> None:
+        self.devices: dict[str, ESPDeviceSession] = {}
+
+
+class FakeSink:
+    def __init__(self) -> None:
+        self.batches: list[TelemetryBatch] = []
+
+    def publish_batch(self, batch: TelemetryBatch) -> None:
+        self.batches.append(batch)
+
+
+def _make_config() -> dict[str, Any]:
+    return {
+        "device_name": "PANDA",
+        "device_type": "Sensor Monitor",
+        "sensor_info": {
+            "thermocouple": {
+                "TC1": {
+                    "sensor_index": "TC1",
+                    "type": "K",
+                    "unit": "C",
+                },
+                "TC2": {
+                    "sensor_index": "TC2",
+                    "type": "K",
+                    "unit": "C",
+                },
+            },
+        },
+        "controls": {},
+    }
+
+
+def _make_session(*, address: str = "10.0.0.2", last_sync_time: float | None = 1.0) -> ESPDeviceSession:
+    config = parse_config(_make_config())
+    session = SimpleNamespace(
+        name=config.name,
+        address=address,
+        connection_key="conn-a",
+        qlcp_config=config,
+        last_sync_time=last_sync_time,
+    )
+    return cast(ESPDeviceSession, session)
+
+
+def test_data_packet_from_registered_session_produces_batch_and_legacy_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = FakeRuntime()
+    session = _make_session()
+    runtime.devices[session.address] = session
+    messages: list[str] = []
+    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.ml.log", messages.append)
+    ingest = TelemetryIngest(runtime, legacy_sink=LogLegacyTelemetrySink())
+    packet = DataPacket(
+        sequence=1,
+        timestamp=12345,
+        readings=[
+            SensorReading(sensor_id=0, unit=Unit.CELSIUS, value=12.345),
+            SensorReading(sensor_id=1, unit=Unit.CELSIUS, value=67.891),
+        ],
+    )
+
+    batch = ingest.handle_datagram(packet.encode(), session.address)
+
+    assert batch is not None
+    assert batch.device_name == "PANDA"
+    assert batch.device_address == session.address
+    assert batch.connection_key == "conn-a"
+    assert batch.timestamp_s == 12.345
+    assert len(batch.readings) == 2
+    assert batch.readings[0].value == pytest.approx(12.345)
+    assert batch.readings[1].value == pytest.approx(67.891)
+    assert batch.readings == (
+        TelemetryReading(
+            sensor_id=0,
+            sensor_name="TC1",
+            value=batch.readings[0].value,
+            unit_name="CELSIUS",
+            sensor_type="thermocouple",
+        ),
+        TelemetryReading(
+            sensor_id=1,
+            sensor_name="TC2",
+            value=batch.readings[1].value,
+            unit_name="CELSIUS",
+            sensor_type="thermocouple",
+        ),
+    )
+    assert messages == [
+        "PANDA 12.345 TC1:12.35",
+        "PANDA 12.345 TC2:67.89",
+    ]
+
+
+def test_unsynced_session_uses_monotonic_timestamp(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FakeRuntime()
+    session = _make_session(last_sync_time=None)
+    runtime.devices[session.address] = session
+    sink = FakeSink()
+    ingest = TelemetryIngest(runtime, legacy_sink=sink)
+    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.time.monotonic", lambda: 42.25)
+    packet = DataPacket(
+        sequence=1,
+        timestamp=12345,
+        readings=[SensorReading(sensor_id=0, unit=Unit.CELSIUS, value=1.0)],
+    )
+
+    batch = ingest.handle_datagram(packet.encode(), session.address)
+
+    assert batch is not None
+    assert batch.timestamp_s == 42.25
+    assert sink.batches == [batch]
+
+
+def test_unknown_device_address_is_logged_and_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FakeRuntime()
+    errors: list[str] = []
+    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.ml.elog", errors.append)
+    ingest = TelemetryIngest(runtime, legacy_sink=FakeSink())
+
+    batch = ingest.handle_datagram(b"not decoded", "10.0.0.99")
+
+    assert batch is None
+    assert errors == ["Received UDP packet from unknown device 10.0.0.99"]
+
+
+def test_non_data_packet_is_logged_and_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FakeRuntime()
+    session = _make_session()
+    runtime.devices[session.address] = session
+    errors: list[str] = []
+    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.ml.elog", errors.append)
+    ingest = TelemetryIngest(runtime, legacy_sink=FakeSink())
+    packet = AckPacket.create(PacketType.HEARTBEAT, ack_sequence=4)
+
+    batch = ingest.handle_datagram(packet.encode(), session.address)
+
+    assert batch is None
+    assert errors == ["Received non-DATA packet over UDP from PANDA. Ignoring."]
+
+
+def test_unknown_sensor_id_is_logged_and_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FakeRuntime()
+    session = _make_session()
+    runtime.devices[session.address] = session
+    sink = FakeSink()
+    errors: list[str] = []
+    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.ml.elog", errors.append)
+    ingest = TelemetryIngest(runtime, legacy_sink=sink)
+    packet = DataPacket(
+        sequence=1,
+        timestamp=12345,
+        readings=[SensorReading(sensor_id=99, unit=Unit.CELSIUS, value=1.0)],
+    )
+
+    batch = ingest.handle_datagram(packet.encode(), session.address)
+
+    assert batch is not None
+    assert batch.readings == ()
+    assert sink.batches == [batch]
+    assert errors == ["Received DATA reading for unknown sensor id 99 from PANDA. Ignoring."]
