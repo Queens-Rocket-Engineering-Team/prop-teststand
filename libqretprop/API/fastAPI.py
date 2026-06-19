@@ -22,6 +22,7 @@ from libqretprop import mumbleRecording
 from libqretprop import mylogging as ml
 from libqretprop.DeviceControllers import cameraTools, deviceTools, kasaTools
 from libqretprop.GuiDataStream import router as log_router
+from libqretprop.state import system_state
 
 
 if TYPE_CHECKING:
@@ -168,6 +169,11 @@ async def readAuth(user: Annotated[str, Depends(authUser)]) -> dict:
 @app.get("/health")
 async def getHealth() -> dict:
     return {"message": "The server is alive!"}
+
+
+@app.get("/v1/state", summary="Get a structured snapshot of server state")
+async def getState() -> dict[str, Any]:
+    return system_state.to_dict()
 
 
 @app.post(
