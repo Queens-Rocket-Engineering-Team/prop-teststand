@@ -104,7 +104,7 @@ async def handleServerCommand(command: str, args: list) -> None:
         if not device:
             ml.slog(f"Device '{args[0]}' not currently registered. Use \"LIST\" to see devices.")
             return
-        deviceTools.removeDevice(device)
+        deviceTools.remove_device(device)
         ml.slog(f"Removed device '{device.name}'")
 
     elif cmd == "INFO":
