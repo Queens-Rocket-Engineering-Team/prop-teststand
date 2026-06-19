@@ -115,11 +115,13 @@ class CommandSnapshot:
     sequence: int
     state: str
     sent_at: float
+    ack_expected: bool = True
     acked_at: float | None = None
     nacked_at: float | None = None
     timed_out_at: float | None = None
     nack_error_code: str | None = None
     control_id: int | None = None
+    control_name: str | None = None
     requested_state: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -132,11 +134,13 @@ class CommandSnapshot:
             "sequence": self.sequence,
             "state": self.state,
             "sent_at": self.sent_at,
+            "ack_expected": self.ack_expected,
             "acked_at": self.acked_at,
             "nacked_at": self.nacked_at,
             "timed_out_at": self.timed_out_at,
             "nack_error_code": self.nack_error_code,
             "control_id": self.control_id,
+            "control_name": self.control_name,
             "requested_state": self.requested_state,
         }
 
@@ -155,11 +159,13 @@ class CommandCollectionSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class SystemSnapshot:
+    state_version: int = 0
     devices: list[DeviceSnapshot] = field(default_factory=list)
     commands: CommandCollectionSnapshot = field(default_factory=CommandCollectionSnapshot)
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "state_version": self.state_version,
             "devices": [device.to_dict() for device in self.devices],
             "commands": self.commands.to_dict(),
         }

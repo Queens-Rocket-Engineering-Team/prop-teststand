@@ -7,6 +7,7 @@ from libqretprop.runtime.command_tracker import (
     CommandTracker,
     command_tracker,
 )
+from libqretprop.runtime.state_stream import StateStream, state_stream
 
 
 __all__ = [
@@ -14,5 +15,7 @@ __all__ = [
     "CommandLifecycle",
     "CommandRecord",
     "CommandTracker",
+    "StateStream",
     "command_tracker",
+    "state_stream",
 ]

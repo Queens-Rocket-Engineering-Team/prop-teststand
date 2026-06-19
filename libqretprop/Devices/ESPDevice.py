@@ -10,6 +10,8 @@ from libqretprop.qlcp.config_parser import parse_config
 from libqretprop.qlcp.enums import PacketType
 from libqretprop.qlcp.packets import SimplePacket
 from libqretprop.runtime.command_tracker import CommandRecord, command_tracker
+from libqretprop.runtime.state_stream import state_stream
+from libqretprop.state import system_state
 
 
 if TYPE_CHECKING:
@@ -102,6 +104,7 @@ class ESPDevice:
 
     def _handleMissedHeartbeat(self, command: CommandRecord) -> bool:
         self._missed_heartbeat_acks += 1
+        state_stream.publish(system_state.record_command_timed_out(command))
 
         if self._missed_heartbeat_acks < self.HEARTBEAT_ACK_MISS_LIMIT:
             ml.plog(
@@ -136,6 +139,7 @@ class ESPDevice:
                         now=time.monotonic(),
                     )
                     await self.driver.send_packet(packet)
+                    state_stream.publish(system_state.record_command_sent(command))
                 except (BrokenPipeError, ConnectionResetError, OSError) as e:
                     if command is not None:
                         command_tracker.discard(command.command_id)

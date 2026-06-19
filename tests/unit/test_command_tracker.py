@@ -12,7 +12,9 @@ def _mark_sent(
     sequence: int = 7,
     now: float = 10.0,
     control_id: int | None = None,
+    control_name: str | None = None,
     requested_state: ControlState | None = None,
+    ack_expected: bool | None = None,
 ) -> CommandRecord:
     return tracker.mark_sent(
         connection_key=connection_key,
@@ -22,7 +24,9 @@ def _mark_sent(
         packet_sequence=sequence,
         now=now,
         control_id=control_id,
+        control_name=control_name,
         requested_state=requested_state,
+        ack_expected=ack_expected,
     )
 
 
@@ -32,6 +36,7 @@ def test_mark_sent_creates_pending_command() -> None:
     record = _mark_sent(
         tracker,
         control_id=2,
+        control_name="VALVE1",
         requested_state=ControlState.OPEN,
     )
 
@@ -42,8 +47,11 @@ def test_mark_sent_creates_pending_command() -> None:
     assert record.packet_type == PacketType.CONTROL
     assert record.packet_sequence == 7
     assert record.sent_at == 10.0
+    assert record.ack_expected is True
     assert record.state == CommandLifecycle.SENT
+    assert record.is_pending is True
     assert record.control_id == 2
+    assert record.control_name == "VALVE1"
     assert record.requested_state == ControlState.OPEN
     assert tracker.get_pending("conn-a", PacketType.CONTROL, 7) is record
 
@@ -168,6 +176,44 @@ def test_completed_operator_command_remains_in_recent_history() -> None:
     assert tracker.get_record(record.command_id) is record
     assert record in tracker.records
     assert record in tracker.recent_completed
+
+
+def test_fire_and_forget_operator_command_is_recent_without_pending_ack() -> None:
+    tracker = CommandTracker()
+
+    record = _mark_sent(tracker, packet_type=PacketType.ESTOP)
+
+    assert record.ack_expected is False
+    assert record.is_pending is False
+    assert tracker.pending == ()
+    assert tracker.get_pending("conn-a", PacketType.ESTOP, 7) is None
+    assert tracker.recent_completed == (record,)
+    assert tracker.expire_pending(now=30.0, timeout_s=10.0) == []
+
+
+def test_discard_removes_fire_and_forget_operator_command_from_recent_history() -> None:
+    tracker = CommandTracker()
+    record = _mark_sent(tracker, packet_type=PacketType.ESTOP)
+
+    discarded = tracker.discard(record.command_id)
+
+    assert discarded is record
+    assert tracker.recent_completed == ()
+    assert tracker.get_record(record.command_id) is None
+
+
+def test_status_request_is_not_ack_expected_or_recent_history() -> None:
+    tracker = CommandTracker()
+    record = _mark_sent(tracker, packet_type=PacketType.STATUS_REQUEST)
+
+    acked = tracker.mark_acked("conn-a", PacketType.STATUS_REQUEST, 7, now=12.0)
+
+    assert record.ack_expected is False
+    assert record.is_pending is False
+    assert acked is None
+    assert tracker.pending == ()
+    assert record not in tracker.recent_completed
+    assert tracker.get_record(record.command_id) is None
 
 
 def test_recent_completed_history_is_bounded() -> None:
