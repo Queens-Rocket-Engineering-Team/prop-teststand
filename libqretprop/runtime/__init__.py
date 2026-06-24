@@ -8,6 +8,7 @@ from libqretprop.runtime.command_tracker import (
     command_tracker,
 )
 from libqretprop.runtime.state_stream import StateStream, state_stream
+from libqretprop.runtime.telemetry_stream import TelemetryStreamRuntime, telemetry_stream
 
 
 __all__ = [
@@ -16,6 +17,8 @@ __all__ = [
     "CommandRecord",
     "CommandTracker",
     "StateStream",
+    "TelemetryStreamRuntime",
     "command_tracker",
     "state_stream",
+    "telemetry_stream",
 ]

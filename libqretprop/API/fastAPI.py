@@ -22,6 +22,7 @@ from libqretprop import mylogging as ml
 from libqretprop.DeviceControllers import cameraTools, deviceTools, kasaTools
 from libqretprop.GuiDataStream import router as log_router
 from libqretprop.runtime.state_stream import state_stream
+from libqretprop.runtime.telemetry_stream import telemetry_stream
 from libqretprop.state import system_state
 
 
@@ -179,6 +180,11 @@ async def getState() -> dict[str, Any]:
 @app.websocket("/ws/state")
 async def websocket_state(websocket: WebSocket) -> None:
     await state_stream.handle_client(websocket)
+
+
+@app.websocket("/ws/telemetry/raw")
+async def websocket_raw_telemetry(websocket: WebSocket) -> None:
+    await telemetry_stream.handle_client(websocket)
 
 
 @app.post(
