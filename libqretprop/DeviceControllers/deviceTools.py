@@ -15,6 +15,7 @@ from libqretprop.qlcp.packets import (
 from libqretprop.runtime.esp_connection_runtime import TrackedCommandPacket, esp_runtime
 from libqretprop.runtime.esp_device_session import ESPDeviceSession
 from libqretprop.runtime.telemetry_ingest import TelemetryIngest
+from libqretprop.runtime.telemetry_stream import telemetry_stream
 
 
 MULTICAST_ADDRESS = "239.255.255.250"
@@ -184,7 +185,9 @@ async def udpListener() -> None:
             # This prevents the UDP listener from blocking the event loop for too long if commands need to be processed
             for _ in range(UDP_BATCH_SIZE):
                 deviceIP = addr[0]
-                telemetry_ingest.handle_datagram(data, deviceIP)
+                batch = telemetry_ingest.handle_datagram(data, deviceIP)
+                if batch is not None:
+                    telemetry_stream.publish_batch(batch)
 
                 try:
                     data, addr = udp_socket.recvfrom(4096)
