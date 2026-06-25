@@ -1,4 +1,5 @@
 import asyncio
+import json
 import socket
 from types import SimpleNamespace
 from typing import Any, cast
@@ -9,6 +10,7 @@ from libqretprop.qlcp.config_parser import parse_config
 from libqretprop.qlcp.enums import ControlState, DeviceStatus, ErrorCode, PacketType
 from libqretprop.qlcp.packets import (
     AckPacket,
+    ConfigPacket,
     ControlStatus,
     NackPacket,
     SimplePacket,
@@ -157,6 +159,70 @@ def test_runtime_registers_valid_device() -> None:
             assert stream.events[0]["type"] == "device.registered"
         finally:
             runtime.close_all()
+            peer_sock.close()
+            await asyncio.sleep(0)
+
+    asyncio.run(run())
+
+
+def test_accept_connection_registers_device_on_config() -> None:
+    async def run() -> None:
+        runtime, _tracker, state, stream = _make_runtime()
+        server_sock, peer_sock = socket.socketpair()
+        server_sock.setblocking(False)
+        peer_sock.setblocking(False)
+
+        try:
+            peer_sock.sendall(ConfigPacket.create(json.dumps(_make_config())).encode())
+
+            session = await runtime.accept_connection(server_sock, "10.0.0.2")
+
+            assert isinstance(session, ESPDeviceSession)
+            assert runtime.devices["10.0.0.2"] is session
+            assert state.snapshot().devices[0].name == "TEST-DEVICE"
+            assert stream.events[0]["type"] == "device.registered"
+        finally:
+            runtime.close_all()
+            peer_sock.close()
+            await asyncio.sleep(0)
+
+    asyncio.run(run())
+
+
+def test_accept_connection_closes_socket_when_peer_disconnects_before_config() -> None:
+    async def run() -> None:
+        runtime, _tracker, _state, _stream = _make_runtime()
+        server_sock, peer_sock = socket.socketpair()
+        server_sock.setblocking(False)
+        peer_sock.setblocking(False)
+        peer_sock.close()  # peer gone before sending CONFIG
+
+        result = await runtime.accept_connection(server_sock, "10.0.0.2")
+
+        assert result is None
+        assert "10.0.0.2" not in runtime.devices
+        assert server_sock.fileno() == -1  # accept_connection closed the socket
+
+    asyncio.run(run())
+
+
+def test_accept_connection_closes_socket_on_non_config_first_packet() -> None:
+    async def run() -> None:
+        runtime, _tracker, _state, _stream = _make_runtime()
+        server_sock, peer_sock = socket.socketpair()
+        server_sock.setblocking(False)
+        peer_sock.setblocking(False)
+
+        try:
+            # A device-sent, server-decodable packet that is not CONFIG.
+            peer_sock.sendall(AckPacket.create(PacketType.HEARTBEAT, ack_sequence=1).encode())
+
+            result = await runtime.accept_connection(server_sock, "10.0.0.2")
+
+            assert result is None
+            assert "10.0.0.2" not in runtime.devices
+            assert server_sock.fileno() == -1
+        finally:
             peer_sock.close()
             await asyncio.sleep(0)
 

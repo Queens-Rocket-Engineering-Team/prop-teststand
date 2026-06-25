@@ -21,6 +21,7 @@ from libqretprop import mumbleRecording
 from libqretprop import mylogging as ml
 from libqretprop.DeviceControllers import cameraTools, deviceTools, kasaTools
 from libqretprop.GuiDataStream import router as log_router
+from libqretprop.runtime.discovery import discovery_service
 from libqretprop.runtime.state_stream import state_stream
 from libqretprop.runtime.telemetry_stream import telemetry_stream
 from libqretprop.state import system_state
@@ -420,8 +421,8 @@ async def controlKasaDevice(
 @app.get("/v1/autodiscovery", summary="Get autodiscovery settings")
 async def getAutodiscoverySettings() -> AutoDiscoveryConfig:
     return AutoDiscoveryConfig(
-        enabled=deviceTools.AUTODISCOVER_ENABLED,
-        intervalSeconds=deviceTools.AUTODISCOVER_INTERVAL_S,
+        enabled=discovery_service.periodic_enabled,
+        intervalSeconds=discovery_service.periodic_interval_s,
     )
 
 
@@ -434,23 +435,23 @@ async def updateAutodiscoverySettings(
         raise HTTPException(400, "intervalSeconds must be greater than 0")
 
     if enabled is not None:
-        deviceTools.AUTODISCOVER_ENABLED = enabled
+        discovery_service.periodic_enabled = enabled
 
     if intervalSeconds is not None:
-        deviceTools.AUTODISCOVER_INTERVAL_S = intervalSeconds
+        discovery_service.periodic_interval_s = intervalSeconds
 
-    ml.slog(f"User updated autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, intervalSeconds={deviceTools.AUTODISCOVER_INTERVAL_S}s")
+    ml.slog(f"User updated autodiscovery: enabled={discovery_service.periodic_enabled}, intervalSeconds={discovery_service.periodic_interval_s}s")
 
     return AutoDiscoveryConfig(
-        enabled=deviceTools.AUTODISCOVER_ENABLED,
-        intervalSeconds=deviceTools.AUTODISCOVER_INTERVAL_S,
+        enabled=discovery_service.periodic_enabled,
+        intervalSeconds=discovery_service.periodic_interval_s,
     )
 
 
 @app.post("/v1/discover", summary="Send a SSP discover request for new ESP Devices")
 async def discoverDevices() -> CommandResponse:
     ml.slog("User sent device discover command")
-    deviceTools.sendDiscoveryBroadcast()
+    discovery_service.discover()
     return CommandResponse(
         status="sent",
         message="Discovery broadcast sent. Devices will auto-connect.",
