@@ -1,39 +1,21 @@
-import asyncio
-import contextlib
-import json
-import socket
-
 import libqretprop.mylogging as ml
-from libqretprop.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
 from libqretprop.qlcp.enums import ControlState, PacketType
 from libqretprop.qlcp.packets import (
-    ConfigPacket,
     ControlPacket,
     SimplePacket,
     StreamStartPacket,
 )
-from libqretprop.runtime.esp_connection_runtime import TrackedCommandPacket, esp_runtime
+from libqretprop.runtime.discovery import discovery_service
+from libqretprop.runtime.esp_connection_runtime import (
+    TrackedCommandPacket,
+    esp_connection_listener,
+    esp_runtime,
+)
 from libqretprop.runtime.esp_device_session import ESPDeviceSession
-from libqretprop.runtime.telemetry_ingest import TelemetryIngest
-from libqretprop.runtime.telemetry_stream import telemetry_stream
+from libqretprop.runtime.telemetry_ingest import telemetry_udp_listener
 
 
-MULTICAST_ADDRESS = "239.255.255.250"
-MULTICAST_PORT = 1900
-
-TCP_PORT = 50000
-UDP_PORT = 50001  # These wouldn't overlap but a different port number is useful for debugging
-
-AUTODISCOVER_ENABLED = True
-AUTODISCOVER_INTERVAL_S = 30.0  # seconds between SSDP discovery broadcasts
-
-# Searching Globals #
-ssdpSearchSocket: socket.socket | None = None
-
-# Listening Globals #
-tcpListenerSocket: socket.socket | None = None
 deviceRegistry = esp_runtime.devices
-telemetry_ingest = TelemetryIngest(esp_runtime)
 
 
 class _LegacyESPLogSink:
@@ -61,53 +43,14 @@ async def _send_tracked_command(session: ESPDeviceSession, packet: TrackedComman
 # ---------------------- #
 
 
-def sendDiscoveryBroadcast() -> None:
-    global ssdpSearchSocket
-
-    if ssdpSearchSocket is None:
-        ssdpSearchSocket = _createSSDPSocket()
-
-    ml.dlog("Sending SSDP multicast discovery request.")
-
-    ssdpRequest = (
-        "M-SEARCH * HTTP/1.1\r\n"
-        f"HOST: {MULTICAST_ADDRESS}:{MULTICAST_PORT}\r\n"
-        'MAN: "ssdp:discover"\r\n'
-        "MX: 2\r\n"
-        "ST: urn:qretprop:espdevice:1\r\n"
-        "USER-AGENT: QRET/1.0\r\n"
-        "\r\n"
-    )
-
-    ssdpSearchSocket.sendto(ssdpRequest.encode(), (MULTICAST_ADDRESS, MULTICAST_PORT))
-
-
 async def autoDiscoveryLoop() -> None:
-    """Periodically send SSDP discovery broadcasts every AUTODISCOVER_INTERVAL seconds."""
-    while True:
-        if AUTODISCOVER_ENABLED:
-            sendDiscoveryBroadcast()
-            await asyncio.sleep(AUTODISCOVER_INTERVAL_S)
-        else:
-            await asyncio.sleep(0.5)
+    """Compatibility entry point for periodic device discovery.
 
-
-def _createSSDPSocket() -> socket.socket:
-    """Create a send-only SSDP socket for broadcasting discovery."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-    with contextlib.suppress(OSError):
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-
-    # Choose outbound interface
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.INADDR_ANY)
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 1)
-
-    sock.setblocking(False)
-    ml.slog(f"SSDP broadcast socket initialized for {MULTICAST_ADDRESS}:{MULTICAST_PORT}")
-    return sock
+    The discovery mechanism and config now live in ``runtime/discovery.py``
+    (``DiscoveryService``); this shim keeps ``server.py``'s daemon wiring unchanged.
+    New runtime logic must go in the runtime module, not here.
+    """
+    await discovery_service.run()
 
 
 # ---------------------- #
@@ -116,93 +59,24 @@ def _createSSDPSocket() -> socket.socket:
 
 
 async def tcpListener() -> None:
-    """Listen for incoming TCP connections from devices on port 50000."""
-    global deviceRegistry
+    """Compatibility entry point for the ESP TCP listener.
 
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_socket.bind(("0.0.0.0", TCP_PORT))
-    server_socket.listen(5)
-    server_socket.setblocking(False)
+    The accept loop and config handshake now live in ``runtime/esp_connection_runtime.py``
+    (``ESPConnectionListener`` / ``ESPConnectionRuntime.accept_connection``); this shim keeps
+    ``server.py``'s daemon wiring unchanged. New runtime logic must go in the runtime module,
+    not here.
+    """
+    await esp_connection_listener.run()
 
-    ml.slog(f"TCP listener started on port {TCP_PORT}")
-
-    loop = asyncio.get_event_loop()
-
-    while True:
-        try:
-            client_socket, addr = await loop.sock_accept(server_socket)
-            client_socket.setblocking(False)
-            deviceIP = addr[0]
-
-            ml.slog(f"Accepted TCP connection from {deviceIP}")
-
-            driver = ESPDriver(client_socket, deviceIP)
-            try:
-                packet = await driver.read_packet()
-            except ESPDriverConnectionClosedError:
-                ml.elog(f"Device {deviceIP} disconnected during config.")
-                client_socket.close()
-                continue
-
-            if isinstance(packet, ConfigPacket):
-                config_dict = json.loads(packet.config_json)
-
-                await esp_runtime.register_configured_device(
-                    client_socket,
-                    deviceIP,
-                    config_dict,
-                    packet.sequence,
-                    loop=loop,
-                )
-
-        except asyncio.CancelledError:
-            ml.slog("TCP listener cancelled")
-            server_socket.close()
-            raise
-        except Exception as e:
-            ml.elog(f"Error in TCP listener: {e}")
-            await asyncio.sleep(0.1)
 
 async def udpListener() -> None:
-    """Listen for incoming UDP packets from devices"""
-    loop = asyncio.get_event_loop()
-    udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4 * 1024 * 1024)
-    udp_socket.bind(("0.0.0.0", UDP_PORT))
-    udp_socket.setblocking(False)
+    """Compatibility entry point for the UDP telemetry listener.
 
-    ml.slog(f"UDP listener started on port {UDP_PORT}")
-
-    UDP_BATCH_SIZE = 128  # Max packets per event-loop tick before yielding to TCP/other tasks
-
-    while True:
-        try:
-            data, addr = await loop.sock_recvfrom(udp_socket, 4096)
-
-            # Process first packet plus any already-buffered ones, up to UDP_BATCH_SIZE
-            # This prevents the UDP listener from blocking the event loop for too long if commands need to be processed
-            for _ in range(UDP_BATCH_SIZE):
-                deviceIP = addr[0]
-                batch = telemetry_ingest.handle_datagram(data, deviceIP)
-                if batch is not None:
-                    telemetry_stream.publish_batch(batch)
-
-                try:
-                    data, addr = udp_socket.recvfrom(4096)
-                except BlockingIOError:
-                    break
-
-            await asyncio.sleep(0)  # Yield to let other tasks run
-
-        except asyncio.CancelledError:
-            ml.slog("UDP listener cancelled")
-            udp_socket.close()
-            raise
-        except Exception as e:
-            ml.elog(f"Error in UDP listener: {e}")
-            await asyncio.sleep(0.1)
+    The socket loop now lives in ``runtime/telemetry_ingest.py`` (``TelemetryUDPListener``);
+    this shim keeps ``server.py``'s daemon wiring unchanged until the listener daemons are
+    restructured. New runtime logic must go in the runtime module, not here.
+    """
+    await telemetry_udp_listener.run()
 
 
 def getRegisteredDevices() -> dict[str, ESPDeviceSession]:

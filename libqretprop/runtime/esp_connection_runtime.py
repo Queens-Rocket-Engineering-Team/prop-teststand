@@ -1,14 +1,17 @@
 from __future__ import annotations
 import asyncio
+import json
 import socket
 import time
 from itertools import count
 from typing import Any, Protocol
 
 import libqretprop.mylogging as ml
+from libqretprop.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
 from libqretprop.qlcp.enums import ControlState, PacketType
 from libqretprop.qlcp.packets import (
     AckPacket,
+    ConfigPacket,
     ControlPacket,
     DataPacket,
     NackPacket,
@@ -25,6 +28,8 @@ from libqretprop.state import system_state as runtime_system_state
 
 
 TrackedCommandPacket = SimplePacket | ControlPacket | StreamStartPacket
+
+TCP_PORT = 50000
 
 
 class StatePublisher(Protocol):
@@ -75,6 +80,37 @@ class ESPConnectionRuntime:
         return (
             registered_device is not None
             and registered_device.connection_key == session.connection_key
+        )
+
+    async def accept_connection(
+        self,
+        client_socket: socket.socket,
+        address: str,
+    ) -> ESPDeviceSession | None:
+        """Run the config handshake for a freshly accepted TCP connection.
+
+        Reads the first packet via a transient driver, and if it is a CONFIG packet,
+        registers the device. The socket is closed (not leaked) on any other outcome.
+        """
+        driver = ESPDriver(client_socket, address)
+        try:
+            packet = await driver.read_packet()
+        except ESPDriverConnectionClosedError:
+            ml.elog(f"Device {address} disconnected during config.")
+            client_socket.close()
+            return None
+
+        if not isinstance(packet, ConfigPacket):
+            ml.elog(f"Expected CONFIG from {address}, got {type(packet).__name__}. Closing connection.")
+            client_socket.close()
+            return None
+
+        config_dict = json.loads(packet.config_json)
+        return await self.register_configured_device(
+            client_socket,
+            address,
+            config_dict,
+            packet.sequence,
         )
 
     async def register_configured_device(
@@ -440,4 +476,52 @@ class ESPConnectionRuntime:
             self._publish_state_event(self.system_state.record_command_timed_out(command))
 
 
+class ESPConnectionListener:
+    """Owns the TCP server socket and accept loop.
+
+    Delegates each accepted connection's config handshake and registration to
+    ``ESPConnectionRuntime.accept_connection``; owns no per-device or protocol logic.
+    """
+
+    def __init__(
+        self,
+        runtime: ESPConnectionRuntime,
+        *,
+        port: int = TCP_PORT,
+        backlog: int = 5,
+    ) -> None:
+        self.runtime = runtime
+        self.port = port
+        self.backlog = backlog
+
+    async def run(self) -> None:
+        """Bind the TCP server socket and accept device connections until cancelled."""
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server_socket.bind(("0.0.0.0", self.port))
+        server_socket.listen(self.backlog)
+        server_socket.setblocking(False)
+
+        ml.slog(f"TCP listener started on port {self.port}")
+
+        loop = asyncio.get_event_loop()
+
+        while True:
+            try:
+                client_socket, addr = await loop.sock_accept(server_socket)
+                client_socket.setblocking(False)
+                ml.slog(f"Accepted TCP connection from {addr[0]}")
+
+                await self.runtime.accept_connection(client_socket, addr[0])
+
+            except asyncio.CancelledError:
+                ml.slog("TCP listener cancelled")
+                server_socket.close()
+                raise
+            except Exception as e:
+                ml.elog(f"Error in TCP listener: {e}")
+                await asyncio.sleep(0.1)
+
+
 esp_runtime = ESPConnectionRuntime()
+esp_connection_listener = ESPConnectionListener(esp_runtime)

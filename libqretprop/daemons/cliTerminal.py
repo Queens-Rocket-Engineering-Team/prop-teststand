@@ -5,6 +5,7 @@ import aioconsole
 
 import libqretprop.mylogging as ml
 from libqretprop.DeviceControllers import deviceTools
+from libqretprop.runtime.discovery import discovery_service
 
 
 SERVERCOMMANDS = [
@@ -42,12 +43,12 @@ async def handleServerCommand(command: str, args: list) -> None:
         await asyncio.sleep(0.1)
     elif cmd == "DISCOVER":
         ml.slog("Sending discovery broadcast...")
-        deviceTools.sendDiscoveryBroadcast()
+        discovery_service.discover()
         ml.slog("Discovery sent. Devices will auto-connect.")
     elif cmd in ("AUTODISCOVERY", "AUTOD"):
         if not args:
             ml.slog(
-                f"Autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, interval={deviceTools.AUTODISCOVER_INTERVAL_S}s",
+                f"Autodiscovery: enabled={discovery_service.periodic_enabled}, interval={discovery_service.periodic_interval_s}s",
             )
             ml.slog("Usage: autodiscovery <on|off|interval <seconds>|status>")
             return
@@ -55,13 +56,13 @@ async def handleServerCommand(command: str, args: list) -> None:
         sub = args[0].lower()
         if sub in ("status", "show"):
             ml.slog(
-                f"Autodiscovery: enabled={deviceTools.AUTODISCOVER_ENABLED}, interval={deviceTools.AUTODISCOVER_INTERVAL_S}s",
+                f"Autodiscovery: enabled={discovery_service.periodic_enabled}, interval={discovery_service.periodic_interval_s}s",
             )
         elif sub in ("on", "enable", "enabled", "true"):
-            deviceTools.AUTODISCOVER_ENABLED = True
+            discovery_service.periodic_enabled = True
             ml.slog("Autodiscovery enabled")
         elif sub in ("off", "disable", "disabled", "false"):
-            deviceTools.AUTODISCOVER_ENABLED = False
+            discovery_service.periodic_enabled = False
             ml.slog("Autodiscovery disabled")
         elif sub == "interval":
             if len(args) < 2:
@@ -77,7 +78,7 @@ async def handleServerCommand(command: str, args: list) -> None:
                 ml.slog("Autodiscovery interval must be greater than 0 seconds")
                 return
 
-            deviceTools.AUTODISCOVER_INTERVAL_S = interval
+            discovery_service.periodic_interval_s = interval
             ml.slog(f"Autodiscovery interval set to {interval}s")
         else:
             ml.slog("Usage: autodiscovery <on|off|interval <seconds>|status>")

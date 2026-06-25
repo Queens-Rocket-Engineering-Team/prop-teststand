@@ -1,4 +1,6 @@
 from __future__ import annotations
+import asyncio
+import socket
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -11,6 +13,9 @@ from libqretprop.qlcp.packets import DataPacket
 
 if TYPE_CHECKING:
     from libqretprop.runtime.esp_device_session import ESPDeviceSession
+
+
+UDP_PORT = 50001  # Distinct from the TCP port; a different number is useful for debugging.
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +39,12 @@ class TelemetryBatch:
 
 
 class LegacyTelemetrySink(Protocol):
+    def publish_batch(self, batch: TelemetryBatch) -> None: ...
+
+
+class BatchPublisher(Protocol):
+    """Fan-out target for decoded telemetry batches (e.g. ``TelemetryStreamRuntime``)."""
+
     def publish_batch(self, batch: TelemetryBatch) -> None: ...
 
 
@@ -114,3 +125,77 @@ class TelemetryIngest:
         )
         self.legacy_sink.publish_batch(batch)
         return batch
+
+
+class TelemetryUDPListener:
+    """Owns the UDP socket receive loop for incoming DATA datagrams.
+
+    Delegates decode/batch creation to ``TelemetryIngest`` and fans decoded
+    batches out through a ``BatchPublisher`` (the telemetry stream). It owns no
+    decode, sensor-mapping, or fan-out logic of its own.
+    """
+
+    def __init__(
+        self,
+        ingest: TelemetryIngest,
+        publisher: BatchPublisher,
+        *,
+        port: int = UDP_PORT,
+        batch_size: int = 128,
+        recv_buffer_bytes: int = 4 * 1024 * 1024,
+    ) -> None:
+        self.ingest = ingest
+        self.publisher = publisher
+        self.port = port
+        # Max packets drained per event-loop tick before yielding to other tasks.
+        self.batch_size = batch_size
+        self.recv_buffer_bytes = recv_buffer_bytes
+
+    async def run(self) -> None:
+        """Bind the UDP socket and forward decoded batches until cancelled."""
+        loop = asyncio.get_event_loop()
+        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, self.recv_buffer_bytes)
+        udp_socket.bind(("0.0.0.0", self.port))
+        udp_socket.setblocking(False)
+
+        ml.slog(f"UDP listener started on port {self.port}")
+
+        while True:
+            try:
+                data, addr = await loop.sock_recvfrom(udp_socket, 4096)
+
+                # Process the first packet plus any already-buffered ones, up to batch_size.
+                # This keeps the UDP listener from monopolizing the event loop while other
+                # tasks (e.g. TCP command handling) need to run.
+                for _ in range(self.batch_size):
+                    device_ip = addr[0]
+                    batch = self.ingest.handle_datagram(data, device_ip)
+                    if batch is not None:
+                        self.publisher.publish_batch(batch)
+
+                    try:
+                        data, addr = udp_socket.recvfrom(4096)
+                    except BlockingIOError:
+                        break
+
+                await asyncio.sleep(0)  # Yield to let other tasks run
+
+            except asyncio.CancelledError:
+                ml.slog("UDP listener cancelled")
+                udp_socket.close()
+                raise
+            except Exception as e:
+                ml.elog(f"Error in UDP listener: {e}")
+                await asyncio.sleep(0.1)
+
+
+# Runtime singletons. Imported lazily-at-module-end to keep the import graph acyclic:
+# telemetry_stream only imports this module under TYPE_CHECKING.
+from libqretprop.runtime.esp_connection_runtime import esp_runtime  # noqa: E402
+from libqretprop.runtime.telemetry_stream import telemetry_stream  # noqa: E402
+
+
+telemetry_ingest = TelemetryIngest(esp_runtime)
+telemetry_udp_listener = TelemetryUDPListener(telemetry_ingest, telemetry_stream)
