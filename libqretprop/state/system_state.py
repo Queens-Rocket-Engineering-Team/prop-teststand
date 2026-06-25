@@ -174,7 +174,7 @@ class SystemState:
             ],
             last_sync_time=getattr(device, "last_sync_time", None),
             is_responsive=bool(getattr(device, "is_responsive", False)) if device is not None else False,
-            missed_heartbeat_acks=int(getattr(device, "_missed_heartbeat_acks", 0)) if device is not None else 0,
+            missed_heartbeat_acks=getattr(device, "missed_heartbeat_count", 0) if device is not None else 0,
             heartbeat=self._snapshot_heartbeat(device_state),
         )
 
@@ -229,7 +229,7 @@ class SystemState:
 
     def _snapshot_heartbeat(self, device_state: _DeviceState) -> HeartbeatSnapshot:
         device = device_state.device
-        missed_heartbeat_acks = int(getattr(device, "_missed_heartbeat_acks", 0)) if device is not None else 0
+        missed_heartbeat_acks = getattr(device, "missed_heartbeat_count", 0) if device is not None else 0
         heartbeat_summary = (
             self._command_tracker.get_summary(device_state.connection_key, PacketType.HEARTBEAT)
             if device is not None

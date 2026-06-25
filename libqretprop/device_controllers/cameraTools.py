@@ -5,9 +5,9 @@ from typing import TypedDict
 
 import aiohttp
 
-import libqretprop.configManager as config
-import libqretprop.mylogging as ml
-from libqretprop.Devices.Camera import Camera
+import libqretprop.config_manager as config
+import libqretprop.redis_logging as ml
+from libqretprop.devices.Camera import Camera
 
 
 cameraRegistry: dict[str, Camera] = {}

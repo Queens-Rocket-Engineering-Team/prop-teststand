@@ -1,9 +1,10 @@
 from __future__ import annotations
 import asyncio
 import socket
+import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
-import libqretprop.mylogging as ml
+import libqretprop.redis_logging as ml
 from libqretprop.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
 from libqretprop.qlcp.config_parser import parse_config
 
@@ -82,6 +83,39 @@ class ESPDeviceSession:
             for control in self.qlcp_config.controls_by_id.values()
         }
 
+    def needs_resync(self) -> bool:
+        """Return True when a TIMESYNC is due for this session."""
+        return (
+            not self._resync_pending
+            and self.last_sync_time is not None
+            and time.monotonic() - self.last_sync_time > self.RESYNC_INTERVAL_S
+        )
+
+    def mark_resync_sent(self) -> None:
+        """Record that a TIMESYNC was sent and an ACK is pending."""
+        self._resync_pending = True
+
+    def mark_synced(self) -> None:
+        """Record that the TIMESYNC ACK was received."""
+        self._resync_pending = False
+
+    def register_missed_heartbeat(self) -> bool:
+        """Increment missed-heartbeat-ACK counter.
+
+        Returns True when the miss limit is reached (session should be removed).
+        """
+        self._missed_heartbeat_acks += 1
+        return self._missed_heartbeat_acks >= self.HEARTBEAT_ACK_MISS_LIMIT
+
+    @property
+    def missed_heartbeat_count(self) -> int:
+        """Number of consecutive missed heartbeat ACKs since the last successful one."""
+        return self._missed_heartbeat_acks
+
+    def mark_unresponsive(self) -> None:
+        """Mark this session as unresponsive after missing too many heartbeat ACKs."""
+        self.is_responsive = False
+
     async def monitor(self, runtime: ESPConnectionRuntime) -> None:
         """Read TCP packets and delegate session side effects to the runtime."""
         try:
@@ -101,8 +135,8 @@ class ESPDeviceSession:
                 ml.plog(f"Decoded {type(packet).__name__} from {self.name}")
                 await runtime.handle_packet(self, packet)
 
-                if runtime.needs_resync(self):
-                    self._resync_pending = True
+                if self.needs_resync():
+                    self.mark_resync_sent()
                     await runtime.send_timesync(self)
 
         except asyncio.CancelledError:

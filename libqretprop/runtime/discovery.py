@@ -3,7 +3,7 @@ import asyncio
 import contextlib
 import socket
 
-import libqretprop.mylogging as ml
+import libqretprop.redis_logging as ml
 
 
 MULTICAST_ADDRESS = "239.255.255.250"

@@ -61,7 +61,7 @@ _publishThread = Thread(target=_publishWorker, daemon=True)
 _publishThread.start()
 
 
-def initLogger(client: redis.Redis) -> None:
+def init_logger(client: redis.Redis) -> None:
     """Initialize the Redis client for logging. Checks if Redis server is running."""
     global redisClient  # noqa: PLW0603
     try:
@@ -73,7 +73,7 @@ def initLogger(client: redis.Redis) -> None:
 def _publishLog(channel: str, message: str, color: str = "") -> None:
     """Enqueue a log message for background publishing with optional ANSI color (non-blocking)."""
     if redisClient is None:
-        raise ValueError("Logger not initialized. Call initLogger() first.")
+        raise ValueError("Logger not initialized. Call init_logger() first.")
     item = (channel, message, color)
     try:
         _publishQueue.put_nowait(item)

@@ -46,7 +46,7 @@ def _make_device(
         qlcp_config=config,
         last_sync_time=None,
         is_responsive=True,
-        _missed_heartbeat_acks=missed_heartbeat_acks,
+        missed_heartbeat_count=missed_heartbeat_acks,
     )
 
 

@@ -3,7 +3,7 @@ import os
 
 import onvif
 
-import libqretprop.configManager as config
+import libqretprop.config_manager as config
 
 
 class Camera:

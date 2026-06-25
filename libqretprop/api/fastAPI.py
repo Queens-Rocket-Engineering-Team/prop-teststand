@@ -16,11 +16,11 @@ from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
-import libqretprop.configManager as config
-from libqretprop import mumbleRecording
-from libqretprop import mylogging as ml
-from libqretprop.DeviceControllers import cameraTools, deviceTools, kasaTools
-from libqretprop.GuiDataStream import router as log_router
+import libqretprop.config_manager as config
+from libqretprop import mumble_recording
+from libqretprop import redis_logging as ml
+from libqretprop.device_controllers import cameraTools, deviceTools, kasaTools
+from libqretprop.gui_data_stream import router as log_router
 from libqretprop.runtime.discovery import discovery_service
 from libqretprop.runtime.state_stream import state_stream
 from libqretprop.runtime.telemetry_stream import telemetry_stream
@@ -473,7 +473,7 @@ class ConfigsResponse(BaseModel):
 @app.get("/config", summary="Get the sensor and control config", response_model=ConfigsResponse)
 async def getServerConfig() -> ConfigsResponse:
     configs: dict[str, dict] = {}
-    for dev in deviceTools.deviceRegistry.values():
+    for dev in deviceTools.getRegisteredDevices().values():
         configs[getattr(dev, "name", getattr(dev, "id", "unknown"))] = dev.qlcp_config.raw_config
     return ConfigsResponse(count=len(configs), configs=configs)
 
@@ -513,7 +513,7 @@ def start(request: Request) -> dict[str, str]:
         MUMBLE_PORT = config.serverConfig["services"]["mumble"]["port"]
         MUMBLE_TEMP_RECORDING_DIR = config.serverConfig["services"]["mumble"]["temp_recording_dir"]
 
-        mumble, wav, file_name = mumbleRecording.start_recording(MUMBLE_HOST, MUMBLE_PORT, "", MUMBLE_TEMP_RECORDING_DIR)
+        mumble, wav, file_name = mumble_recording.start_recording(MUMBLE_HOST, MUMBLE_PORT, "", MUMBLE_TEMP_RECORDING_DIR)
         audioState.mumble = mumble
         audioState.wav = wav
         audioState.file_name = file_name
@@ -533,7 +533,7 @@ def stop(request: Request) -> dict[str, str | None]:
 
         file_name = audioState.file_name
 
-        mumbleRecording.stop_recording(audioState.mumble, audioState.wav, MUMBLE_TEMP_RECORDING_DIR, MUMBLE_RECORDING_DIR, file_name if file_name else "recording-unknown")
+        mumble_recording.stop_recording(audioState.mumble, audioState.wav, MUMBLE_TEMP_RECORDING_DIR, MUMBLE_RECORDING_DIR, file_name if file_name else "recording-unknown")
 
         audioState.mumble = None
         audioState.wav = None

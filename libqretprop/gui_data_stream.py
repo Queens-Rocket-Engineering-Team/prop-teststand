@@ -9,8 +9,8 @@ from zoneinfo import ZoneInfo
 import redis.asyncio as redis
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-import libqretprop.mylogging as ml
-import libqretprop.configManager as config
+import libqretprop.config_manager as config
+import libqretprop.redis_logging as ml
 
 
 router = APIRouter()      # Create a router for log streaming
