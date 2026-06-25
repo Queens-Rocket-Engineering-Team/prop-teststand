@@ -3,8 +3,8 @@ from collections.abc import AsyncGenerator
 
 import aioconsole
 
-import libqretprop.mylogging as ml
-from libqretprop.DeviceControllers import deviceTools
+import libqretprop.redis_logging as ml
+from libqretprop.device_controllers import deviceTools
 from libqretprop.runtime.discovery import discovery_service
 
 

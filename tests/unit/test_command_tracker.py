@@ -202,6 +202,19 @@ def test_discard_removes_fire_and_forget_operator_command_from_recent_history() 
     assert tracker.get_record(record.command_id) is None
 
 
+def test_get_single_is_not_ack_expected_but_is_recent_history() -> None:
+    tracker = CommandTracker()
+    record = _mark_sent(tracker, packet_type=PacketType.GET_SINGLE)
+
+    acked = tracker.mark_acked("conn-a", PacketType.GET_SINGLE, 7, now=12.0)
+
+    assert record.ack_expected is False
+    assert record.is_pending is False
+    assert acked is None
+    assert tracker.pending == ()
+    assert record in tracker.recent_completed
+
+
 def test_status_request_is_not_ack_expected_or_recent_history() -> None:
     tracker = CommandTracker()
     record = _mark_sent(tracker, packet_type=PacketType.STATUS_REQUEST)

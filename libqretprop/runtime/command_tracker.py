@@ -33,7 +33,6 @@ ACK_EXPECTED_PACKET_TYPES = frozenset(
         PacketType.CONTROL,
         PacketType.STREAM_START,
         PacketType.STREAM_STOP,
-        PacketType.GET_SINGLE,
         PacketType.HEARTBEAT,
         PacketType.TIMESYNC,
     },

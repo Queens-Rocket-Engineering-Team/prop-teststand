@@ -1,7 +1,7 @@
 
 from kasa import Device, Discover, KasaException
 
-import libqretprop.mylogging as ml
+import libqretprop.redis_logging as ml
 
 
 kasaRegistry: dict[str, Device] = {}

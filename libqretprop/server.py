@@ -5,11 +5,11 @@ from enum import Enum
 import redis
 
 import libqretprop
-import libqretprop.configManager as config
-import libqretprop.mylogging as ml
-from libqretprop.API import fastAPI
+import libqretprop.config_manager as config
+import libqretprop.redis_logging as ml
+from libqretprop.api import fastAPI
 from libqretprop.daemons.cliTerminal import commandProcessor
-from libqretprop.DeviceControllers import cameraTools, deviceTools, kasaTools
+from libqretprop.device_controllers import cameraTools, deviceTools, kasaTools
 
 
 # Server state enumeration using Enum
@@ -31,7 +31,7 @@ async def main(noDiscovery: bool = False,
 
     # Load server configuration
     configPath = os.getenv("PROP_CONFIG", "./config.yaml")
-    config.loadConfig(configPath)
+    config.load_config(configPath)
 
     # Initialize Redis client for logging
     redisClient = redis.Redis(host=config.serverConfig["services"]["redis"]["ip"],
@@ -42,7 +42,7 @@ async def main(noDiscovery: bool = False,
                               decode_responses=True,
                               )
 
-    ml.initLogger(redisClient)
+    ml.init_logger(redisClient)
     ml.slog(f"Starting server (version: {libqretprop.__version__})...")
 
     loop = asyncio.get_event_loop()

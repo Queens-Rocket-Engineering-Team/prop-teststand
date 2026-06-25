@@ -6,7 +6,7 @@ import time
 from itertools import count
 from typing import Any, Protocol
 
-import libqretprop.mylogging as ml
+import libqretprop.redis_logging as ml
 from libqretprop.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
 from libqretprop.qlcp.enums import ControlState, PacketType
 from libqretprop.qlcp.packets import (
@@ -49,9 +49,10 @@ class ESPConnectionLegacyLogSink(Protocol):
 class ESPConnectionRuntime:
     """Coordinates connected ESP/QLCP device lifecycle.
 
-    This is a transitional boundary. The runtime owns registry/lifecycle concerns;
-    per-connection packet routing and heartbeat behavior remain here only until a
-    smaller session/router split is introduced.
+    Owns: device registry, command-send operations (including all operator-visible
+    commands), inbound packet side effects, and state-event publishing.
+    Per-session bookkeeping (heartbeat miss counting, resync state) lives in
+    ``ESPDeviceSession``.
     """
 
     def __init__(
@@ -225,6 +226,113 @@ class ESPConnectionRuntime:
             self.remove_device(session)
             return False
 
+    # ------------------------------------------------------------------ #
+    # Device command operations                                            #
+    # ------------------------------------------------------------------ #
+
+    async def get_single(self, session: ESPDeviceSession) -> None:
+        if session.socket:
+            try:
+                packet = SimplePacket.create(PacketType.GET_SINGLE)
+                await self.send_tracked_command(session, packet)
+                ml.slog(f"Sent GET_SINGLE command to {session.name}")
+            except Exception as e:
+                ml.elog(f"Error sending GET_SINGLE command to {session.name}: {e}")
+                self.remove_device(session)
+        else:
+            ml.elog(f"No socket available for {session.name} to send GET_SINGLE command.")
+            self.remove_device(session)
+
+    async def start_streaming(self, session: ESPDeviceSession, frequency_hz: int) -> None:
+        if not frequency_hz or frequency_hz < 1 or frequency_hz > 65535:
+            ml.elog(f"Invalid frequency: {frequency_hz}. Must be between 1-65535 Hz.")
+            return
+
+        if session.socket:
+            try:
+                packet = StreamStartPacket.create(frequency_hz=frequency_hz)
+                await self.send_tracked_command(session, packet)
+                ml.slog(f"Sent STREAM_START ({frequency_hz} Hz) to {session.name}")
+            except Exception as e:
+                ml.elog(f"Error sending STREAM_START command to {session.name}: {e}")
+                self.remove_device(session)
+        else:
+            ml.elog(f"No socket available for {session.name} to send STREAM_START command.")
+            self.remove_device(session)
+
+    async def stop_streaming(self, session: ESPDeviceSession) -> None:
+        if session.socket:
+            try:
+                packet = SimplePacket.create(PacketType.STREAM_STOP)
+                await self.send_tracked_command(session, packet)
+                ml.slog(f"Sent STREAM_STOP command to {session.name}")
+            except Exception as e:
+                ml.elog(f"Error sending STREAM_STOP command to {session.name}: {e}")
+                self.remove_device(session)
+        else:
+            ml.elog(f"No socket available for {session.name} to send STREAM_STOP command.")
+            self.remove_device(session)
+
+    async def set_control(
+        self,
+        session: ESPDeviceSession,
+        control_name: str,
+        control_state: str,
+    ) -> None:
+        control_name = control_name.upper()
+        control_state = control_state.upper()
+
+        if control_name not in session.controls:
+            ml.elog(f"Invalid control name '{control_name}'. Valid: {list(session.controls.keys())}")
+            return
+
+        if control_state not in ["OPEN", "CLOSE"]:
+            ml.elog(f"Invalid state '{control_state}'. Valid: OPEN, CLOSE")
+            return
+
+        command_id = session.controls[control_name].id
+        state = ControlState.OPEN if control_state == "OPEN" else ControlState.CLOSED
+
+        if session.socket:
+            try:
+                packet = ControlPacket.create(command_id=command_id, command_state=state)
+                await self.send_tracked_command(session, packet)
+                ml.slog(
+                    f"Sent CONTROL command (id={command_id}, {control_name} {control_state}) to {session.name}",
+                )
+            except Exception as e:
+                ml.elog(f"Error sending CONTROL command to {session.name}: {e}")
+                self.remove_device(session)
+        else:
+            ml.elog(f"No socket available for {session.name} to send CONTROL command.")
+            self.remove_device(session)
+
+    async def get_status(self, session: ESPDeviceSession) -> None:
+        if session.socket:
+            try:
+                packet = SimplePacket.create(PacketType.STATUS_REQUEST)
+                await self.send_tracked_command(session, packet)
+                ml.slog(f"Sent STATUS_REQUEST command to {session.name}")
+            except Exception as e:
+                ml.elog(f"Error sending STATUS_REQUEST command to {session.name}: {e}")
+                self.remove_device(session)
+        else:
+            ml.elog(f"No socket available for {session.name} to send STATUS_REQUEST command.")
+            self.remove_device(session)
+
+    async def emergency_stop(self, session: ESPDeviceSession) -> None:
+        if session.socket:
+            try:
+                packet = SimplePacket.create(PacketType.ESTOP)
+                await self.send_tracked_command(session, packet)
+                ml.slog(f"Sent EMERGENCY STOP command to {session.name}")
+            except Exception as e:
+                ml.elog(f"Error sending EMERGENCY STOP command to {session.name}: {e}")
+                self.remove_device(session)
+        else:
+            ml.elog(f"No socket available for {session.name} to send EMERGENCY STOP command.")
+            self.remove_device(session)
+
     def expire_command_timeouts(self, session: ESPDeviceSession) -> bool:
         expired_commands = self.command_tracker.expire_pending(
             now=time.monotonic(),
@@ -257,7 +365,7 @@ class ESPConnectionRuntime:
 
         if packet.ack_packet_type == PacketType.TIMESYNC:
             session.last_sync_time = time.monotonic()
-            session._resync_pending = False
+            session.mark_synced()
             ml.plog(f"{session.name} TIMESYNC completed")
         elif packet.ack_packet_type == PacketType.HEARTBEAT:
             session.record_heartbeat_ack(command)
@@ -416,18 +524,18 @@ class ESPConnectionRuntime:
         raise TypeError(f"Unsupported tracked command packet: {type(packet).__name__}")
 
     def _handle_missed_heartbeat(self, session: ESPDeviceSession, command: CommandRecord) -> bool:
-        session._missed_heartbeat_acks += 1
         self._publish_state_event(self.system_state.record_command_timed_out(command))
 
-        if session._missed_heartbeat_acks < session.HEARTBEAT_ACK_MISS_LIMIT:
+        at_limit = session.register_missed_heartbeat()
+        if not at_limit:
             ml.plog(
                 f"{session.name} missed HEARTBEAT ACK seq={command.packet_sequence} "
-                f"({session._missed_heartbeat_acks}/{session.HEARTBEAT_ACK_MISS_LIMIT})",
+                f"({session.missed_heartbeat_count}/{session.HEARTBEAT_ACK_MISS_LIMIT})",
             )
             return False
 
-        session.is_responsive = False
-        ml.elog(f"{session.name} marked unresponsive: missed {session._missed_heartbeat_acks} HEARTBEAT ACKs")
+        session.mark_unresponsive()
+        ml.elog(f"{session.name} marked unresponsive: missed {session.missed_heartbeat_count} HEARTBEAT ACKs")
         self.remove_device(session)
         return True
 
@@ -459,14 +567,6 @@ class ESPConnectionRuntime:
         if state == ControlState.CLOSED:
             return "CLOSED"
         return "UNKNOWN"
-
-    @staticmethod
-    def needs_resync(session: ESPDeviceSession) -> bool:
-        return (
-            not session._resync_pending
-            and session.last_sync_time is not None
-            and time.monotonic() - session.last_sync_time > session.RESYNC_INTERVAL_S
-        )
 
     def _publish_state_event(self, event: dict[str, object] | None) -> None:
         self.state_stream.publish(event)

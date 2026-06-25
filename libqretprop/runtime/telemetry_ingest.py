@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
-import libqretprop.mylogging as ml
+import libqretprop.redis_logging as ml
 from libqretprop.qlcp.decoding import decode_packet_server
 from libqretprop.qlcp.packets import DataPacket
 
