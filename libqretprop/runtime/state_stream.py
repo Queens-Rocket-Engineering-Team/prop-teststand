@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from libqretprop.runtime.metrics import NULL_METRICS, Metrics
+
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -12,10 +14,14 @@ if TYPE_CHECKING:
     from libqretprop.state import SystemState
 
 
+STREAM_METRIC_LABEL = "state"
+
+
 class StateStream:
     """Broadcasts state snapshots and typed state events to WebSocket clients."""
 
-    def __init__(self, state: SystemState) -> None:
+    def __init__(self, state: SystemState, *, metrics: Metrics | None = None) -> None:
+        self.metrics = metrics or NULL_METRICS
         self._state = state
         self._clients: set[WebSocket] = set()
         self._broadcast_tasks: set[asyncio.Task[None]] = set()
@@ -34,6 +40,7 @@ class StateStream:
     async def connect_client(self, websocket: WebSocket) -> None:
         await websocket.accept()
         self._clients.add(websocket)
+        self.metrics.set_ws_clients(STREAM_METRIC_LABEL, self.client_count)
         try:
             await websocket.send_json(self.snapshot_message())
         except Exception:
@@ -42,6 +49,7 @@ class StateStream:
 
     async def disconnect_client(self, websocket: WebSocket) -> None:
         self._clients.discard(websocket)
+        self.metrics.set_ws_clients(STREAM_METRIC_LABEL, self.client_count)
         with contextlib.suppress(Exception):
             await websocket.close()
 

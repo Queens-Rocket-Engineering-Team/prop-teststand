@@ -21,6 +21,7 @@ from libqretprop.qlcp.packets import (
 )
 from libqretprop.runtime.command_tracker import CommandTracker
 from libqretprop.runtime.esp_device_session import ESPDeviceSession
+from libqretprop.runtime.metrics import NULL_METRICS, Metrics
 from libqretprop.state import SystemState
 
 
@@ -52,9 +53,11 @@ class ESPConnectionRuntime:
         state_stream: StatePublisher,
         command_tracker: CommandTracker | None = None,
         system_state: SystemState | None = None,
+        metrics: Metrics | None = None,
     ) -> None:
         self.devices: dict[str, ESPDeviceSession] = {}
-        self.command_tracker = CommandTracker() if command_tracker is None else command_tracker
+        self.metrics = metrics or NULL_METRICS
+        self.command_tracker = CommandTracker(metrics=self.metrics) if command_tracker is None else command_tracker
         if system_state is None:
             system_state = SystemState(command_tracker=self.command_tracker)
         self.system_state = system_state
@@ -126,11 +129,12 @@ class ESPConnectionRuntime:
             ml.elog(
                 f"Device {address} attempted to connect and is already registered. Closing old connection.",
             )
-            self._disconnect_registered_device(old_session)
+            self._disconnect_registered_device(old_session, reason="duplicate_address")
 
         self.disconnect_registered_devices_with_name(new_session.name)
 
         self.devices[address] = new_session
+        self.metrics.record_device_connection(device=new_session.name)
         self._publish_state_event(self.system_state.register_device(new_session))
 
         listener_loop = asyncio.get_running_loop() if loop is None else loop
@@ -160,12 +164,13 @@ class ESPConnectionRuntime:
             ml.elog(
                 f"Device {session.name} reconnected from a new address. Closing old connection at {session.address}.",
             )
-            self._disconnect_registered_device(session)
+            self._disconnect_registered_device(session, reason="reconnected_name")
 
     def close_all(self) -> None:
         for session in list(self.devices.values()):
             self._publish_state_event(self.system_state.mark_disconnected(session))
             self.cleanup_device(session, reason="server_shutdown")
+            self.metrics.record_device_disconnection("server_shutdown", device=session.name)
 
         self.devices.clear()
         ml.slog("Closed all device sockets and cleared registry.")
@@ -408,14 +413,17 @@ class ESPConnectionRuntime:
 
         if self.is_current_connection(session):
             del self.devices[session.address]
+            self.metrics.record_device_disconnection("connection_cleanup", device=session.name)
             ml.slog(f"{session.name} removed from registry.")
         else:
             ml.plog(f"Ignored stale removal for {session.name} at {session.address}")
 
-    def _disconnect_registered_device(self, session: ESPDeviceSession) -> None:
+    def _disconnect_registered_device(self, session: ESPDeviceSession, *, reason: str) -> None:
         self.cleanup_device(session)
         self._publish_state_event(self.system_state.mark_disconnected(session))
-        self.devices.pop(session.address, None)
+        removed = self.devices.pop(session.address, None)
+        if removed is not None:
+            self.metrics.record_device_disconnection(reason, device=session.name)
 
     async def handle_packet(
         self,
@@ -471,6 +479,7 @@ class ESPConnectionRuntime:
         raise TypeError(message)
 
     def _handle_missed_heartbeat(self, session: ESPDeviceSession, command: CommandRecord) -> bool:
+        self.metrics.record_heartbeat_miss(session.name)
         self._publish_state_event(self.system_state.record_command_timed_out(command))
 
         at_limit = session.register_missed_heartbeat()

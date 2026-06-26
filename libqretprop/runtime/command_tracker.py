@@ -13,6 +13,7 @@ from libqretprop.runtime.command_types import (
     CommandRecord,
     CommandSummary,
 )
+from libqretprop.runtime.metrics import NULL_METRICS, Metrics
 
 
 if TYPE_CHECKING:
@@ -26,10 +27,12 @@ class CommandTracker:
         self,
         *,
         recent_completed_limit: int = DEFAULT_RECENT_COMPLETED_LIMIT,
+        metrics: Metrics | None = None,
     ) -> None:
         if recent_completed_limit < 0:
             raise ValueError("recent_completed_limit must be non-negative")
 
+        self.metrics = metrics or NULL_METRICS
         self._next_command_id = 1
         self._pending_records: dict[int, CommandRecord] = {}
         self._pending: dict[CommandKey, int] = {}
@@ -103,6 +106,10 @@ class CommandTracker:
 
         record.state = CommandLifecycle.ACKED
         record.acked_at = self._timestamp(now)
+        self.metrics.record_command_acked(
+            record.packet_type,
+            max(0.0, record.acked_at - record.sent_at),
+        )
         self._complete_record(record)
         return record
 
@@ -122,6 +129,11 @@ class CommandTracker:
         record.state = CommandLifecycle.NACKED
         record.nacked_at = self._timestamp(now)
         record.nack_error_code = error_code
+        self.metrics.record_command_nacked(
+            record.packet_type,
+            device=record.device_name,
+            error_code=error_code,
+        )
         self._complete_record(record)
         return record
 
@@ -146,6 +158,7 @@ class CommandTracker:
             self._pending_records.pop(command_id)
             record.state = CommandLifecycle.TIMED_OUT
             record.timed_out_at = now
+            self.metrics.record_command_timed_out(record.packet_type, device=record.device_name)
             self._complete_record(record)
             expired.append(record)
 
@@ -170,6 +183,11 @@ class CommandTracker:
             record.state = CommandLifecycle.TIMED_OUT
             record.timed_out_at = timestamp
             record.failure_reason = reason
+            self.metrics.record_command_connection_failed(
+                record.packet_type,
+                device=record.device_name,
+                reason=reason,
+            )
             self._complete_record(record)
             failed.append(record)
 
@@ -213,6 +231,7 @@ class CommandTracker:
         existing_record.state = CommandLifecycle.TIMED_OUT
         existing_record.timed_out_at = record.sent_at
         existing_record.failure_reason = "duplicate_command_key"
+        self.metrics.record_command_timed_out(existing_record.packet_type, device=existing_record.device_name)
         self._complete_record(existing_record)
 
     def _complete_record(self, record: CommandRecord) -> None:

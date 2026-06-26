@@ -5,9 +5,14 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from libqretprop.runtime.metrics import NULL_METRICS, Metrics
+
 
 if TYPE_CHECKING:
     from libqretprop.runtime.telemetry_ingest import TelemetryBatch
+
+
+STREAM_METRIC_LABEL = "telemetry_raw"
 
 
 class TelemetryStreamRuntime:
@@ -18,7 +23,8 @@ class TelemetryStreamRuntime:
     loop: a slow or stalled client never blocks ingest, its batches are dropped instead.
     """
 
-    def __init__(self, *, max_queue: int = 256) -> None:
+    def __init__(self, *, max_queue: int = 256, metrics: Metrics | None = None) -> None:
+        self.metrics = metrics or NULL_METRICS
         self._max_queue = max_queue
         self._clients: dict[WebSocket, asyncio.Queue[dict[str, Any]]] = {}
         self._dropped_batches = 0
@@ -61,13 +67,16 @@ class TelemetryStreamRuntime:
                 queue.put_nowait(message)
             except asyncio.QueueFull:
                 self._dropped_batches += 1
+                self.metrics.record_telemetry_dropped_batch(STREAM_METRIC_LABEL)
 
     async def connect_client(self, websocket: WebSocket) -> None:
         await websocket.accept()
         self._clients[websocket] = asyncio.Queue(maxsize=self._max_queue)
+        self.metrics.set_ws_clients(STREAM_METRIC_LABEL, self.client_count)
 
     async def disconnect_client(self, websocket: WebSocket) -> None:
         self._clients.pop(websocket, None)
+        self.metrics.set_ws_clients(STREAM_METRIC_LABEL, self.client_count)
         with contextlib.suppress(Exception):
             await websocket.close()
 

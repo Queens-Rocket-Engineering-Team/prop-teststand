@@ -9,12 +9,15 @@ import numpy as np
 from fastapi import WebSocket, WebSocketDisconnect
 from tsdownsample import M4Downsampler
 
+from libqretprop.runtime.metrics import NULL_METRICS, Metrics
+
 
 if TYPE_CHECKING:
     from libqretprop.runtime.telemetry_ingest import TelemetryBatch
 
 DISPLAY_TARGET_HZ = 30.0
-DISPLAY_POINTS_PER_BUCKET = 8  # M4 requires >= 8 (at least 2 windows × 4 points)
+DISPLAY_POINTS_PER_BUCKET = 8  # M4 requires >= 8 (at least 2 windows x 4 points)
+STREAM_METRIC_LABEL = "telemetry_display"
 
 
 class Downsampler(Protocol):
@@ -70,7 +73,9 @@ class TelemetryDisplayStream:
         points_per_bucket: int = DISPLAY_POINTS_PER_BUCKET,
         downsampler: Downsampler | None = None,
         max_queue: int = 128,
+        metrics: Metrics | None = None,
     ) -> None:
+        self.metrics = metrics or NULL_METRICS
         self._bucket_interval_s = 1.0 / target_hz
         self._points_per_bucket = points_per_bucket
         self._downsampler: Downsampler = M4Downsampler() if downsampler is None else downsampler
@@ -148,6 +153,7 @@ class TelemetryDisplayStream:
                 queue.put_nowait(message)
             except asyncio.QueueFull:
                 self._dropped_batches += 1
+                self.metrics.record_telemetry_dropped_batch(STREAM_METRIC_LABEL)
 
     async def run(self) -> None:
         while True:
@@ -165,9 +171,11 @@ class TelemetryDisplayStream:
     async def connect_client(self, websocket: WebSocket) -> None:
         await websocket.accept()
         self._clients[websocket] = asyncio.Queue(maxsize=self._max_queue)
+        self.metrics.set_ws_clients(STREAM_METRIC_LABEL, self.client_count)
 
     async def disconnect_client(self, websocket: WebSocket) -> None:
         self._clients.pop(websocket, None)
+        self.metrics.set_ws_clients(STREAM_METRIC_LABEL, self.client_count)
         if not self._clients:
             self._buckets.clear()
         with contextlib.suppress(Exception):

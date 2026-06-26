@@ -39,7 +39,13 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         start_time = time.perf_counter()
         response = await call_next(request)
-        duration_ms = (time.perf_counter() - start_time) * 1000
+        duration_s = time.perf_counter() - start_time
+        duration_ms = duration_s * 1000
+
+        runtime = getattr(request.app.state, "runtime", None)
+        metrics = getattr(runtime, "metrics", None)
+        if metrics is not None:
+            metrics.observe_http_request(request.method, request.url.path, response.status_code, duration_s)
 
         client = request.client
         if client is None:
@@ -174,6 +180,11 @@ async def getHealth() -> dict:
 @app.get("/v1/state", summary="Get a structured snapshot of server state")
 async def getState(request: Request) -> dict[str, Any]:
     return request.app.state.runtime.system_state.to_dict()
+
+
+@app.get("/v1/metrics", summary="Get live server metrics diagnostics")
+async def getMetrics(request: Request) -> dict[str, object]:
+    return request.app.state.runtime.metrics.to_dict()
 
 
 @app.websocket("/ws/state")
