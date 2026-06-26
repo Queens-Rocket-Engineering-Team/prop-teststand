@@ -23,7 +23,7 @@ RUN mkdir -p libqretprop qretproptools/cli && \
     touch libqretprop/__init__.py qretproptools/__init__.py qretproptools/cli/__init__.py
 
 # Add config-specific files
-COPY libqretprop/configManager.py ./libqretprop/configManager.py
+COPY libqretprop/config_manager.py ./libqretprop/config_manager.py
 COPY config.yaml ./config.yaml
 
 # Install the copied log-tool project files. This image does not use the qlcp
