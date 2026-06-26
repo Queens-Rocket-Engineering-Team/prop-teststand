@@ -23,6 +23,7 @@ from libqretprop.device_controllers import cameraTools, deviceTools, kasaTools
 from libqretprop.gui_data_stream import router as log_router
 from libqretprop.runtime.discovery import discovery_service
 from libqretprop.runtime.state_stream import state_stream
+from libqretprop.runtime.telemetry_display_stream import telemetry_display_stream
 from libqretprop.runtime.telemetry_stream import telemetry_stream
 from libqretprop.state import system_state
 
@@ -186,6 +187,11 @@ async def websocket_state(websocket: WebSocket) -> None:
 @app.websocket("/ws/telemetry/raw")
 async def websocket_raw_telemetry(websocket: WebSocket) -> None:
     await telemetry_stream.handle_client(websocket)
+
+
+@app.websocket("/ws/telemetry/display")
+async def websocket_display_telemetry(websocket: WebSocket) -> None:
+    await telemetry_display_stream.handle_client(websocket)
 
 
 @app.post(

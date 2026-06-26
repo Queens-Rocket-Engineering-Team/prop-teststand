@@ -130,22 +130,21 @@ class TelemetryIngest:
 class TelemetryUDPListener:
     """Owns the UDP socket receive loop for incoming DATA datagrams.
 
-    Delegates decode/batch creation to ``TelemetryIngest`` and fans decoded
-    batches out through a ``BatchPublisher`` (the telemetry stream). It owns no
-    decode, sensor-mapping, or fan-out logic of its own.
+    Delegates decode/batch creation to ``TelemetryIngest`` and forwards decoded
+    batches to one or more ``BatchPublisher`` targets. It owns no decode or
+    sensor-mapping logic of its own.
     """
 
     def __init__(
         self,
         ingest: TelemetryIngest,
-        publisher: BatchPublisher,
-        *,
+        *publishers: BatchPublisher,
         port: int = UDP_PORT,
         batch_size: int = 128,
         recv_buffer_bytes: int = 4 * 1024 * 1024,
     ) -> None:
         self.ingest = ingest
-        self.publisher = publisher
+        self.publishers = publishers
         self.port = port
         # Max packets drained per event-loop tick before yielding to other tasks.
         self.batch_size = batch_size
@@ -173,7 +172,8 @@ class TelemetryUDPListener:
                     device_ip = addr[0]
                     batch = self.ingest.handle_datagram(data, device_ip)
                     if batch is not None:
-                        self.publisher.publish_batch(batch)
+                        for publisher in self.publishers:
+                            publisher.publish_batch(batch)
 
                     try:
                         data, addr = udp_socket.recvfrom(4096)
@@ -192,10 +192,14 @@ class TelemetryUDPListener:
 
 
 # Runtime singletons. Imported lazily-at-module-end to keep the import graph acyclic:
-# telemetry_stream only imports this module under TYPE_CHECKING.
+# telemetry_stream and telemetry_display_stream only import this module under TYPE_CHECKING.
 from libqretprop.runtime.esp_connection_runtime import esp_runtime  # noqa: E402
+from libqretprop.runtime.telemetry_display_stream import telemetry_display_stream  # noqa: E402
 from libqretprop.runtime.telemetry_stream import telemetry_stream  # noqa: E402
 
-
 telemetry_ingest = TelemetryIngest(esp_runtime)
-telemetry_udp_listener = TelemetryUDPListener(telemetry_ingest, telemetry_stream)
+telemetry_udp_listener = TelemetryUDPListener(
+    telemetry_ingest,
+    telemetry_stream,
+    telemetry_display_stream,
+)

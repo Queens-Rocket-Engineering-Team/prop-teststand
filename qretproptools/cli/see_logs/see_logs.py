@@ -5,7 +5,7 @@ import redis
 import redis.exceptions
 
 import os
-import libqretprop.configManager as config
+import libqretprop.config_manager as config
 
 
 def main() -> None:
@@ -29,7 +29,7 @@ def main() -> None:
     try:
         # Load server configuration for redis
         configPath = os.getenv("PROP_CONFIG", "./config.yaml")
-        config.loadConfig(configPath)
+        config.load_config(configPath)
 
         while True:
             r = None

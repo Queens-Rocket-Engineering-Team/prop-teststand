@@ -10,6 +10,7 @@ import libqretprop.redis_logging as ml
 from libqretprop.api import fastAPI
 from libqretprop.daemons.cliTerminal import commandProcessor
 from libqretprop.device_controllers import cameraTools, deviceTools, kasaTools
+from libqretprop.runtime.telemetry_display_stream import telemetry_display_stream
 
 
 # Server state enumeration using Enum
@@ -62,6 +63,9 @@ async def main(noDiscovery: bool = False,
 
         daemons["udpListener"] = loop.create_task(deviceTools.udpListener())
         ml.slog("Started UDP listener daemon task.")
+
+        daemons["telemetryDisplayFlush"] = loop.create_task(telemetry_display_stream.run())
+        ml.slog("Started telemetry display stream flush task.")
 
         # Start SSDP auto-discovery loop for finding devices on the network
         daemons["autoDiscovery"] = loop.create_task(deviceTools.autoDiscoveryLoop())

@@ -25,6 +25,7 @@ dependencies = [
     "opuslib>=3.0.1",
     "pymumble",
     "pytest>=9.0.2",
+    "tsdownsample>=0.1.5.1",
 ]
 
 [dependency-groups]
