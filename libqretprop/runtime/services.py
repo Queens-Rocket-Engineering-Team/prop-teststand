@@ -8,6 +8,7 @@ import libqretprop.redis_logging as ml
 from libqretprop.runtime.command_tracker import CommandTracker
 from libqretprop.runtime.discovery import DiscoveryService
 from libqretprop.runtime.esp_connection_runtime import ESPConnectionListener, ESPConnectionRuntime
+from libqretprop.runtime.metrics import Metrics
 from libqretprop.runtime.state_stream import StateStream
 from libqretprop.runtime.telemetry_display_stream import TelemetryDisplayStream
 from libqretprop.runtime.telemetry_ingest import TelemetryIngest, TelemetryUDPListener
@@ -24,6 +25,7 @@ class RuntimeServices:
     """
 
     command_tracker: CommandTracker
+    metrics: Metrics
     system_state: SystemState
     state_stream: StateStream
     discovery_service: DiscoveryService
@@ -65,19 +67,21 @@ def build_runtime() -> RuntimeServices:
     the returned :class:`RuntimeServices` container to all consumers — do not
     import it as a module-level global.
     """
-    command_tracker = CommandTracker()
+    metrics = Metrics()
+    command_tracker = CommandTracker(metrics=metrics)
     system_state = SystemState(command_tracker=command_tracker)
-    state_stream = StateStream(system_state)
+    state_stream = StateStream(system_state, metrics=metrics)
     discovery_service = DiscoveryService()
-    telemetry_stream = TelemetryStreamRuntime()
-    telemetry_display_stream = TelemetryDisplayStream()
+    telemetry_stream = TelemetryStreamRuntime(metrics=metrics)
+    telemetry_display_stream = TelemetryDisplayStream(metrics=metrics)
     esp_runtime = ESPConnectionRuntime(
         command_tracker=command_tracker,
         system_state=system_state,
         state_stream=state_stream,
+        metrics=metrics,
     )
     esp_connection_listener = ESPConnectionListener(esp_runtime)
-    telemetry_ingest = TelemetryIngest(esp_runtime)
+    telemetry_ingest = TelemetryIngest(esp_runtime, metrics=metrics)
     telemetry_udp_listener = TelemetryUDPListener(
         telemetry_ingest,
         telemetry_stream,
@@ -85,6 +89,7 @@ def build_runtime() -> RuntimeServices:
     )
     return RuntimeServices(
         command_tracker=command_tracker,
+        metrics=metrics,
         system_state=system_state,
         state_stream=state_stream,
         discovery_service=discovery_service,

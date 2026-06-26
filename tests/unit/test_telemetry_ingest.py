@@ -7,10 +7,15 @@ from libqretprop.qlcp.config_parser import parse_config
 from libqretprop.qlcp.enums import PacketType, Unit
 from libqretprop.qlcp.packets import AckPacket, DataPacket, SensorReading
 from libqretprop.runtime.esp_device_session import ESPDeviceSession
+from libqretprop.runtime.metrics import Metrics
 from libqretprop.runtime.telemetry_ingest import (
     TelemetryIngest,
     TelemetryReading,
 )
+
+
+def _metrics_snapshot(metrics: Metrics) -> dict[str, Any]:
+    return cast("dict[str, Any]", metrics.to_dict())
 
 
 class FakeRuntime:
@@ -49,7 +54,7 @@ def _make_session(*, address: str = "10.0.0.2", last_sync_time: float | None = 1
         qlcp_config=config,
         last_sync_time=last_sync_time,
     )
-    return cast(ESPDeviceSession, session)
+    return cast("ESPDeviceSession", session)
 
 
 def test_data_packet_from_registered_session_produces_batch() -> None:
@@ -122,6 +127,40 @@ def test_unknown_device_address_is_logged_and_ignored(monkeypatch: pytest.Monkey
 
     assert batch is None
     assert errors == ["Received UDP packet from unknown device 10.0.0.99"]
+
+
+def test_decode_error_records_metric(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FakeRuntime()
+    session = _make_session()
+    runtime.devices[session.address] = session
+    metrics = Metrics(time_fn=lambda: 100.0)
+    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.ml.elog", lambda *_args, **_kwargs: None)
+    ingest = TelemetryIngest(runtime, metrics=metrics)
+
+    batch = ingest.handle_datagram(b"not decoded", session.address)
+
+    assert batch is None
+    snapshot = _metrics_snapshot(metrics)
+    assert snapshot["telemetry"]["decode_errors"]["total"]["decode"] == 1
+    assert snapshot["telemetry"]["ingest"]["by_device"]["PANDA"]["udp_bytes_total"] == len(b"not decoded")
+
+
+def test_data_packets_record_throughput_without_packet_loss_estimate() -> None:
+    runtime = FakeRuntime()
+    session = _make_session()
+    runtime.devices[session.address] = session
+    metrics = Metrics(time_fn=lambda: 100.0)
+    ingest = TelemetryIngest(runtime, metrics=metrics)
+    readings = [SensorReading(sensor_id=0, unit=Unit.CELSIUS, value=1.0)]
+
+    ingest.handle_packet(DataPacket(sequence=254, timestamp=12345, readings=readings), session)
+    ingest.handle_packet(DataPacket(sequence=1, timestamp=12346, readings=readings), session)
+
+    snapshot = _metrics_snapshot(metrics)
+    assert "loss" not in snapshot["telemetry"]
+    assert snapshot["telemetry"]["ingest"]["by_device"]["PANDA"]["data_packets_total"] == 2
+    assert "batches_total" not in snapshot["telemetry"]["ingest"]["by_device"]["PANDA"]
+    assert snapshot["telemetry"]["ingest"]["by_device"]["PANDA"]["readings_total"] == 2
 
 
 def test_non_data_packet_is_logged_and_ignored(monkeypatch: pytest.MonkeyPatch) -> None:

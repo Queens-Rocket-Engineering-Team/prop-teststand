@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Protocol
 import libqretprop.redis_logging as ml
 from libqretprop.qlcp.decoding import decode_packet_server
 from libqretprop.qlcp.packets import DataPacket
+from libqretprop.runtime.metrics import NULL_METRICS, Metrics
 
 
 if TYPE_CHECKING:
@@ -56,34 +57,45 @@ class TelemetryIngest:
     def __init__(
         self,
         runtime: SessionRegistry,
+        *,
+        metrics: Metrics | None = None,
     ) -> None:
         self.runtime = runtime
+        self.metrics = metrics or NULL_METRICS
 
     def handle_datagram(self, data: bytes, address: str) -> TelemetryBatch | None:
         session = self.runtime.devices.get(address)
         if session is None:
+            self.metrics.record_telemetry_datagram(len(data))
+            self.metrics.record_telemetry_decode_error("unknown_device")
             ml.elog(f"Received UDP packet from unknown device {address}")
             return None
+
+        self.metrics.record_telemetry_datagram(len(data), device=session.name)
 
         try:
             packet = decode_packet_server(data)
         except Exception as e:
+            self.metrics.record_telemetry_decode_error("decode")
             ml.elog(f"Error decoding UDP packet from {address}: {e}")
             return None
 
         if not isinstance(packet, DataPacket):
+            self.metrics.record_telemetry_decode_error("non_data")
             ml.elog(f"Received non-DATA packet over UDP from {session.name}. Ignoring.")
             return None
 
         return self.handle_packet(packet, session)
 
     def handle_packet(self, packet: DataPacket, session: ESPDeviceSession) -> TelemetryBatch:
+        self.metrics.record_telemetry_data_packet(session.name)
         timestamp_s = packet.timestamp / 1000.0 if session.last_sync_time is not None else time.monotonic()
         readings: list[TelemetryReading] = []
 
         for reading in packet.readings:
             sensor = session.qlcp_config.sensors_by_id.get(reading.sensor_id)
             if sensor is None:
+                self.metrics.record_telemetry_decode_error("unknown_sensor")
                 ml.elog(
                     f"Received DATA reading for unknown sensor id {reading.sensor_id} from {session.name}. Ignoring.",
                 )
@@ -106,6 +118,7 @@ class TelemetryIngest:
             timestamp_s=timestamp_s,
             readings=tuple(readings),
         )
+        self.metrics.record_telemetry_readings(session.name, len(batch.readings))
         return batch
 
 

@@ -1,5 +1,12 @@
+from typing import Any, cast
+
 from libqretprop.qlcp.enums import ControlState, ErrorCode, PacketType
 from libqretprop.runtime.command_tracker import CommandKey, CommandLifecycle, CommandRecord, CommandTracker
+from libqretprop.runtime.metrics import Metrics
+
+
+def _metrics_snapshot(metrics: Metrics) -> dict[str, Any]:
+    return cast("dict[str, Any]", metrics.to_dict())
 
 
 def _find_pending(
@@ -81,6 +88,19 @@ def test_ack_resolves_command_only_for_matching_connection_key() -> None:
     assert first.state == CommandLifecycle.SENT
     assert _find_pending(tracker, "conn-a", PacketType.CONTROL, 7) is first
     assert _find_pending(tracker, "conn-b", PacketType.CONTROL, 7) is None
+
+
+def test_ack_records_command_metrics() -> None:
+    metrics = Metrics(time_fn=lambda: 100.0)
+    tracker = CommandTracker(metrics=metrics)
+    _mark_sent(tracker, packet_type=PacketType.CONTROL, sequence=7, now=10.0)
+
+    tracker.mark_acked("conn-a", PacketType.CONTROL, 7, now=10.5)
+
+    snapshot = _metrics_snapshot(metrics)
+    assert snapshot["commands"]["outcomes_total"]["CONTROL"]["acked"] == 1
+    assert snapshot["commands"]["rtt_seconds"]["CONTROL"]["count"] == 1
+    assert snapshot["commands"]["rtt_seconds"]["CONTROL"]["last"] == 0.5
 
 
 def test_nack_resolves_command_only_for_matching_connection_key() -> None:
