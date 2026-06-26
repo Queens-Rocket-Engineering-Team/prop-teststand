@@ -19,7 +19,7 @@ from starlette.responses import Response
 import libqretprop.config_manager as config
 from libqretprop import mumble_recording
 from libqretprop import redis_logging as ml
-from libqretprop.device_controllers import cameraTools, deviceTools, kasaTools
+from libqretprop.device_controllers import cameraTools, kasaTools
 from libqretprop.gui_data_stream import router as log_router
 from libqretprop.runtime.services import RuntimeServices
 
@@ -205,13 +205,13 @@ async def sendDeviceCommand(
 
     # Map the relevant command name to their functions
     commandMap: dict[str, Callable] = {
-        "GETS": deviceTools.getSingle,
-        "STREAM": deviceTools.startStreaming,
-        "STOP": deviceTools.stopStreaming,
-        "CONTROL": deviceTools.setControl,
+        "GETS": rt.esp_runtime.get_single,
+        "STREAM": rt.esp_runtime.start_streaming,
+        "STOP": rt.esp_runtime.stop_streaming,
+        "CONTROL": rt.esp_runtime.set_control,
     }
 
-    devices = deviceTools.getRegisteredDevices(rt)
+    devices = rt.esp_runtime.get_registered_devices()
 
     func = commandMap.get(cmd.command)
     if func is None:
@@ -229,7 +229,7 @@ async def sendDeviceCommand(
             try:
                 freq = int(cmd.args[0])
                 anyCommandsSent = True
-                bgTasks.add_task(func, rt, device, freq)
+                bgTasks.add_task(func, device, freq)
             except ValueError:
                 raise HTTPException(400, f"STREAM frequency must be an integer, got '{cmd.args[0]}'")
         elif cmd.command == "CONTROL":
@@ -244,10 +244,10 @@ async def sendDeviceCommand(
                 continue
 
             anyCommandsSent = True
-            bgTasks.add_task(func, rt, device, controlName, controlState)
+            bgTasks.add_task(func, device, controlName, controlState)
         else:
             anyCommandsSent = True
-            bgTasks.add_task(func, rt, device, *cmd.args)
+            bgTasks.add_task(func, device, *cmd.args)
 
     if not anyCommandsSent:
         raise HTTPException(400, "No valid target devices for the command")
@@ -470,9 +470,9 @@ async def discoverDevices(request: Request) -> CommandResponse:
 @app.post("/v1/estop", summary="Emergency stop - stops all streaming and control commands immediately")
 async def emergencyStop(request: Request) -> None:
     rt = request.app.state.runtime
-    devices = deviceTools.getRegisteredDevices(rt)
+    devices = rt.esp_runtime.get_registered_devices()
     for device in devices.values():
-        await deviceTools.emergencyStop(rt, device)
+        await rt.esp_runtime.emergency_stop(device)
 
 
 class ConfigsResponse(BaseModel):
@@ -484,7 +484,7 @@ class ConfigsResponse(BaseModel):
 async def getServerConfig(request: Request) -> ConfigsResponse:
     rt = request.app.state.runtime
     configs: dict[str, dict] = {}
-    for dev in deviceTools.getRegisteredDevices(rt).values():
+    for dev in rt.esp_runtime.get_registered_devices().values():
         configs[getattr(dev, "name", getattr(dev, "id", "unknown"))] = dev.qlcp_config.raw_config
     return ConfigsResponse(count=len(configs), configs=configs)
 
@@ -492,11 +492,11 @@ async def getServerConfig(request: Request) -> ConfigsResponse:
 @app.get("/status", summary="Gets the current state of each valve. Status is reported to redis log channel.")
 async def getStatus(request: Request) -> None:
     rt = request.app.state.runtime
-    devices = deviceTools.getRegisteredDevices(rt)
+    devices = rt.esp_runtime.get_registered_devices()
 
     # Trigger a status request to all devices to get their latest states for the response and to log to the redis log channel
     for device in devices.values():
-        await deviceTools.getStatus(rt, device)
+        await rt.esp_runtime.get_status(device)
 
 
 @dataclass

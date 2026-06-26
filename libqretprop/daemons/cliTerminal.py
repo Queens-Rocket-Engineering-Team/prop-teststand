@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 import aioconsole
 
 import libqretprop.redis_logging as ml
-from libqretprop.device_controllers import deviceTools
 
 
 if TYPE_CHECKING:
@@ -88,7 +87,7 @@ async def handleServerCommand(runtime: RuntimeServices, command: str, args: list
         else:
             ml.slog("Usage: autodiscovery <on|off|interval <seconds>|status>")
     elif cmd == "LIST":
-        devices = deviceTools.getRegisteredDevices(runtime)
+        devices = runtime.esp_runtime.get_registered_devices()
         if not devices:
             ml.slog("No devices connected.")
             ml.slog("  Try: discover")
@@ -101,7 +100,7 @@ async def handleServerCommand(runtime: RuntimeServices, command: str, args: list
         if not args:
             ml.slog("Usage: remove <device_name>")
             return
-        devices = deviceTools.getRegisteredDevices(runtime)
+        devices = runtime.esp_runtime.get_registered_devices()
         device = None
         for d in devices.values():
             if d.name.upper() == args[0].upper():
@@ -110,14 +109,14 @@ async def handleServerCommand(runtime: RuntimeServices, command: str, args: list
         if not device:
             ml.slog(f"Device '{args[0]}' not currently registered. Use \"LIST\" to see devices.")
             return
-        deviceTools.remove_device(runtime, device)
+        runtime.esp_runtime.remove_device(device)
         ml.slog(f"Removed device '{device.name}'")
 
     elif cmd == "INFO":
         if not args:
             ml.slog("Usage: info <device_name>")
             return
-        devices = deviceTools.getRegisteredDevices(runtime)
+        devices = runtime.esp_runtime.get_registered_devices()
         device = None
         for d in devices.values():
             if d.name.upper() == args[0].upper():
@@ -151,9 +150,9 @@ async def handleServerCommand(runtime: RuntimeServices, command: str, args: list
         ml.slog("  status <device>    - Get device status / control states")
         ml.slog("  quit               - Exit")
     elif cmd == "ESTOP":
-        devices = deviceTools.getRegisteredDevices(runtime)
+        devices = runtime.esp_runtime.get_registered_devices()
         for device in devices.values():
-            await deviceTools.emergencyStop(runtime, device)
+            await runtime.esp_runtime.emergency_stop(device)
         ml.slog("Emergency stop sent to all devices")
 
 
@@ -163,7 +162,7 @@ async def handleDeviceCommand(runtime: RuntimeServices, command: str, args: list
         return
 
     device_name = args[0]
-    devices = deviceTools.getRegisteredDevices(runtime)
+    devices = runtime.esp_runtime.get_registered_devices()
     device = None
     for d in devices.values():
         if d.name.lower() == device_name.lower():
@@ -177,38 +176,38 @@ async def handleDeviceCommand(runtime: RuntimeServices, command: str, args: list
     cmd = command.upper()
     try:
         if cmd == "GETS":
-            await deviceTools.getSingle(runtime, device)
+            await runtime.esp_runtime.get_single(device)
             ml.slog(f"Requested data from {device.name}")
         elif cmd == "STREAM":
             if len(args) < 2:
                 ml.slog("Usage: stream <device> <frequency_hz>")
                 return
             freq = int(args[1])
-            await deviceTools.startStreaming(runtime, device, freq)
+            await runtime.esp_runtime.start_streaming(device, freq)
             ml.slog(f"Streaming from {device.name} at {freq} Hz")
         elif cmd == "STOP":
-            await deviceTools.stopStreaming(runtime, device)
+            await runtime.esp_runtime.stop_streaming(device)
             ml.slog(f"Stopped streaming from {device.name}")
         elif cmd == "CONTROL":
             if len(args) < 3:
                 ml.slog("Usage: control <device> <name> <open|close>")
                 return
-            await deviceTools.setControl(runtime, device, args[1], args[2])
+            await runtime.esp_runtime.set_control(device, args[1], args[2])
             ml.slog(f"Sent {args[2]} to {args[1]} on {device.name}")
         elif cmd == "OPEN":
             if len(args) < 2:
                 ml.slog("Usage: open <device> <control_name>")
                 return
-            await deviceTools.setControl(runtime, device, args[1], "OPEN")
+            await runtime.esp_runtime.set_control(device, args[1], "OPEN")
             ml.slog(f"Opened {args[1]} on {device.name}")
         elif cmd == "CLOSE":
             if len(args) < 2:
                 ml.slog("Usage: close <device> <control_name>")
                 return
-            await deviceTools.setControl(runtime, device, args[1], "CLOSE")
+            await runtime.esp_runtime.set_control(device, args[1], "CLOSE")
             ml.slog(f"Closed {args[1]} on {device.name}")
         elif cmd == "STATUS":
-            await deviceTools.getStatus(runtime, device)
+            await runtime.esp_runtime.get_status(device)
             ml.slog(f"Requested status from {device.name}")
     except Exception as e:
         ml.elog(f"Error: {e}")

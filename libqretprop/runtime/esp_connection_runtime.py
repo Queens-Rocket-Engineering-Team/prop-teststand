@@ -42,8 +42,8 @@ class _NoopStatePublisher:
         return None
 
 
-# Temporary compatibility hook for deviceTools-owned GUI log strings.
-# The runtime must not format or own the legacy textual log contract.
+# Temporary compatibility hook for legacy GUI log strings.
+# The runtime receives a sink so it does not own the textual log contract.
 class ESPConnectionLegacyLogSink(Protocol):
     def device_connected(self, session: ESPDeviceSession) -> None: ...
 
