@@ -37,11 +37,6 @@ class StatePublisher(Protocol):
     def publish(self, event: dict[str, object] | None) -> None: ...
 
 
-class _NoopStatePublisher:
-    def publish(self, _event: dict[str, object] | None) -> None:
-        return None
-
-
 class ESPConnectionRuntime:
     """Coordinates connected ESP/QLCP device lifecycle.
 
@@ -54,16 +49,16 @@ class ESPConnectionRuntime:
     def __init__(
         self,
         *,
+        state_stream: StatePublisher,
         command_tracker: CommandTracker | None = None,
         system_state: SystemState | None = None,
-        state_stream: StatePublisher | None = None,
     ) -> None:
         self.devices: dict[str, ESPDeviceSession] = {}
         self.command_tracker = CommandTracker() if command_tracker is None else command_tracker
         if system_state is None:
             system_state = SystemState(command_tracker=self.command_tracker)
         self.system_state = system_state
-        self.state_stream = _NoopStatePublisher() if state_stream is None else state_stream
+        self.state_stream = state_stream
         self._connection_counter = count(1)
 
     def next_connection_key(self) -> str:

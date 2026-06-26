@@ -43,23 +43,6 @@ class CommandTrackerView(Protocol):
     ) -> CommandSummary | None: ...
 
 
-class _EmptyCommandTracker:
-    @property
-    def pending(self) -> tuple[CommandRecord, ...]:
-        return ()
-
-    @property
-    def recent_completed(self) -> tuple[CommandRecord, ...]:
-        return ()
-
-    def get_summary(
-        self,
-        _connection_key: str,
-        _packet_type: PacketType,
-    ) -> CommandSummary | None:
-        return None
-
-
 @dataclass(slots=True)
 class _ReportedControlState:
     state: str
@@ -81,9 +64,9 @@ class _DeviceState:
 class SystemState:
     """Read-only projection keyed by operational device identity."""
 
-    def __init__(self, *, command_tracker: CommandTrackerView | None = None) -> None:
+    def __init__(self, *, command_tracker: CommandTrackerView) -> None:
         self._devices_by_name: dict[str, _DeviceState] = {}
-        self._command_tracker = _EmptyCommandTracker() if command_tracker is None else command_tracker
+        self._command_tracker = command_tracker
         self._state_version = 0
 
     @property

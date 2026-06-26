@@ -4,6 +4,7 @@ from typing import Any, cast
 
 from fastapi import WebSocket
 
+from libqretprop.runtime.command_tracker import CommandTracker
 from libqretprop.runtime.state_stream import StateStream
 from libqretprop.state.system_state import SystemState
 from tests.unit.test_system_state import _make_device
@@ -35,9 +36,13 @@ def _as_websocket(websocket: FakeWebSocket) -> WebSocket:
     return cast(WebSocket, websocket)
 
 
+def _make_state() -> SystemState:
+    return SystemState(command_tracker=CommandTracker())
+
+
 def test_connect_client_sends_initial_snapshot() -> None:
     async def run() -> None:
-        state = SystemState()
+        state = _make_state()
         state.register_device(_make_device())
         stream = StateStream(state)
         websocket = FakeWebSocket()
@@ -55,7 +60,7 @@ def test_connect_client_sends_initial_snapshot() -> None:
 
 def test_broadcast_sends_typed_state_event() -> None:
     async def run() -> None:
-        state = SystemState()
+        state = _make_state()
         device = _make_device()
         state.register_device(device)
         stream = StateStream(state)
@@ -76,7 +81,7 @@ def test_broadcast_sends_typed_state_event() -> None:
 
 def test_broadcast_removes_broken_clients() -> None:
     async def run() -> None:
-        state = SystemState()
+        state = _make_state()
         stream = StateStream(state)
         good = FakeWebSocket()
         broken = FakeWebSocket(fail_after=1)
@@ -94,7 +99,7 @@ def test_broadcast_removes_broken_clients() -> None:
 
 def test_connect_client_removes_client_when_initial_snapshot_send_fails() -> None:
     async def run() -> None:
-        state = SystemState()
+        state = _make_state()
         stream = StateStream(state)
         websocket = FakeWebSocket(fail_after=0)
 
