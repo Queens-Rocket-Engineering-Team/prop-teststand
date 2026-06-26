@@ -46,7 +46,6 @@ def _mute_runtime_logs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(esp_connection_runtime.ml, "slog", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(esp_connection_runtime.ml, "plog", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(esp_connection_runtime.ml, "elog", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(esp_connection_runtime.ml, "log", lambda *_args, **_kwargs: None)
 
 
 def _make_config(name: str = "TEST-DEVICE") -> dict[str, Any]:
@@ -362,44 +361,6 @@ def test_runtime_status_updates_reported_control_state() -> None:
     assert device.control_states["VALVE1"] == "OPEN"
     assert state.snapshot().devices[0].controls[0].reported_state == "OPEN"
     assert stream.events[-1]["type"] == "control.updated"
-
-
-def test_runtime_uses_injected_legacy_log_sink() -> None:
-    class LegacyLogSink:
-        def __init__(self) -> None:
-            self.messages: list[tuple[str, str, str | None]] = []
-
-        def device_connected(self, device: ESPDeviceSession) -> None:
-            self.messages.append(("connected", device.name, None))
-
-        def device_disconnected(self, device: ESPDeviceSession) -> None:
-            self.messages.append(("disconnected", device.name, None))
-
-        def control_status(self, device: ESPDeviceSession, control_name: str, state: str) -> None:
-            self.messages.append(("status", f"{device.name}:{control_name}", state))
-
-    runtime, _tracker, state, _stream = _make_runtime()
-    legacy_log_sink = LegacyLogSink()
-    runtime.legacy_log_sink = legacy_log_sink
-    device = _make_session(runtime)
-    runtime.devices[device.address] = device
-    state.register_device(device)
-
-    runtime.handle_status(
-        device,
-        StatusPacket(
-            sequence=1,
-            timestamp=0,
-            status=DeviceStatus.ACTIVE,
-            control_states=[ControlStatus(id=0, state=ControlState.OPEN)],
-        ),
-    )
-    runtime.remove_device(device)
-
-    assert legacy_log_sink.messages == [
-        ("status", "TEST-DEVICE:VALVE1", "OPEN"),
-        ("disconnected", "TEST-DEVICE", None),
-    ]
 
 
 def test_runtime_command_visibility_policy_for_status_request_and_estop() -> None:

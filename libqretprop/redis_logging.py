@@ -84,10 +84,6 @@ def _publishLog(channel: str, message: str, color: str = "") -> None:
         with contextlib.suppress(Full):
             _publishQueue.put_nowait(item)
 
-def log(message: str) -> None:
-    """Log a message to the base redis log channel."""
-    _publishLog("log", message, color="")
-
 def slog(message: str) -> None:
     """Log a message to the redis system log channel."""
     _publishLog("syslog", message, color="grey")

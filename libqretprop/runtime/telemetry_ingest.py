@@ -50,28 +50,14 @@ class SessionRegistry(Protocol):
     def devices(self) -> Mapping[str, ESPDeviceSession]: ...
 
 
-class LogLegacyTelemetrySink:
-    """Preserves legacy GUI telemetry log lines while ingest is refactored."""
-
-    def publish_batch(self, batch: TelemetryBatch) -> None:
-        for reading in batch.readings:
-            ml.log(
-                f"{batch.device_name} {batch.timestamp_s:.3f} "
-                f"{reading.sensor_name}:{reading.value:.2f}",
-            )
-
-
 class TelemetryIngest:
     """Processes UDP DATA datagrams after the socket loop receives them."""
 
     def __init__(
         self,
         runtime: SessionRegistry,
-        *,
-        legacy_sink: BatchPublisher | None = None,
     ) -> None:
         self.runtime = runtime
-        self.legacy_sink = LogLegacyTelemetrySink() if legacy_sink is None else legacy_sink
 
     def handle_datagram(self, data: bytes, address: str) -> TelemetryBatch | None:
         session = self.runtime.devices.get(address)
@@ -120,7 +106,6 @@ class TelemetryIngest:
             timestamp_s=timestamp_s,
             readings=tuple(readings),
         )
-        self.legacy_sink.publish_batch(batch)
         return batch
 
 
