@@ -5,6 +5,7 @@ import asyncio
 from dataclasses import dataclass, field
 
 import libqretprop.redis_logging as ml
+from libqretprop.legacy_gui_logging import LegacyESPLogSink
 from libqretprop.runtime.command_tracker import CommandTracker
 from libqretprop.runtime.discovery import DiscoveryService
 from libqretprop.runtime.esp_connection_runtime import ESPConnectionListener, ESPConnectionRuntime
@@ -65,11 +66,6 @@ def build_runtime() -> RuntimeServices:
     the returned :class:`RuntimeServices` container to all consumers — do not
     import it as a module-level global.
     """
-    # Deferred import to avoid a module-level cycle:
-    # services.py → deviceTools.py (ok at runtime); deviceTools.py →
-    # services.py is guarded by TYPE_CHECKING only.
-    from libqretprop.device_controllers.deviceTools import _LegacyESPLogSink  # noqa: PLC0415
-
     command_tracker = CommandTracker()
     system_state = SystemState(command_tracker=command_tracker)
     state_stream = StateStream(system_state)
@@ -80,7 +76,7 @@ def build_runtime() -> RuntimeServices:
         command_tracker=command_tracker,
         system_state=system_state,
         state_stream=state_stream,
-        legacy_log_sink=_LegacyESPLogSink(),
+        legacy_log_sink=LegacyESPLogSink(),
     )
     esp_connection_listener = ESPConnectionListener(esp_runtime)
     telemetry_ingest = TelemetryIngest(esp_runtime)
