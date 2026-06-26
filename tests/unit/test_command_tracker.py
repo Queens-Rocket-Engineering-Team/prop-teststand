@@ -1,5 +1,18 @@
 from libqretprop.qlcp.enums import ControlState, ErrorCode, PacketType
-from libqretprop.runtime.command_tracker import CommandLifecycle, CommandRecord, CommandTracker
+from libqretprop.runtime.command_tracker import CommandKey, CommandLifecycle, CommandRecord, CommandTracker
+
+
+def _find_pending(
+    tracker: CommandTracker,
+    connection_key: str,
+    packet_type: PacketType,
+    packet_sequence: int,
+) -> CommandRecord | None:
+    key = CommandKey(connection_key, packet_type, packet_sequence)
+    return next(
+        (r for r in tracker.pending if r.key == key),
+        None,
+    )
 
 
 def _mark_sent(
@@ -49,11 +62,10 @@ def test_mark_sent_creates_pending_command() -> None:
     assert record.sent_at == 10.0
     assert record.ack_expected is True
     assert record.state == CommandLifecycle.SENT
-    assert record.is_pending is True
     assert record.control_id == 2
     assert record.control_name == "VALVE1"
     assert record.requested_state == ControlState.OPEN
-    assert tracker.get_pending("conn-a", PacketType.CONTROL, 7) is record
+    assert _find_pending(tracker, "conn-a", PacketType.CONTROL, 7) is record
 
 
 def test_ack_resolves_command_only_for_matching_connection_key() -> None:
@@ -67,8 +79,8 @@ def test_ack_resolves_command_only_for_matching_connection_key() -> None:
     assert second.state == CommandLifecycle.ACKED
     assert second.acked_at == 12.0
     assert first.state == CommandLifecycle.SENT
-    assert tracker.get_pending("conn-a", PacketType.CONTROL, 7) is first
-    assert tracker.get_pending("conn-b", PacketType.CONTROL, 7) is None
+    assert _find_pending(tracker, "conn-a", PacketType.CONTROL, 7) is first
+    assert _find_pending(tracker, "conn-b", PacketType.CONTROL, 7) is None
 
 
 def test_nack_resolves_command_only_for_matching_connection_key() -> None:
@@ -89,8 +101,8 @@ def test_nack_resolves_command_only_for_matching_connection_key() -> None:
     assert second.nacked_at == 12.0
     assert second.nack_error_code == ErrorCode.INVALID_ID
     assert first.state == CommandLifecycle.SENT
-    assert tracker.get_pending("conn-a", PacketType.CONTROL, 7) is first
-    assert tracker.get_pending("conn-b", PacketType.CONTROL, 7) is None
+    assert _find_pending(tracker, "conn-a", PacketType.CONTROL, 7) is first
+    assert _find_pending(tracker, "conn-b", PacketType.CONTROL, 7) is None
 
 
 def test_unknown_ack_or_nack_returns_none() -> None:
@@ -123,7 +135,7 @@ def test_same_device_name_with_different_connection_keys_does_not_collide() -> N
 
     assert acked is second
     assert first.state == CommandLifecycle.SENT
-    assert tracker.get_pending("conn-a", PacketType.CONTROL, 7) is first
+    assert _find_pending(tracker, "conn-a", PacketType.CONTROL, 7) is first
 
 
 def test_same_sequence_with_different_packet_types_does_not_collide() -> None:
@@ -135,8 +147,8 @@ def test_same_sequence_with_different_packet_types_does_not_collide() -> None:
 
     assert acked is stream_start
     assert control.state == CommandLifecycle.SENT
-    assert tracker.get_pending("conn-a", PacketType.CONTROL, 7) is control
-    assert tracker.get_pending("conn-a", PacketType.STREAM_START, 7) is None
+    assert _find_pending(tracker, "conn-a", PacketType.CONTROL, 7) is control
+    assert _find_pending(tracker, "conn-a", PacketType.STREAM_START, 7) is None
 
 
 def test_timeout_marks_pending_command_timed_out() -> None:
@@ -150,8 +162,8 @@ def test_timeout_marks_pending_command_timed_out() -> None:
     assert expired.state == CommandLifecycle.TIMED_OUT
     assert expired.timed_out_at == 20.0
     assert fresh.state == CommandLifecycle.SENT
-    assert tracker.get_pending("conn-a", PacketType.CONTROL, 7) is None
-    assert tracker.get_pending("conn-a", PacketType.STREAM_START, 8) is fresh
+    assert expired not in tracker.pending
+    assert _find_pending(tracker, "conn-a", PacketType.STREAM_START, 8) is fresh
 
 
 def test_timeout_can_be_scoped_to_one_connection() -> None:
@@ -164,7 +176,7 @@ def test_timeout_can_be_scoped_to_one_connection() -> None:
     assert expired_records == [expired]
     assert expired.state == CommandLifecycle.TIMED_OUT
     assert other.state == CommandLifecycle.SENT
-    assert tracker.get_pending("conn-b", PacketType.CONTROL, 7) is other
+    assert _find_pending(tracker, "conn-b", PacketType.CONTROL, 7) is other
 
 
 def test_completed_operator_command_remains_in_recent_history() -> None:
@@ -173,8 +185,6 @@ def test_completed_operator_command_remains_in_recent_history() -> None:
 
     tracker.mark_acked("conn-a", PacketType.CONTROL, 7, now=12.0)
 
-    assert tracker.get_record(record.command_id) is record
-    assert record in tracker.records
     assert record in tracker.recent_completed
 
 
@@ -184,9 +194,7 @@ def test_fire_and_forget_operator_command_is_recent_without_pending_ack() -> Non
     record = _mark_sent(tracker, packet_type=PacketType.ESTOP)
 
     assert record.ack_expected is False
-    assert record.is_pending is False
     assert tracker.pending == ()
-    assert tracker.get_pending("conn-a", PacketType.ESTOP, 7) is None
     assert tracker.recent_completed == (record,)
     assert tracker.expire_pending(now=30.0, timeout_s=10.0) == []
 
@@ -199,7 +207,6 @@ def test_discard_removes_fire_and_forget_operator_command_from_recent_history() 
 
     assert discarded is record
     assert tracker.recent_completed == ()
-    assert tracker.get_record(record.command_id) is None
 
 
 def test_get_single_is_not_ack_expected_but_is_recent_history() -> None:
@@ -209,7 +216,6 @@ def test_get_single_is_not_ack_expected_but_is_recent_history() -> None:
     acked = tracker.mark_acked("conn-a", PacketType.GET_SINGLE, 7, now=12.0)
 
     assert record.ack_expected is False
-    assert record.is_pending is False
     assert acked is None
     assert tracker.pending == ()
     assert record in tracker.recent_completed
@@ -222,11 +228,9 @@ def test_status_request_is_not_ack_expected_or_recent_history() -> None:
     acked = tracker.mark_acked("conn-a", PacketType.STATUS_REQUEST, 7, now=12.0)
 
     assert record.ack_expected is False
-    assert record.is_pending is False
     assert acked is None
     assert tracker.pending == ()
     assert record not in tracker.recent_completed
-    assert tracker.get_record(record.command_id) is None
 
 
 def test_recent_completed_history_is_bounded() -> None:
@@ -241,7 +245,6 @@ def test_recent_completed_history_is_bounded() -> None:
 
     assert first not in tracker.recent_completed
     assert tracker.recent_completed == (second, third)
-    assert tracker.get_record(first.command_id) is None
 
 
 def test_default_recent_completed_history_keeps_one_hundred_global_commands() -> None:
@@ -280,7 +283,7 @@ def test_duplicate_pending_key_replaces_old_command_without_leak() -> None:
     assert old.timed_out_at == 20.0
     assert old.failure_reason == "duplicate_command_key"
     assert tracker.pending == (new,)
-    assert tracker.get_pending("conn-a", PacketType.CONTROL, 7) is new
+    assert _find_pending(tracker, "conn-a", PacketType.CONTROL, 7) is new
     assert old in tracker.recent_completed
 
 
@@ -296,8 +299,8 @@ def test_fail_connection_marks_pending_commands_for_that_connection_timed_out() 
     assert failed.timed_out_at == 20.0
     assert failed.failure_reason == "connection_cleanup"
     assert untouched.state == CommandLifecycle.SENT
-    assert tracker.get_pending("conn-a", PacketType.CONTROL, 7) is None
-    assert tracker.get_pending("conn-b", PacketType.CONTROL, 7) is untouched
+    assert failed not in tracker.pending
+    assert untouched in tracker.pending
 
 
 def test_fail_connection_prunes_maintenance_summaries_for_that_connection() -> None:
@@ -328,7 +331,6 @@ def test_maintenance_commands_update_summary_without_recent_history() -> None:
     assert summary.last_acked_at == 12.0
     assert summary.pending_count == 0
     assert heartbeat not in tracker.recent_completed
-    assert tracker.get_record(heartbeat.command_id) is None
 
 
 def test_maintenance_summaries_are_scoped_by_connection_key() -> None:

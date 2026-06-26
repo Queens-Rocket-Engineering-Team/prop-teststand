@@ -21,11 +21,7 @@ from libqretprop import mumble_recording
 from libqretprop import redis_logging as ml
 from libqretprop.device_controllers import cameraTools, deviceTools, kasaTools
 from libqretprop.gui_data_stream import router as log_router
-from libqretprop.runtime.discovery import discovery_service
-from libqretprop.runtime.state_stream import state_stream
-from libqretprop.runtime.telemetry_display_stream import telemetry_display_stream
-from libqretprop.runtime.telemetry_stream import telemetry_stream
-from libqretprop.state import system_state
+from libqretprop.runtime.services import RuntimeServices
 
 
 if TYPE_CHECKING:
@@ -78,8 +74,9 @@ ALLOWED_USERS = {
 }
 
 
-async def startAPI() -> None:
+async def startAPI(runtime: RuntimeServices) -> None:
     """Start the FastAPI server."""
+    app.state.runtime = runtime
     config = uvicorn.Config(
         app,
         host="0.0.0.0",
@@ -175,23 +172,23 @@ async def getHealth() -> dict:
 
 
 @app.get("/v1/state", summary="Get a structured snapshot of server state")
-async def getState() -> dict[str, Any]:
-    return system_state.to_dict()
+async def getState(request: Request) -> dict[str, Any]:
+    return request.app.state.runtime.system_state.to_dict()
 
 
 @app.websocket("/ws/state")
 async def websocket_state(websocket: WebSocket) -> None:
-    await state_stream.handle_client(websocket)
+    await websocket.app.state.runtime.state_stream.handle_client(websocket)
 
 
 @app.websocket("/ws/telemetry/raw")
 async def websocket_raw_telemetry(websocket: WebSocket) -> None:
-    await telemetry_stream.handle_client(websocket)
+    await websocket.app.state.runtime.telemetry_stream.handle_client(websocket)
 
 
 @app.websocket("/ws/telemetry/display")
 async def websocket_display_telemetry(websocket: WebSocket) -> None:
-    await telemetry_display_stream.handle_client(websocket)
+    await websocket.app.state.runtime.telemetry_display_stream.handle_client(websocket)
 
 
 @app.post(
@@ -199,9 +196,11 @@ async def websocket_display_telemetry(websocket: WebSocket) -> None:
     summary="Send a command to the devices on the network",
 )  # Define a POST endpoint for device commands at “/command”
 async def sendDeviceCommand(
+    request: Request,
     cmd: CommandRequest,
     bgTasks: BackgroundTasks,
 ) -> CommandResponse:
+    rt = request.app.state.runtime
     ml.slog(f"Command sent: '{cmd.command} {cmd.args}'")
 
     # Map the relevant command name to their functions
@@ -212,7 +211,7 @@ async def sendDeviceCommand(
         "CONTROL": deviceTools.setControl,
     }
 
-    devices = deviceTools.getRegisteredDevices()
+    devices = deviceTools.getRegisteredDevices(rt)
 
     func = commandMap.get(cmd.command)
     if func is None:
@@ -230,7 +229,7 @@ async def sendDeviceCommand(
             try:
                 freq = int(cmd.args[0])
                 anyCommandsSent = True
-                bgTasks.add_task(func, device, freq)
+                bgTasks.add_task(func, rt, device, freq)
             except ValueError:
                 raise HTTPException(400, f"STREAM frequency must be an integer, got '{cmd.args[0]}'")
         elif cmd.command == "CONTROL":
@@ -245,10 +244,10 @@ async def sendDeviceCommand(
                 continue
 
             anyCommandsSent = True
-            bgTasks.add_task(func, device, controlName, controlState)
+            bgTasks.add_task(func, rt, device, controlName, controlState)
         else:
             anyCommandsSent = True
-            bgTasks.add_task(func, device, *cmd.args)
+            bgTasks.add_task(func, rt, device, *cmd.args)
 
     if not anyCommandsSent:
         raise HTTPException(400, "No valid target devices for the command")
@@ -425,39 +424,43 @@ async def controlKasaDevice(
 
 
 @app.get("/v1/autodiscovery", summary="Get autodiscovery settings")
-async def getAutodiscoverySettings() -> AutoDiscoveryConfig:
+async def getAutodiscoverySettings(request: Request) -> AutoDiscoveryConfig:
+    ds = request.app.state.runtime.discovery_service
     return AutoDiscoveryConfig(
-        enabled=discovery_service.periodic_enabled,
-        intervalSeconds=discovery_service.periodic_interval_s,
+        enabled=ds.periodic_enabled,
+        intervalSeconds=ds.periodic_interval_s,
     )
 
 
 @app.post("/v1/autodiscovery", summary="Update autodiscovery settings")
 async def updateAutodiscoverySettings(
+    request: Request,
     enabled: bool | None = None,
     intervalSeconds: float | None = None,
 ) -> AutoDiscoveryConfig:
     if intervalSeconds is not None and intervalSeconds <= 0:
         raise HTTPException(400, "intervalSeconds must be greater than 0")
 
+    ds = request.app.state.runtime.discovery_service
+
     if enabled is not None:
-        discovery_service.periodic_enabled = enabled
+        ds.periodic_enabled = enabled
 
     if intervalSeconds is not None:
-        discovery_service.periodic_interval_s = intervalSeconds
+        ds.periodic_interval_s = intervalSeconds
 
-    ml.slog(f"User updated autodiscovery: enabled={discovery_service.periodic_enabled}, intervalSeconds={discovery_service.periodic_interval_s}s")
+    ml.slog(f"User updated autodiscovery: enabled={ds.periodic_enabled}, intervalSeconds={ds.periodic_interval_s}s")
 
     return AutoDiscoveryConfig(
-        enabled=discovery_service.periodic_enabled,
-        intervalSeconds=discovery_service.periodic_interval_s,
+        enabled=ds.periodic_enabled,
+        intervalSeconds=ds.periodic_interval_s,
     )
 
 
 @app.post("/v1/discover", summary="Send a SSP discover request for new ESP Devices")
-async def discoverDevices() -> CommandResponse:
+async def discoverDevices(request: Request) -> CommandResponse:
     ml.slog("User sent device discover command")
-    discovery_service.discover()
+    request.app.state.runtime.discovery_service.discover()
     return CommandResponse(
         status="sent",
         message="Discovery broadcast sent. Devices will auto-connect.",
@@ -465,10 +468,11 @@ async def discoverDevices() -> CommandResponse:
 
 
 @app.post("/v1/estop", summary="Emergency stop - stops all streaming and control commands immediately")
-async def emergencyStop() -> None:
-    devices = deviceTools.getRegisteredDevices()
+async def emergencyStop(request: Request) -> None:
+    rt = request.app.state.runtime
+    devices = deviceTools.getRegisteredDevices(rt)
     for device in devices.values():
-        await deviceTools.emergencyStop(device)
+        await deviceTools.emergencyStop(rt, device)
 
 
 class ConfigsResponse(BaseModel):
@@ -477,20 +481,22 @@ class ConfigsResponse(BaseModel):
 
 
 @app.get("/config", summary="Get the sensor and control config", response_model=ConfigsResponse)
-async def getServerConfig() -> ConfigsResponse:
+async def getServerConfig(request: Request) -> ConfigsResponse:
+    rt = request.app.state.runtime
     configs: dict[str, dict] = {}
-    for dev in deviceTools.getRegisteredDevices().values():
+    for dev in deviceTools.getRegisteredDevices(rt).values():
         configs[getattr(dev, "name", getattr(dev, "id", "unknown"))] = dev.qlcp_config.raw_config
     return ConfigsResponse(count=len(configs), configs=configs)
 
 
 @app.get("/status", summary="Gets the current state of each valve. Status is reported to redis log channel.")
-async def getStatus() -> None:
-    devices = deviceTools.getRegisteredDevices()
+async def getStatus(request: Request) -> None:
+    rt = request.app.state.runtime
+    devices = deviceTools.getRegisteredDevices(rt)
 
     # Trigger a status request to all devices to get their latest states for the response and to log to the redis log channel
     for device in devices.values():
-        await deviceTools.getStatus(device)
+        await deviceTools.getStatus(rt, device)
 
 
 @dataclass

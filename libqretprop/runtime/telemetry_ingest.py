@@ -2,7 +2,6 @@ from __future__ import annotations
 import asyncio
 import socket
 import time
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
@@ -12,6 +11,8 @@ from libqretprop.qlcp.packets import DataPacket
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from libqretprop.runtime.esp_device_session import ESPDeviceSession
 
 
@@ -36,10 +37,6 @@ class TelemetryBatch:
     connection_key: str
     timestamp_s: float
     readings: tuple[TelemetryReading, ...]
-
-
-class LegacyTelemetrySink(Protocol):
-    def publish_batch(self, batch: TelemetryBatch) -> None: ...
 
 
 class BatchPublisher(Protocol):
@@ -71,7 +68,7 @@ class TelemetryIngest:
         self,
         runtime: SessionRegistry,
         *,
-        legacy_sink: LegacyTelemetrySink | None = None,
+        legacy_sink: BatchPublisher | None = None,
     ) -> None:
         self.runtime = runtime
         self.legacy_sink = LogLegacyTelemetrySink() if legacy_sink is None else legacy_sink
@@ -156,7 +153,7 @@ class TelemetryUDPListener:
         udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, self.recv_buffer_bytes)
-        udp_socket.bind(("0.0.0.0", self.port))
+        udp_socket.bind(("0.0.0.0", self.port))  # noqa: S104
         udp_socket.setblocking(False)
 
         ml.slog(f"UDP listener started on port {self.port}")
@@ -189,17 +186,3 @@ class TelemetryUDPListener:
             except Exception as e:
                 ml.elog(f"Error in UDP listener: {e}")
                 await asyncio.sleep(0.1)
-
-
-# Runtime singletons. Imported lazily-at-module-end to keep the import graph acyclic:
-# telemetry_stream and telemetry_display_stream only import this module under TYPE_CHECKING.
-from libqretprop.runtime.esp_connection_runtime import esp_runtime  # noqa: E402
-from libqretprop.runtime.telemetry_display_stream import telemetry_display_stream  # noqa: E402
-from libqretprop.runtime.telemetry_stream import telemetry_stream  # noqa: E402
-
-telemetry_ingest = TelemetryIngest(esp_runtime)
-telemetry_udp_listener = TelemetryUDPListener(
-    telemetry_ingest,
-    telemetry_stream,
-    telemetry_display_stream,
-)

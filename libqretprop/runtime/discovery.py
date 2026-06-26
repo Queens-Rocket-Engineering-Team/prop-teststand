@@ -78,6 +78,3 @@ class DiscoveryService:
         sock.setblocking(False)
         ml.slog(f"Discovery socket initialized for {self.multicast_address}:{self.multicast_port}")
         return sock
-
-
-discovery_service = DiscoveryService()

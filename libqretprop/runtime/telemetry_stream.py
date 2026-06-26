@@ -84,6 +84,3 @@ class TelemetryStreamRuntime:
             pass
         finally:
             await self.disconnect_client(websocket)
-
-
-telemetry_stream = TelemetryStreamRuntime()

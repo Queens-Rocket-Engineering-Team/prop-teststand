@@ -1,6 +1,5 @@
 from __future__ import annotations
 import asyncio
-import socket
 import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -10,8 +9,10 @@ from libqretprop.qlcp.config_parser import parse_config
 
 
 if TYPE_CHECKING:
+    import socket
+
     from libqretprop.qlcp.config_models import ControlConfig, DeviceConfig, SensorConfig
-    from libqretprop.runtime.command_tracker import CommandRecord
+    from libqretprop.runtime.command_types import CommandRecord
     from libqretprop.runtime.esp_connection_runtime import ESPConnectionRuntime
 
 
@@ -99,6 +100,11 @@ class ESPDeviceSession:
         """Record that the TIMESYNC ACK was received."""
         self._resync_pending = False
 
+    @property
+    def resync_pending(self) -> bool:
+        """Whether a TIMESYNC command is awaiting an ACK."""
+        return self._resync_pending
+
     def register_missed_heartbeat(self) -> bool:
         """Increment missed-heartbeat-ACK counter.
 
@@ -115,6 +121,11 @@ class ESPDeviceSession:
     def mark_unresponsive(self) -> None:
         """Mark this session as unresponsive after missing too many heartbeat ACKs."""
         self.is_responsive = False
+
+    def reset_heartbeat_misses(self) -> None:
+        """Reset heartbeat miss state after a successful heartbeat ACK."""
+        self._missed_heartbeat_acks = 0
+        self.is_responsive = True
 
     async def monitor(self, runtime: ESPConnectionRuntime) -> None:
         """Read TCP packets and delegate session side effects to the runtime."""
@@ -162,8 +173,7 @@ class ESPDeviceSession:
         if command is None:
             return
 
-        self._missed_heartbeat_acks = 0
-        self.is_responsive = True
+        self.reset_heartbeat_misses()
 
     def set_control_state(self, control_name: str, state: str) -> None:
         """Update this session's local control-state cache."""

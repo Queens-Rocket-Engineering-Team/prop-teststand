@@ -1,11 +1,16 @@
+from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING
 
 import aioconsole
 
 import libqretprop.redis_logging as ml
 from libqretprop.device_controllers import deviceTools
-from libqretprop.runtime.discovery import discovery_service
+
+
+if TYPE_CHECKING:
+    from libqretprop.runtime.services import RuntimeServices
 
 
 SERVERCOMMANDS = [
@@ -35,7 +40,7 @@ DEVICECOMMANDS = [
 ]
 
 
-async def handleServerCommand(command: str, args: list) -> None:
+async def handleServerCommand(runtime: RuntimeServices, command: str, args: list) -> None:
     ml.slog(f"Server command received: {command}")
     cmd = command.upper()
     if cmd in ("QUIT", "EXIT"):
@@ -43,12 +48,12 @@ async def handleServerCommand(command: str, args: list) -> None:
         await asyncio.sleep(0.1)
     elif cmd == "DISCOVER":
         ml.slog("Sending discovery broadcast...")
-        discovery_service.discover()
+        runtime.discovery_service.discover()
         ml.slog("Discovery sent. Devices will auto-connect.")
     elif cmd in ("AUTODISCOVERY", "AUTOD"):
         if not args:
             ml.slog(
-                f"Autodiscovery: enabled={discovery_service.periodic_enabled}, interval={discovery_service.periodic_interval_s}s",
+                f"Autodiscovery: enabled={runtime.discovery_service.periodic_enabled}, interval={runtime.discovery_service.periodic_interval_s}s",
             )
             ml.slog("Usage: autodiscovery <on|off|interval <seconds>|status>")
             return
@@ -56,13 +61,13 @@ async def handleServerCommand(command: str, args: list) -> None:
         sub = args[0].lower()
         if sub in ("status", "show"):
             ml.slog(
-                f"Autodiscovery: enabled={discovery_service.periodic_enabled}, interval={discovery_service.periodic_interval_s}s",
+                f"Autodiscovery: enabled={runtime.discovery_service.periodic_enabled}, interval={runtime.discovery_service.periodic_interval_s}s",
             )
         elif sub in ("on", "enable", "enabled", "true"):
-            discovery_service.periodic_enabled = True
+            runtime.discovery_service.periodic_enabled = True
             ml.slog("Autodiscovery enabled")
         elif sub in ("off", "disable", "disabled", "false"):
-            discovery_service.periodic_enabled = False
+            runtime.discovery_service.periodic_enabled = False
             ml.slog("Autodiscovery disabled")
         elif sub == "interval":
             if len(args) < 2:
@@ -78,12 +83,12 @@ async def handleServerCommand(command: str, args: list) -> None:
                 ml.slog("Autodiscovery interval must be greater than 0 seconds")
                 return
 
-            discovery_service.periodic_interval_s = interval
+            runtime.discovery_service.periodic_interval_s = interval
             ml.slog(f"Autodiscovery interval set to {interval}s")
         else:
             ml.slog("Usage: autodiscovery <on|off|interval <seconds>|status>")
     elif cmd == "LIST":
-        devices = deviceTools.getRegisteredDevices()
+        devices = deviceTools.getRegisteredDevices(runtime)
         if not devices:
             ml.slog("No devices connected.")
             ml.slog("  Try: discover")
@@ -96,7 +101,7 @@ async def handleServerCommand(command: str, args: list) -> None:
         if not args:
             ml.slog("Usage: remove <device_name>")
             return
-        devices = deviceTools.getRegisteredDevices()
+        devices = deviceTools.getRegisteredDevices(runtime)
         device = None
         for d in devices.values():
             if d.name.upper() == args[0].upper():
@@ -105,14 +110,14 @@ async def handleServerCommand(command: str, args: list) -> None:
         if not device:
             ml.slog(f"Device '{args[0]}' not currently registered. Use \"LIST\" to see devices.")
             return
-        deviceTools.remove_device(device)
+        deviceTools.remove_device(runtime, device)
         ml.slog(f"Removed device '{device.name}'")
 
     elif cmd == "INFO":
         if not args:
             ml.slog("Usage: info <device_name>")
             return
-        devices = deviceTools.getRegisteredDevices()
+        devices = deviceTools.getRegisteredDevices(runtime)
         device = None
         for d in devices.values():
             if d.name.upper() == args[0].upper():
@@ -146,19 +151,19 @@ async def handleServerCommand(command: str, args: list) -> None:
         ml.slog("  status <device>    - Get device status / control states")
         ml.slog("  quit               - Exit")
     elif cmd == "ESTOP":
-        devices = deviceTools.getRegisteredDevices()
+        devices = deviceTools.getRegisteredDevices(runtime)
         for device in devices.values():
-            await deviceTools.emergencyStop(device)
+            await deviceTools.emergencyStop(runtime, device)
         ml.slog("Emergency stop sent to all devices")
 
 
-async def handleDeviceCommand(command: str, args: list) -> None:
+async def handleDeviceCommand(runtime: RuntimeServices, command: str, args: list) -> None:
     if not args:
         ml.slog(f"Usage: {command.lower()} <device_name> [args...]")
         return
 
     device_name = args[0]
-    devices = deviceTools.getRegisteredDevices()
+    devices = deviceTools.getRegisteredDevices(runtime)
     device = None
     for d in devices.values():
         if d.name.lower() == device_name.lower():
@@ -172,53 +177,53 @@ async def handleDeviceCommand(command: str, args: list) -> None:
     cmd = command.upper()
     try:
         if cmd == "GETS":
-            await deviceTools.getSingle(device)
+            await deviceTools.getSingle(runtime, device)
             ml.slog(f"Requested data from {device.name}")
         elif cmd == "STREAM":
             if len(args) < 2:
                 ml.slog("Usage: stream <device> <frequency_hz>")
                 return
             freq = int(args[1])
-            await deviceTools.startStreaming(device, freq)
+            await deviceTools.startStreaming(runtime, device, freq)
             ml.slog(f"Streaming from {device.name} at {freq} Hz")
         elif cmd == "STOP":
-            await deviceTools.stopStreaming(device)
+            await deviceTools.stopStreaming(runtime, device)
             ml.slog(f"Stopped streaming from {device.name}")
         elif cmd == "CONTROL":
             if len(args) < 3:
                 ml.slog("Usage: control <device> <name> <open|close>")
                 return
-            await deviceTools.setControl(device, args[1], args[2])
+            await deviceTools.setControl(runtime, device, args[1], args[2])
             ml.slog(f"Sent {args[2]} to {args[1]} on {device.name}")
         elif cmd == "OPEN":
             if len(args) < 2:
                 ml.slog("Usage: open <device> <control_name>")
                 return
-            await deviceTools.setControl(device, args[1], "OPEN")
+            await deviceTools.setControl(runtime, device, args[1], "OPEN")
             ml.slog(f"Opened {args[1]} on {device.name}")
         elif cmd == "CLOSE":
             if len(args) < 2:
                 ml.slog("Usage: close <device> <control_name>")
                 return
-            await deviceTools.setControl(device, args[1], "CLOSE")
+            await deviceTools.setControl(runtime, device, args[1], "CLOSE")
             ml.slog(f"Closed {args[1]} on {device.name}")
         elif cmd == "STATUS":
-            await deviceTools.getStatus(device)
+            await deviceTools.getStatus(runtime, device)
             ml.slog(f"Requested status from {device.name}")
     except Exception as e:
         ml.elog(f"Error: {e}")
 
 
-async def processCommand(command: str) -> None:
+async def processCommand(runtime: RuntimeServices, command: str) -> None:
     """Process a command and send it to all connected devices."""
     fullCommand = command.strip()
     cmd = fullCommand.split(" ")[0]
     args = fullCommand.split(" ")[1:]
 
     if cmd.upper() in SERVERCOMMANDS:
-        await handleServerCommand(cmd, args)
+        await handleServerCommand(runtime, cmd, args)
     elif cmd.upper() in DEVICECOMMANDS:
-        await handleDeviceCommand(cmd, args)
+        await handleDeviceCommand(runtime, cmd, args)
     else:
         ml.elog(f"Unknown command: {cmd}. Available commands: {', '.join(SERVERCOMMANDS + DEVICECOMMANDS)}")
 
@@ -235,14 +240,14 @@ async def cliReader() -> AsyncGenerator[str, None]:
             break
 
 
-async def commandProcessor() -> None:
+async def commandProcessor(runtime: RuntimeServices) -> None:
     """Process commands from various input sources."""
     ml.slog("Started command processor daemon task.")
 
     try:
         async for command in cliReader():
             if command:
-                await processCommand(command)
+                await processCommand(runtime, command)
     except KeyboardInterrupt:
         ml.slog("Command processor stopped by user")
         raise

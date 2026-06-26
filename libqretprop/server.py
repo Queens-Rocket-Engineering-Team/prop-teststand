@@ -1,6 +1,5 @@
 import asyncio
 import os
-from enum import Enum
 
 import redis
 
@@ -9,22 +8,14 @@ import libqretprop.config_manager as config
 import libqretprop.redis_logging as ml
 from libqretprop.api import fastAPI
 from libqretprop.daemons.cliTerminal import commandProcessor
-from libqretprop.device_controllers import cameraTools, deviceTools, kasaTools
-from libqretprop.runtime.telemetry_display_stream import telemetry_display_stream
+from libqretprop.device_controllers import cameraTools, kasaTools
+from libqretprop.runtime.services import build_runtime
 
-
-# Server state enumeration using Enum
-class ServerState(Enum):
-    INITIALIZING = 0
-    WAITING = 1
-    READY = 2
 
 async def main(noDiscovery: bool = False,
                cmdLine: bool = True,
                ) -> None:
     """Run the server."""
-
-    state = ServerState.INITIALIZING
 
     # -------
     # INITIALIZATION
@@ -46,30 +37,23 @@ async def main(noDiscovery: bool = False,
     ml.init_logger(redisClient)
     ml.slog(f"Starting server (version: {libqretprop.__version__})...")
 
+    # Build the runtime object graph (pure construction — no I/O, no tasks yet).
+    runtime = build_runtime()
+
     loop = asyncio.get_event_loop()
     daemons: dict[str, asyncio.Task[None]] = {}
 
     # Fire up the FastAPI app and add it as a daemon task
-    daemons["fastAPI"] = loop.create_task(fastAPI.startAPI())
+    daemons["fastAPI"] = loop.create_task(fastAPI.startAPI(runtime))
 
     # -------
     # CONFIG OPTIONS
     # -------
 
     if not noDiscovery:
-        # TCP listener for incoming device connections
-        daemons["tcpListener"] = loop.create_task(deviceTools.tcpListener())
-        ml.slog("Started TCP listener daemon task.")
-
-        daemons["udpListener"] = loop.create_task(deviceTools.udpListener())
-        ml.slog("Started UDP listener daemon task.")
-
-        daemons["telemetryDisplayFlush"] = loop.create_task(telemetry_display_stream.run())
-        ml.slog("Started telemetry display stream flush task.")
-
-        # Start SSDP auto-discovery loop for finding devices on the network
-        daemons["autoDiscovery"] = loop.create_task(deviceTools.autoDiscoveryLoop())
-        ml.slog("Started SSDP auto-discovery daemon task.")
+        # Start ESP/telemetry/state daemon tasks (TCP, UDP, discovery, display flush).
+        runtime.start(loop)
+        ml.slog("Started ESP/telemetry/state daemon tasks.")
 
     # Connect to all cameras
     daemons["cameraConnector"] = loop.create_task(cameraTools.connectAllCameras())
@@ -81,7 +65,7 @@ async def main(noDiscovery: bool = False,
 
     # Command line interface daemon
     if cmdLine:
-        daemons["commandProcessor"] = loop.create_task(commandProcessor())
+        daemons["commandProcessor"] = loop.create_task(commandProcessor(runtime))
 
 
     try:
@@ -103,19 +87,19 @@ async def main(noDiscovery: bool = False,
     # -------
     finally:
         # Write all collected devices to the redis log on exit
-        devices = deviceTools.getRegisteredDevices()
+        devices = runtime.esp_runtime.get_registered_devices()
         if devices:
             ml.slog(f"Registered devices at shutdown: {', '.join(devices.keys())}")
 
-        # Cancel all daemon tasks
+        # Cancel app-level daemon tasks (fastAPI, camera, kasa, commandProcessor)
         for name, task in daemons.items():
             if not task.done():
                 task.cancel()
                 ml.slog(f"Cancelled {name} daemon task.")
         await asyncio.gather(*daemons.values(), return_exceptions=True)
 
-        # Close all open device sockets
-        deviceTools.closeDeviceConnections()
+        # Stop ESP/telemetry/state daemons and close device connections
+        await runtime.stop()
 
         print("\nServer stopped.\n")
 

@@ -1,111 +1,22 @@
 from __future__ import annotations
 import time
 from collections import deque
-from dataclasses import dataclass
-from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from libqretprop.qlcp.enums import PacketType
+from libqretprop.runtime.command_types import (
+    ACK_EXPECTED_PACKET_TYPES,
+    DEFAULT_RECENT_COMPLETED_LIMIT,
+    MAINTENANCE_PACKET_TYPES,
+    OPERATOR_VISIBLE_PACKET_TYPES,
+    CommandKey,
+    CommandLifecycle,
+    CommandRecord,
+    CommandSummary,
+)
 
 
 if TYPE_CHECKING:
-    from libqretprop.qlcp.enums import ControlState, ErrorCode
-
-
-DEFAULT_RECENT_COMPLETED_LIMIT = 100
-OPERATOR_VISIBLE_PACKET_TYPES = frozenset(
-    {
-        PacketType.CONTROL,
-        PacketType.ESTOP,
-        PacketType.STREAM_START,
-        PacketType.STREAM_STOP,
-        PacketType.GET_SINGLE,
-    },
-)
-MAINTENANCE_PACKET_TYPES = frozenset(
-    {
-        PacketType.HEARTBEAT,
-        PacketType.TIMESYNC,
-    },
-)
-ACK_EXPECTED_PACKET_TYPES = frozenset(
-    {
-        PacketType.CONTROL,
-        PacketType.STREAM_START,
-        PacketType.STREAM_STOP,
-        PacketType.HEARTBEAT,
-        PacketType.TIMESYNC,
-    },
-)
-
-
-class CommandLifecycle(StrEnum):
-    """Lifecycle state for an outbound command packet."""
-
-    SENT = "sent"
-    ACKED = "acked"
-    NACKED = "nacked"
-    TIMED_OUT = "timed_out"
-
-
-@dataclass(frozen=True)
-class CommandKey:
-    """ACK/NACK lookup key scoped to one TCP connection."""
-
-    connection_key: str
-    packet_type: PacketType
-    packet_sequence: int
-
-
-@dataclass
-class CommandRecord:
-    """Tracked lifecycle for a command sent over one device connection."""
-
-    command_id: int
-    connection_key: str
-    device_name: str
-    device_address: str
-    packet_type: PacketType
-    packet_sequence: int
-    sent_at: float
-    ack_expected: bool = True
-    state: CommandLifecycle = CommandLifecycle.SENT
-    acked_at: float | None = None
-    nacked_at: float | None = None
-    timed_out_at: float | None = None
-    nack_error_code: ErrorCode | None = None
-    failure_reason: str | None = None
-    control_id: int | None = None
-    control_name: str | None = None
-    requested_state: ControlState | None = None
-
-    @property
-    def key(self) -> CommandKey:
-        return CommandKey(
-            connection_key=self.connection_key,
-            packet_type=self.packet_type,
-            packet_sequence=self.packet_sequence,
-        )
-
-    @property
-    def is_pending(self) -> bool:
-        return self.ack_expected and self.state == CommandLifecycle.SENT
-
-
-@dataclass
-class CommandSummary:
-    """Compact lifecycle summary for maintenance/internal command types."""
-
-    connection_key: str
-    device_name: str
-    device_address: str
-    packet_type: PacketType
-    last_sent_at: float | None = None
-    last_acked_at: float | None = None
-    last_nacked_at: float | None = None
-    last_timed_out_at: float | None = None
-    last_error_code: ErrorCode | None = None
-    pending_count: int = 0
+    from libqretprop.qlcp.enums import ControlState, ErrorCode, PacketType
 
 
 class CommandTracker:
@@ -126,10 +37,6 @@ class CommandTracker:
         self._summaries: dict[tuple[str, PacketType], CommandSummary] = {}
 
     @property
-    def records(self) -> tuple[CommandRecord, ...]:
-        return self.pending + self.recent_completed
-
-    @property
     def pending(self) -> tuple[CommandRecord, ...]:
         return tuple(self._pending_records.values())
 
@@ -137,38 +44,12 @@ class CommandTracker:
     def recent_completed(self) -> tuple[CommandRecord, ...]:
         return tuple(self._recent_completed)
 
-    @property
-    def maintenance_summaries(self) -> tuple[CommandSummary, ...]:
-        return tuple(self._summaries.values())
-
     def get_summary(
         self,
         connection_key: str,
         packet_type: PacketType,
     ) -> CommandSummary | None:
         return self._summaries.get((connection_key, packet_type))
-
-    def get_record(self, command_id: int) -> CommandRecord | None:
-        pending_record = self._pending_records.get(command_id)
-        if pending_record is not None:
-            return pending_record
-
-        for record in self._recent_completed:
-            if record.command_id == command_id:
-                return record
-        return None
-
-    def get_pending(
-        self,
-        connection_key: str,
-        packet_type: PacketType,
-        packet_sequence: int,
-    ) -> CommandRecord | None:
-        key = CommandKey(connection_key, packet_type, packet_sequence)
-        command_id = self._pending.get(key)
-        if command_id is None:
-            return None
-        return self._pending_records[command_id]
 
     def mark_sent(
         self,
@@ -399,6 +280,3 @@ class CommandTracker:
     @staticmethod
     def _ack_expected(packet_type: PacketType) -> bool:
         return packet_type in ACK_EXPECTED_PACKET_TYPES
-
-
-command_tracker = CommandTracker()
