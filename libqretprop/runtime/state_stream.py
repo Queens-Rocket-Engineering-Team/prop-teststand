@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from libqretprop.state import SystemState, system_state
-
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+    from libqretprop.state import SystemState
 
 
 class StateStream:
@@ -18,6 +18,7 @@ class StateStream:
     def __init__(self, state: SystemState) -> None:
         self._state = state
         self._clients: set[WebSocket] = set()
+        self._broadcast_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def client_count(self) -> int:
@@ -63,7 +64,9 @@ class StateStream:
         except RuntimeError:
             return
 
-        loop.create_task(self.broadcast(event))
+        task = loop.create_task(self.broadcast(event))
+        self._broadcast_tasks.add(task)
+        task.add_done_callback(self._broadcast_tasks.discard)
 
     async def broadcast(self, event: dict[str, object]) -> None:
         stale_clients: list[WebSocket] = []
@@ -79,6 +82,3 @@ class StateStream:
 
     def _clients_snapshot(self) -> Iterable[WebSocket]:
         return tuple(self._clients)
-
-
-state_stream = StateStream(system_state)

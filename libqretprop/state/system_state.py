@@ -1,17 +1,14 @@
 from __future__ import annotations
 import time
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from dataclasses import asdict, dataclass, field
+from typing import TYPE_CHECKING, Protocol
 
 from libqretprop.qlcp.enums import ControlState, PacketType
-from libqretprop.runtime.command_tracker import (
+from libqretprop.runtime.command_types import (
     MAINTENANCE_PACKET_TYPES,
     OPERATOR_VISIBLE_PACKET_TYPES,
     CommandRecord,
-    CommandTracker,
-)
-from libqretprop.runtime.command_tracker import (
-    command_tracker as runtime_command_tracker,
+    CommandSummary,
 )
 from libqretprop.state.models import (
     CommandCollectionSnapshot,
@@ -30,6 +27,37 @@ if TYPE_CHECKING:
 
 
 StateEvent = dict[str, object]
+
+
+class CommandTrackerView(Protocol):
+    @property
+    def pending(self) -> tuple[CommandRecord, ...]: ...
+
+    @property
+    def recent_completed(self) -> tuple[CommandRecord, ...]: ...
+
+    def get_summary(
+        self,
+        connection_key: str,
+        packet_type: PacketType,
+    ) -> CommandSummary | None: ...
+
+
+class _EmptyCommandTracker:
+    @property
+    def pending(self) -> tuple[CommandRecord, ...]:
+        return ()
+
+    @property
+    def recent_completed(self) -> tuple[CommandRecord, ...]:
+        return ()
+
+    def get_summary(
+        self,
+        _connection_key: str,
+        _packet_type: PacketType,
+    ) -> CommandSummary | None:
+        return None
 
 
 @dataclass(slots=True)
@@ -53,9 +81,9 @@ class _DeviceState:
 class SystemState:
     """Read-only projection keyed by operational device identity."""
 
-    def __init__(self, *, command_tracker: CommandTracker | None = None) -> None:
+    def __init__(self, *, command_tracker: CommandTrackerView | None = None) -> None:
         self._devices_by_name: dict[str, _DeviceState] = {}
-        self._command_tracker = runtime_command_tracker if command_tracker is None else command_tracker
+        self._command_tracker = _EmptyCommandTracker() if command_tracker is None else command_tracker
         self._state_version = 0
 
     @property
@@ -73,7 +101,7 @@ class SystemState:
         )
         return self._make_event(
             "device.registered",
-            device=self._snapshot_device(self._devices_by_name[device.name]).to_dict(),
+            device=asdict(self._snapshot_device(self._devices_by_name[device.name])),
         )
 
     def mark_disconnected(self, device: ESPDeviceSession) -> StateEvent | None:
@@ -153,7 +181,7 @@ class SystemState:
         )
 
     def to_dict(self) -> dict:
-        return self.snapshot().to_dict()
+        return asdict(self.snapshot())
 
     def _snapshot_device(self, device_state: _DeviceState) -> DeviceSnapshot:
         config = device_state.config
@@ -302,7 +330,7 @@ class SystemState:
 
         return self._make_event(
             event_type,
-            command=self._snapshot_command(command).to_dict(),
+            command=asdict(self._snapshot_command(command)),
         )
 
     def _heartbeat_event(self, connection_key: str) -> StateEvent | None:
@@ -315,7 +343,7 @@ class SystemState:
             device_name=device_state.device_name,
             device_address=device_state.address,
             connection_key=device_state.connection_key,
-            heartbeat=self._snapshot_heartbeat(device_state).to_dict(),
+            heartbeat=asdict(self._snapshot_heartbeat(device_state)),
         )
 
     def _device_state_for_connection(self, connection_key: str) -> _DeviceState | None:
@@ -331,6 +359,3 @@ class SystemState:
             "state_version": self._state_version,
             **payload,
         }
-
-
-system_state = SystemState()

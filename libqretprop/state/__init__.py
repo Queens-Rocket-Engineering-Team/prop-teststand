@@ -9,7 +9,7 @@ from libqretprop.state.models import (
     SensorSnapshot,
     SystemSnapshot,
 )
-from libqretprop.state.system_state import SystemState, system_state
+from libqretprop.state.system_state import SystemState
 
 
 __all__ = [
@@ -21,5 +21,4 @@ __all__ = [
     "SensorSnapshot",
     "SystemSnapshot",
     "SystemState",
-    "system_state",
 ]

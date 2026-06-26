@@ -110,8 +110,8 @@ def _make_session(
         socket=None,
         driver=FakeDriver(),
         last_sync_time=None,
-        _resync_pending=False,
-        _missed_heartbeat_acks=0,
+        missed_heartbeat_count=0,
+        HEARTBEAT_ACK_MISS_LIMIT=3,
         is_responsive=True,
     )
 
@@ -126,12 +126,21 @@ def _make_session(
 
     def record_heartbeat_ack(command: object | None) -> None:
         if command is not None:
-            session._missed_heartbeat_acks = 0
+            session.missed_heartbeat_count = 0
             session.is_responsive = True
+
+    def register_missed_heartbeat() -> bool:
+        session.missed_heartbeat_count += 1
+        return session.missed_heartbeat_count >= session.HEARTBEAT_ACK_MISS_LIMIT
+
+    def mark_unresponsive() -> None:
+        session.is_responsive = False
 
     session.set_control_state = set_control_state
     session.control_name_for_id = control_name_for_id
     session.record_heartbeat_ack = record_heartbeat_ack
+    session.register_missed_heartbeat = register_missed_heartbeat
+    session.mark_unresponsive = mark_unresponsive
     return cast(ESPDeviceSession, session)
 
 

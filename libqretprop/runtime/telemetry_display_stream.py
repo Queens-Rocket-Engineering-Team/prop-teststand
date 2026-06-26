@@ -186,6 +186,3 @@ class TelemetryDisplayStream:
             pass
         finally:
             await self.disconnect_client(websocket)
-
-
-telemetry_display_stream = TelemetryDisplayStream()
