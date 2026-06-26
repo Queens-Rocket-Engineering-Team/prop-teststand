@@ -42,16 +42,6 @@ class _NoopStatePublisher:
         return None
 
 
-# Temporary compatibility hook for legacy GUI log strings.
-# The runtime receives a sink so it does not own the textual log contract.
-class ESPConnectionLegacyLogSink(Protocol):
-    def device_connected(self, session: ESPDeviceSession) -> None: ...
-
-    def device_disconnected(self, session: ESPDeviceSession) -> None: ...
-
-    def control_status(self, session: ESPDeviceSession, control_name: str, state: str) -> None: ...
-
-
 class ESPConnectionRuntime:
     """Coordinates connected ESP/QLCP device lifecycle.
 
@@ -67,7 +57,6 @@ class ESPConnectionRuntime:
         command_tracker: CommandTracker | None = None,
         system_state: SystemState | None = None,
         state_stream: StatePublisher | None = None,
-        legacy_log_sink: ESPConnectionLegacyLogSink | None = None,
     ) -> None:
         self.devices: dict[str, ESPDeviceSession] = {}
         self.command_tracker = CommandTracker() if command_tracker is None else command_tracker
@@ -75,7 +64,6 @@ class ESPConnectionRuntime:
             system_state = SystemState(command_tracker=self.command_tracker)
         self.system_state = system_state
         self.state_stream = _NoopStatePublisher() if state_stream is None else state_stream
-        self.legacy_log_sink = legacy_log_sink
         self._connection_counter = count(1)
 
     def next_connection_key(self) -> str:
@@ -154,8 +142,6 @@ class ESPConnectionRuntime:
         new_session.start(self, loop=listener_loop)
 
         ml.slog(f"Device {new_session.name} registered from {address}")
-        if self.legacy_log_sink is not None:
-            self.legacy_log_sink.device_connected(new_session)
 
         ack = AckPacket.create(PacketType.CONFIG, config_sequence)
         await new_session.driver.send_packet(ack)
@@ -384,8 +370,6 @@ class ESPConnectionRuntime:
             self._publish_state_event(
                 self.system_state.update_control_state(session, control_state.id, control_state.state),
             )
-            if self.legacy_log_sink is not None:
-                self.legacy_log_sink.control_status(session, control.name, state_str)
 
     def cleanup_device(
         self,
@@ -430,8 +414,6 @@ class ESPConnectionRuntime:
         if self.is_current_connection(session):
             del self.devices[session.address]
             ml.slog(f"{session.name} removed from registry.")
-            if self.legacy_log_sink is not None:
-                self.legacy_log_sink.device_disconnected(session)
         else:
             ml.plog(f"Ignored stale removal for {session.name} at {session.address}")
 
@@ -527,8 +509,6 @@ class ESPConnectionRuntime:
                 command.requested_state,
             ),
         )
-        if self.legacy_log_sink is not None:
-            self.legacy_log_sink.control_status(session, control_name, state_str)
 
     @staticmethod
     def _control_state_string(state: ControlState) -> str:

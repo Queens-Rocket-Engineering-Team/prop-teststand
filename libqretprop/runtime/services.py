@@ -5,7 +5,6 @@ import asyncio
 from dataclasses import dataclass, field
 
 import libqretprop.redis_logging as ml
-from libqretprop.legacy_gui_logging import LegacyESPLogSink
 from libqretprop.runtime.command_tracker import CommandTracker
 from libqretprop.runtime.discovery import DiscoveryService
 from libqretprop.runtime.esp_connection_runtime import ESPConnectionListener, ESPConnectionRuntime
@@ -76,7 +75,6 @@ def build_runtime() -> RuntimeServices:
         command_tracker=command_tracker,
         system_state=system_state,
         state_stream=state_stream,
-        legacy_log_sink=LegacyESPLogSink(),
     )
     esp_connection_listener = ESPConnectionListener(esp_runtime)
     telemetry_ingest = TelemetryIngest(esp_runtime)
