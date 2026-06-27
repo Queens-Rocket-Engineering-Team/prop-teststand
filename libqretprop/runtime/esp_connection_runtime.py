@@ -19,17 +19,16 @@ from libqretprop.qlcp.packets import (
     StatusPacket,
     StreamStartPacket,
 )
-from libqretprop.runtime.command_tracker import CommandTracker
 from libqretprop.runtime.esp_device_session import ESPDeviceSession
 from libqretprop.runtime.metrics import NULL_METRICS, Metrics
-from libqretprop.state import SystemState
 
 
 logger = logging.getLogger(__name__)
 
-
 if TYPE_CHECKING:
+    from libqretprop.runtime.command_tracker import CommandTracker
     from libqretprop.runtime.command_types import CommandRecord
+    from libqretprop.state import SystemState
 
 
 TrackedCommandPacket = SimplePacket | ControlPacket | StreamStartPacket

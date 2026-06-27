@@ -3,9 +3,13 @@ import asyncio
 import contextlib
 import re
 from queue import Empty, Full, Queue
+from typing import TYPE_CHECKING
 
-from libqretprop.runtime.metrics import Metrics
 from libqretprop.runtime.ws_fanout import BoundedWebSocketFanout, JsonMessage
+
+
+if TYPE_CHECKING:
+    from libqretprop.runtime.metrics import Metrics
 
 
 LOG_STREAM_METRIC_LABEL = "logs"
