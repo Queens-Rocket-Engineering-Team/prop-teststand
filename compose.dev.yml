@@ -4,9 +4,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.server
-    depends_on:
-      - redis
-      - logs
     network_mode: "host" # Use host networking for SSDP
     environment:
       - PROP_CONFIG=/app/config.yaml # Default config file location
@@ -43,29 +40,6 @@ services:
           path: ./hatch_build.py
         - action: rebuild
           path: ./qlcp
-  logs:
-    build:
-      context: .
-      dockerfile: Dockerfile.logs
-    depends_on:
-      - redis
-
-    # Required for consistency of shared config of redis ip
-    # Normal containers cannot access localhost, host networked containers cannot use docker internal DNS
-    network_mode: "host"
-    environment:
-      - PROP_CONFIG=/app/config.yaml # Default config file location
-    tty: true
-
-    volumes:
-      - ./config.yaml:/app/config.yaml  # Mount local config file for development
-
-    develop:
-      watch:
-        # Sync script changes for development
-        - action: sync+restart
-          path: ./qretproptools/cli/see_logs
-          target: /app/qretproptools/cli/see_logs
 
   media:
     image: "bluenviron/mediamtx:latest"
@@ -82,22 +56,6 @@ services:
       - MTX_WEBRTCLOCALTCPADDRESS=:8189
     volumes:
       - ./recordings/mediamtx:/recordings
-
-  redis:
-    image: "redis:latest"
-    ports:
-      - "6379:6379"
-    volumes:
-      - ./redis.conf:/usr/local/etc/redis/redis.conf
-    command: redis-server /usr/local/etc/redis/redis.conf
-
-    develop:
-      watch:
-        # Restart on redis.conf changes
-        # Sync doesn't actually work here because of the volume mount
-        - action: restart
-          path: ./redis.conf
-          target: /usr/local/etc/redis/redis.conf
 
   mockdevice:
     build:

@@ -1,11 +1,11 @@
 from __future__ import annotations
 import asyncio
 import contextlib
+import logging
 import socket
 
-import libqretprop.redis_logging as ml
 
-
+logger = logging.getLogger(__name__)
 MULTICAST_ADDRESS = "239.255.255.250"
 MULTICAST_PORT = 1900
 
@@ -39,7 +39,7 @@ class DiscoveryService:
         if self._socket is None:
             self._socket = self._create_socket()
 
-        ml.dlog("Sending discovery request.")
+        logger.debug("Sending discovery request.")
 
         request = (
             "M-SEARCH * HTTP/1.1\r\n"
@@ -76,5 +76,5 @@ class DiscoveryService:
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 1)
 
         sock.setblocking(False)
-        ml.slog(f"Discovery socket initialized for {self.multicast_address}:{self.multicast_port}")
+        logger.info(f"Discovery socket initialized for {self.multicast_address}:{self.multicast_port}")
         return sock

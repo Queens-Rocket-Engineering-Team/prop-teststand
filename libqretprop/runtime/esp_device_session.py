@@ -1,17 +1,20 @@
 from __future__ import annotations
 import asyncio
+import logging
 import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
-import libqretprop.redis_logging as ml
 from libqretprop.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
 from libqretprop.qlcp.config_parser import parse_config
+
+
+logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
     import socket
 
-    from libqretprop.qlcp.config_models import ControlConfig, DeviceConfig, SensorConfig
+    from libqretprop.qlcp.config_models import ControlConfig, SensorConfig
     from libqretprop.runtime.command_types import CommandRecord
     from libqretprop.runtime.esp_connection_runtime import ESPConnectionRuntime
 
@@ -28,11 +31,11 @@ class ESPDeviceSession:
         self,
         tcp_socket: socket.socket,
         address: str,
-        config: dict[str, Any] | DeviceConfig,
+        config: dict[str, Any],
         *,
         connection_key: str,
     ) -> None:
-        parsed_config = parse_config(config) if isinstance(config, dict) else config
+        parsed_config = parse_config(config)
 
         self.socket: socket.socket | None = tcp_socket
         self.address = address
@@ -123,18 +126,18 @@ class ESPDeviceSession:
         try:
             while True:
                 if self.socket is None:
-                    ml.elog(f"Device {self.name} has no socket.")
+                    logger.error(f"Device {self.name} has no socket.")
                     runtime.remove_device(self)
                     break
 
                 try:
                     packet = await self.driver.read_packet()
                 except ESPDriverConnectionClosedError:
-                    ml.elog(f"Device {self.name} disconnected.")
+                    logger.error(f"Device {self.name} disconnected.")
                     runtime.remove_device(self)
                     break
 
-                ml.plog(f"Decoded {type(packet).__name__} from {self.name}")
+                logger.debug(f"Decoded {type(packet).__name__} from {self.name}")
                 await runtime.handle_packet(self, packet)
 
                 if self.needs_resync():
@@ -142,10 +145,10 @@ class ESPDeviceSession:
                     await runtime.send_timesync(self)
 
         except asyncio.CancelledError:
-            ml.slog(f"Stopped monitoring {self.name}")
+            logger.info(f"Stopped monitoring {self.name}")
             raise
         except Exception as e:
-            ml.elog(f"Error receiving response from {self.name}: {e}")
+            logger.error(f"Error receiving response from {self.name}: {e}")
             runtime.remove_device(self)
 
     async def heartbeat(self, runtime: ESPConnectionRuntime) -> None:

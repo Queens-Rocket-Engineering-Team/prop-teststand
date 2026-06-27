@@ -31,7 +31,7 @@ class Camera:
             # Load wsdl files for ONVIF
             wsdl_path = os.path.join(os.path.dirname(onvif.__file__), 'wsdl/')
 
-            self.camera = onvif.ONVIFCamera(self.address, self.port, config.serverConfig["accounts"]["camera"]["username"], config.serverConfig["accounts"]["camera"]["password"], wsdl_path)
+            self.camera = onvif.ONVIFCamera(self.address, self.port, config.server_config["accounts"]["camera"]["username"], config.server_config["accounts"]["camera"]["password"], wsdl_path)
             await asyncio.wait_for(self.camera.update_xaddrs(), timeout=5)
 
 

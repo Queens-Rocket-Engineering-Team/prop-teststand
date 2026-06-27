@@ -1,18 +1,20 @@
 import asyncio
+import logging
 import os
-
-import redis
 
 import libqretprop
 import libqretprop.config_manager as config
-import libqretprop.redis_logging as ml
-from libqretprop.api import fastAPI
-from libqretprop.daemons.cliTerminal import commandProcessor
-from libqretprop.device_controllers import cameraTools, kasaTools
+from libqretprop.api import fast_api
+from libqretprop.daemons.cli_terminal import command_processor
+from libqretprop.device_controllers import camera_tools, kasa_tools
+from libqretprop.runtime.logging import configure_logging
 from libqretprop.runtime.services import build_runtime
 
 
-async def main(noDiscovery: bool = False) -> None:
+logger = logging.getLogger(__name__)
+
+
+async def main(no_discovery: bool = False) -> None:
     """Run the server."""
 
     # -------
@@ -20,49 +22,40 @@ async def main(noDiscovery: bool = False) -> None:
     # -------
 
     # Load server configuration
-    configPath = os.getenv("PROP_CONFIG", "./config.yaml")
-    config.load_config(configPath)
+    config_path = os.getenv("PROP_CONFIG", "./config.yaml")
+    config.load_config(config_path)
 
-    # Initialize Redis client for logging
-    redisClient = redis.Redis(host=config.serverConfig["services"]["redis"]["ip"],
-                              port=config.serverConfig["services"]["redis"]["port"],
-                              db=0,
-                              username=config.serverConfig["accounts"]["redis"]["username"],
-                              password=config.serverConfig["accounts"]["redis"]["password"],
-                              decode_responses=True,
-                              )
-
-    ml.init_logger(redisClient)
-    ml.slog(f"Starting server (version: {libqretprop.__version__})...")
-
-    # Build the runtime object graph (pure construction — no I/O, no tasks yet).
+    # Build the runtime object graph (pure construction; no sockets or tasks yet).
     runtime = build_runtime()
+    configure_logging(runtime.log_stream)
+    logger.info(f"Starting server (version: {libqretprop.__version__})...")
 
     loop = asyncio.get_event_loop()
     daemons: dict[str, asyncio.Task[None]] = {}
 
     # Fire up the FastAPI app and add it as a daemon task
-    daemons["fastAPI"] = loop.create_task(fastAPI.startAPI(runtime))
+    daemons["fast_api"] = loop.create_task(fast_api.start_api(runtime))
 
     # -------
     # CONFIG OPTIONS
     # -------
 
-    if not noDiscovery:
+    runtime.start(loop, include_device_daemons=not no_discovery)
+    if not no_discovery:
         # Start ESP/telemetry/state daemon tasks (TCP, UDP, discovery, display flush).
-        runtime.start(loop)
-        ml.slog("Started ESP/telemetry/state daemon tasks.")
+        logger.info("Started ESP/telemetry/state daemon tasks.")
+    logger.info("Started log_stream daemon task.")
 
     # Connect to all cameras
-    daemons["cameraConnector"] = loop.create_task(cameraTools.connectAllCameras())
-    ml.slog("Started cameraConnector daemon task.")
+    daemons["camera_connector"] = loop.create_task(camera_tools.connect_all_cameras())
+    logger.info("Started camera_connector daemon task.")
 
     # Discover all Kasa devices
-    daemons["kasaDiscoverer"] = loop.create_task(kasaTools.discoverKasaDevices())
-    ml.slog("Started kasaDiscoverer daemon task.")
+    daemons["kasa_discoverer"] = loop.create_task(kasa_tools.discover_kasa_devices())
+    logger.info("Started kasa_discoverer daemon task.")
 
     # Command line interface daemon
-    daemons["commandProcessor"] = loop.create_task(commandProcessor(runtime))
+    daemons["command_processor"] = loop.create_task(command_processor(runtime))
 
 
     try:
@@ -74,25 +67,25 @@ async def main(noDiscovery: bool = False) -> None:
         try:
             await stop_event.wait()
         except KeyboardInterrupt:
-            ml.slog("KeyboardInterrupt: stopping server.")
+            logger.info("KeyboardInterrupt: stopping server.")
             stop_event.set()
         except asyncio.CancelledError:
-            ml.slog("Server main loop cancelled.")
+            logger.info("Server main loop cancelled.")
 
     # -------
     # CLEANUP
     # -------
     finally:
-        # Write all collected devices to the redis log on exit
+        # Write all collected devices to the log stream on exit.
         devices = runtime.esp_runtime.get_registered_devices()
         if devices:
-            ml.slog(f"Registered devices at shutdown: {', '.join(devices.keys())}")
+            logger.info(f"Registered devices at shutdown: {', '.join(devices.keys())}")
 
-        # Cancel app-level daemon tasks (fastAPI, camera, kasa, commandProcessor)
+        # Cancel app-level daemon tasks (FastAPI, camera, Kasa, command processor).
         for name, task in daemons.items():
             if not task.done():
                 task.cancel()
-                ml.slog(f"Cancelled {name} daemon task.")
+                logger.info(f"Cancelled {name} daemon task.")
         await asyncio.gather(*daemons.values(), return_exceptions=True)
 
         # Stop ESP/telemetry/state daemons and close device connections
