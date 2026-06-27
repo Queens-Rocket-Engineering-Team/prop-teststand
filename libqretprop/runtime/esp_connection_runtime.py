@@ -86,7 +86,8 @@ class ESPConnectionRuntime:
         """Run the config handshake for a freshly accepted TCP connection.
 
         Reads the first packet via a transient driver, and if it is a CONFIG packet,
-        registers the device. The socket is closed (not leaked) on any other outcome.
+        registers the device. Closes the socket on any pre-registration
+        failure.
         """
         driver = ESPDriver(client_socket, address)
         try:
@@ -101,13 +102,24 @@ class ESPConnectionRuntime:
             client_socket.close()
             return None
 
-        config_dict = json.loads(packet.config_json)
-        return await self.register_configured_device(
-            client_socket,
-            address,
-            config_dict,
-            packet.sequence,
-        )
+        try:
+            config_dict = json.loads(packet.config_json)
+        except Exception as e:
+            logger.error(f"Invalid CONFIG JSON from {address}: {e}. Closing connection.")
+            client_socket.close()
+            return None
+
+        try:
+            return await self.register_configured_device(
+                client_socket,
+                address,
+                config_dict,
+                packet.sequence,
+            )
+        except Exception as e:
+            logger.error(f"Failed to register device from {address}: {e}. Closing connection.")
+            client_socket.close()
+            return None
 
     async def register_configured_device(
         self,
@@ -143,14 +155,19 @@ class ESPConnectionRuntime:
 
         logger.info(f"Device {new_session.name} registered from {address}")
 
-        ack = AckPacket.create(PacketType.CONFIG, config_sequence)
-        await new_session.driver.send_packet(ack)
+        try:
+            ack = AckPacket.create(PacketType.CONFIG, config_sequence)
+            await new_session.driver.send_packet(ack)
 
-        await self.send_timesync(new_session, initial=True)
+            await self.send_timesync(new_session, initial=True)
 
-        status_request = SimplePacket.create(PacketType.STATUS_REQUEST)
-        await self.send_tracked_command(new_session, status_request)
-        logger.debug(f"Sent initial STATUS_REQUEST to {new_session.name}")
+            status_request = SimplePacket.create(PacketType.STATUS_REQUEST)
+            await self.send_tracked_command(new_session, status_request)
+            logger.debug(f"Sent initial STATUS_REQUEST to {new_session.name}")
+        except Exception as e:
+            logger.error(f"Post-registration setup failed for {new_session.name}: {e}. Removing device.")
+            self.remove_device(new_session)
+            raise
 
         return new_session
 
@@ -306,9 +323,10 @@ class ESPConnectionRuntime:
             )
 
         if packet.ack_packet_type == PacketType.TIMESYNC:
-            session.last_sync_time = time.monotonic()
-            session.mark_synced()
-            logger.debug(f"{session.name} TIMESYNC completed")
+            session.record_timesync_ack(command)
+            if command is not None:
+                self._publish_state_event(self.system_state.record_command_acked(command))
+            logger.debug(f"{session.name} TIMESYNC ACK seq={packet.ack_sequence}")
         elif packet.ack_packet_type == PacketType.HEARTBEAT:
             session.record_heartbeat_ack(command)
             if command is not None:

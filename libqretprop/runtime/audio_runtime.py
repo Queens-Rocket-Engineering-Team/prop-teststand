@@ -146,26 +146,29 @@ class AudioRuntime:
         temp_path = (self._temp_recordings_root() / file_name).with_suffix(".wav")
         output_path = (output_dir / file_name).with_suffix(".opus")
 
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-i",
-                str(temp_path),
-                "-c:a",
-                "libopus",
-                "-b:a",
-                "96k",
-                "-vbr",
-                "on",
-                "-ar",
-                "48000",
-                str(output_path),
-            ],
-            check=True,
-        )
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    str(temp_path),
+                    "-c:a",
+                    "libopus",
+                    "-b:a",
+                    "96k",
+                    "-vbr",
+                    "on",
+                    "-ar",
+                    "48000",
+                    str(output_path),
+                ],
+                check=True,
+            )
+        finally:
+            with contextlib.suppress(Exception):
+                os.remove(temp_path)
 
-        os.remove(temp_path)
         return output_path.name
 
     def _clear_recording_state(self) -> None:

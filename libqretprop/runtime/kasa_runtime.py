@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from kasa import Device, Discover, KasaException
@@ -15,8 +16,7 @@ class KasaRuntime:
 
     async def get_devices(self) -> list[Device]:
         devices = list(self._registry.values())
-        for dev in devices:
-            await dev.update()  # Update device info before reporting
+        await asyncio.gather(*(dev.update() for dev in devices))
         return devices
 
     async def discover_kasa_devices(self) -> None:
@@ -24,8 +24,7 @@ class KasaRuntime:
             logger.info("Sending kasa discovery request...")
 
             devices = await Discover.discover()
-            for dev in devices.values():
-                await self._register_discovered_device(dev)
+            await asyncio.gather(*(self._register_discovered_device(dev) for dev in devices.values()))
 
         except Exception as e:
             logger.error(f"Failed to discover Kasa devices: {e}")

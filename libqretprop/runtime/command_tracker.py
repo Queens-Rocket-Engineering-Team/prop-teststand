@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 import time
 from collections import deque
 from typing import TYPE_CHECKING
@@ -14,6 +15,9 @@ from libqretprop.runtime.command_types import (
     CommandSummary,
 )
 from libqretprop.runtime.metrics import NULL_METRICS, Metrics
+
+
+logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
@@ -182,7 +186,6 @@ class CommandTracker:
             self._pending.pop(key)
             record.state = CommandLifecycle.TIMED_OUT
             record.timed_out_at = timestamp
-            record.failure_reason = reason
             self.metrics.record_command_connection_failed(
                 record.packet_type,
                 device=record.device_name,
@@ -230,7 +233,10 @@ class CommandTracker:
         existing_record = self._pending_records.pop(existing_command_id)
         existing_record.state = CommandLifecycle.TIMED_OUT
         existing_record.timed_out_at = record.sent_at
-        existing_record.failure_reason = "duplicate_command_key"
+        logger.debug(
+            f"Replaced duplicate pending command: {existing_record.packet_type.name} "
+            f"seq={existing_record.packet_sequence} for {existing_record.device_name} (duplicate_command_key)",
+        )
         self.metrics.record_command_timed_out(existing_record.packet_type, device=existing_record.device_name)
         self._complete_record(existing_record)
 

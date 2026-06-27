@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import contextlib
+import logging
 from typing import TYPE_CHECKING, Any
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -13,6 +14,8 @@ if TYPE_CHECKING:
 
     from libqretprop.state import SystemState
 
+
+logger = logging.getLogger(__name__)
 
 STREAM_METRIC_LABEL = "state"
 
@@ -82,7 +85,8 @@ class StateStream:
         for websocket in self._clients_snapshot():
             try:
                 await websocket.send_json(event)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"State WebSocket send error, removing client: {e!r}")
                 stale_clients.append(websocket)
 
         for websocket in stale_clients:

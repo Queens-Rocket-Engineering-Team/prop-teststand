@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Protocol
 
 from libqretprop.qlcp.enums import ControlState, PacketType
 from libqretprop.runtime.command_types import (
-    MAINTENANCE_PACKET_TYPES,
     OPERATOR_VISIBLE_PACKET_TYPES,
     CommandRecord,
     CommandSummary,
@@ -304,8 +303,6 @@ class SystemState:
     def _command_event(self, event_type: str, command: CommandRecord) -> StateEvent | None:
         if command.packet_type == PacketType.HEARTBEAT:
             return self._heartbeat_event(command.connection_key)
-        if command.packet_type in MAINTENANCE_PACKET_TYPES:
-            return None
         if command.packet_type not in OPERATOR_VISIBLE_PACKET_TYPES:
             return None
 

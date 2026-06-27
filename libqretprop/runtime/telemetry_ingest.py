@@ -166,13 +166,16 @@ class TelemetryUDPListener:
                 # Process the first packet plus any already-buffered ones, up to batch_size.
                 # This keeps the UDP listener from monopolizing the event loop while other
                 # tasks (e.g. TCP command handling) need to run.
-                for _ in range(self.batch_size):
+                processed = 0
+                while True:
                     device_ip = addr[0]
                     batch = self.ingest.handle_datagram(data, device_ip)
                     if batch is not None:
                         for publisher in self.publishers:
                             publisher.publish_batch(batch)
-
+                    processed += 1
+                    if processed >= self.batch_size:
+                        break
                     try:
                         data, addr = udp_socket.recvfrom(4096)
                     except BlockingIOError:
