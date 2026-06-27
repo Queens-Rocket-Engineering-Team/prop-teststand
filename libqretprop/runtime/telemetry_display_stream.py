@@ -8,7 +8,7 @@ import numpy as np
 from tsdownsample import M4Downsampler
 
 from libqretprop.runtime.metrics import NULL_METRICS, Metrics
-from libqretprop.runtime.ws_fanout import BoundedWebSocketFanout
+from libqretprop.runtime.ws_fanout import BoundedWebSocketFanout, record_telemetry_drop
 
 
 if TYPE_CHECKING:
@@ -54,10 +54,6 @@ class _DeviceBucket:
     sensors: dict[int, _SensorBuffer] = field(default_factory=dict)
 
 
-def _record_telemetry_drop(metrics: Metrics, stream: str) -> None:
-    metrics.record_telemetry_dropped_batch(stream)
-
-
 class TelemetryDisplayStream(BoundedWebSocketFanout):
     """Downsampled telemetry stream for the operator GUI at /ws/telemetry/display.
 
@@ -82,7 +78,7 @@ class TelemetryDisplayStream(BoundedWebSocketFanout):
             stream_metric_label=STREAM_METRIC_LABEL,
             max_queue=max_queue,
             metrics=metrics or NULL_METRICS,
-            drop_recorder=_record_telemetry_drop,
+            drop_recorder=record_telemetry_drop,
         )
         self._bucket_interval_s = 1.0 / target_hz
         self._points_per_bucket = points_per_bucket
@@ -97,9 +93,12 @@ class TelemetryDisplayStream(BoundedWebSocketFanout):
         now = time.monotonic()
 
         device_bucket = self._buckets.get(batch.device_name)
-        if device_bucket is not None and bucket_index > device_bucket.bucket_index:
-            self._emit_bucket(batch.device_name, device_bucket)
-            device_bucket = None
+        if device_bucket is not None:
+            bucket_changed = bucket_index != device_bucket.bucket_index
+
+            if bucket_changed:
+                self._emit_bucket(batch.device_name, device_bucket)
+                device_bucket = None
 
         if device_bucket is None:
             device_bucket = _DeviceBucket(

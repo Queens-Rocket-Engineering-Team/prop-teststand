@@ -119,7 +119,7 @@ async def stop_camera_recording(
 
 
 @router.get("/v1/camera/recordings", summary="List camera recordings available for download")
-async def list_camera_recordings(request: Request, ip: str | None = None) -> CameraRecordingList:
+def list_camera_recordings(request: Request, ip: str | None = None) -> CameraRecordingList:
     try:
         camera_recording_files = request.app.state.runtime.camera_runtime.list_recording_files(ip)
     except Exception as e:

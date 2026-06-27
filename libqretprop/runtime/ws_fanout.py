@@ -1,16 +1,25 @@
 from __future__ import annotations
 import asyncio
 import contextlib
+import logging
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import WebSocket
 
 from libqretprop.runtime.metrics import NULL_METRICS, Metrics
 
 
+logger = logging.getLogger(__name__)
+
+
 JsonMessage = dict[str, Any]
 DropRecorder = Callable[[Metrics, str], None]
+
+
+def record_telemetry_drop(metrics: Metrics, stream: str) -> None:
+    """Default drop recorder for telemetry streams; records a dropped batch in metrics."""
+    metrics.record_telemetry_dropped_batch(stream)
 
 
 class BoundedWebSocketFanout:
@@ -73,10 +82,8 @@ class BoundedWebSocketFanout:
             while True:
                 message = await queue.get()
                 await websocket.send_json(message)
-        except WebSocketDisconnect:
-            pass
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"WebSocket send error on {self._stream_metric_label}: {e!r}")
         finally:
             await self.disconnect_client(websocket)
 

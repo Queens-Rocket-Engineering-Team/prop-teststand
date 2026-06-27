@@ -80,7 +80,7 @@ async def send_device_command(
             bg_tasks.add_task(func, device, control_name, control_state)
         else:
             any_commands_sent = True
-            bg_tasks.add_task(func, device, *cmd.args)
+            bg_tasks.add_task(func, device)
 
     if not any_commands_sent:
         raise HTTPException(400, "No valid target devices for the command")

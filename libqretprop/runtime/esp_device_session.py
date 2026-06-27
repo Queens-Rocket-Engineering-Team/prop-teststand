@@ -41,7 +41,7 @@ class ESPDeviceSession:
         self.address = address
         self.connection_key = connection_key
         self.qlcp_config = parsed_config
-        self.driver = ESPDriver(tcp_socket, address, config=parsed_config)
+        self.driver = ESPDriver(tcp_socket, address)
 
         self.last_sync_time: float | None = None
         self._resync_pending = False
@@ -162,6 +162,12 @@ class ESPDeviceSession:
                     break
 
             await asyncio.sleep(self.HEARTBEAT_INTERVAL_S)
+
+    def record_timesync_ack(self, command: CommandRecord | None) -> None:
+        if command is None:
+            return
+        self.last_sync_time = time.monotonic()
+        self.mark_synced()
 
     def record_heartbeat_ack(self, command: CommandRecord | None) -> None:
         if command is None:

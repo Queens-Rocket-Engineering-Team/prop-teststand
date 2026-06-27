@@ -10,7 +10,6 @@ from libqretprop.qlcp.framing import get_packet_len
 if TYPE_CHECKING:
     import socket
 
-    from libqretprop.qlcp.config_models import DeviceConfig
     from libqretprop.qlcp.packets import EncodablePacket
 
 
@@ -29,11 +28,9 @@ class ESPDriver:
         self,
         tcp_socket: socket.socket,
         address: str,
-        config: DeviceConfig | None = None,
     ) -> None:
         self.socket = tcp_socket
         self.address = address
-        self.config = config
 
     async def send_packet(self, packet: EncodablePacket) -> None:
         loop = asyncio.get_running_loop()

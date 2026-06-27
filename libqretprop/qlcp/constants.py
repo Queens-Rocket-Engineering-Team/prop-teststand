@@ -1,6 +1,7 @@
 from libqretprop.qlcp._bindings import lib as _lib
 
 
+# Local allocation bounds, not protocol-defined
 MAX_CONTROLS = 32
 MAX_SENSORS = 32
 MAX_CONFIG = 8192  # Much larger than any expected config JSON

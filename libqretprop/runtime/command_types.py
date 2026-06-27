@@ -71,7 +71,6 @@ class CommandRecord:
     nacked_at: float | None = None
     timed_out_at: float | None = None
     nack_error_code: ErrorCode | None = None
-    failure_reason: str | None = None
     control_id: int | None = None
     control_name: str | None = None
     requested_state: ControlState | None = None

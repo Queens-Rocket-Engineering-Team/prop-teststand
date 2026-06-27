@@ -301,7 +301,6 @@ def test_duplicate_pending_key_replaces_old_command_without_leak() -> None:
 
     assert old.state == CommandLifecycle.TIMED_OUT
     assert old.timed_out_at == 20.0
-    assert old.failure_reason == "duplicate_command_key"
     assert tracker.pending == (new,)
     assert _find_pending(tracker, "conn-a", PacketType.CONTROL, 7) is new
     assert old in tracker.recent_completed
@@ -317,7 +316,6 @@ def test_fail_connection_marks_pending_commands_for_that_connection_timed_out() 
     assert failed_records == [failed]
     assert failed.state == CommandLifecycle.TIMED_OUT
     assert failed.timed_out_at == 20.0
-    assert failed.failure_reason == "connection_cleanup"
     assert untouched.state == CommandLifecycle.SENT
     assert failed not in tracker.pending
     assert untouched in tracker.pending

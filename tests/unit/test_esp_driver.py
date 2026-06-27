@@ -4,7 +4,6 @@ import socket
 import pytest
 
 from libqretprop.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
-from libqretprop.qlcp.config_parser import parse_config
 from libqretprop.qlcp.decoding import decode_packet_client
 from libqretprop.qlcp.enums import PacketType
 from libqretprop.qlcp.packets import ConfigPacket, SimplePacket
@@ -35,24 +34,6 @@ def test_esp_driver_sends_encoded_packets() -> None:
 
     asyncio.run(run())
 
-
-def test_esp_driver_can_store_device_config() -> None:
-    driver_socket, peer_socket = socket.socketpair()
-
-    try:
-        config = parse_config(
-            {
-                "device_name": "TEST-DEVICE",
-                "device_type": "Sensor Monitor",
-            },
-        )
-
-        driver = ESPDriver(driver_socket, "test-device", config=config)
-
-        assert driver.config is config
-    finally:
-        driver_socket.close()
-        peer_socket.close()
 
 
 def test_esp_driver_reads_framed_server_packets() -> None:
