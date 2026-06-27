@@ -183,9 +183,7 @@ class SystemState:
                 self._snapshot_control(device_state, control)
                 for control in sorted(config.controls_by_id.values(), key=lambda control: control.id)
             ],
-            last_sync_time=getattr(device, "last_sync_time", None),
-            is_responsive=bool(getattr(device, "is_responsive", False)) if device is not None else False,
-            missed_heartbeat_acks=getattr(device, "missed_heartbeat_count", 0) if device is not None else 0,
+            last_sync_time=device.last_sync_time if device is not None else None,
             heartbeat=self._snapshot_heartbeat(device_state),
         )
 
@@ -240,7 +238,7 @@ class SystemState:
 
     def _snapshot_heartbeat(self, device_state: _DeviceState) -> HeartbeatSnapshot:
         device = device_state.device
-        missed_heartbeat_acks = getattr(device, "missed_heartbeat_count", 0) if device is not None else 0
+        consecutive_misses = device.missed_heartbeat_count if device is not None else 0
         heartbeat_summary = (
             self._command_tracker.get_summary(device_state.connection_key, PacketType.HEARTBEAT)
             if device is not None
@@ -249,7 +247,7 @@ class SystemState:
 
         if not device_state.connected:
             state = "disconnected"
-        elif missed_heartbeat_acks > 0:
+        elif consecutive_misses > 0:
             state = "missed"
         else:
             state = "ok"
@@ -259,7 +257,7 @@ class SystemState:
             last_sent_time=heartbeat_summary.last_sent_at if heartbeat_summary is not None else None,
             last_ack_time=heartbeat_summary.last_acked_at if heartbeat_summary is not None else None,
             pending=bool(heartbeat_summary and heartbeat_summary.pending_count > 0),
-            consecutive_misses=missed_heartbeat_acks,
+            consecutive_misses=consecutive_misses,
             last_timeout_time=heartbeat_summary.last_timed_out_at if heartbeat_summary is not None else None,
         )
 

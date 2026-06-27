@@ -19,7 +19,7 @@ class Clock:
         self.now += seconds
 
 
-def test_metrics_snapshot_records_live_telemetry_rates() -> None:
+def test_metrics_snapshot_records_live_telemetry_totals() -> None:
     clock = Clock()
     metrics = Metrics(time_fn=clock)
 
@@ -36,7 +36,7 @@ def test_metrics_snapshot_records_live_telemetry_rates() -> None:
     by_device = telemetry["ingest"]["by_device"]["PANDA"]
 
     assert aggregate["udp_bytes_total"] == 300
-    assert aggregate["udp_bytes_per_s"]["5s"] == 150.0
+    assert "udp_bytes_per_s" not in aggregate
     assert aggregate["data_packets_total"] == 2
     assert "batches_total" not in aggregate
     assert aggregate["readings_total"] == 5
@@ -56,8 +56,10 @@ def test_metrics_snapshot_records_errors_streams_and_events() -> None:
     telemetry = snapshot["telemetry"]
 
     assert telemetry["decode_errors"]["total"]["decode"] == 1
+    assert "per_s" not in telemetry["decode_errors"]
     assert "loss" not in telemetry
     assert telemetry["streams"]["dropped_batches_total"]["telemetry_raw"] == 1
+    assert "dropped_batches_per_s" not in telemetry["streams"]
     assert snapshot["device_lifecycle"]["heartbeat_misses_total"]["PANDA"] == 1
     assert len(snapshot["recent_events"]) == 3
     assert snapshot["recent_events"][-1]["kind"] == "device.disconnected"
@@ -85,7 +87,6 @@ def test_metrics_snapshot_records_command_and_http_latency_summaries() -> None:
         "min": 0.1,
         "max": 0.5,
         "last": 0.5,
-        "recent_p95": 0.5,
     }
     assert snapshot["http"]["requests_total"]["GET"]["200"] == 1
     assert snapshot["http"]["requests_total"]["POST"]["500"] == 1

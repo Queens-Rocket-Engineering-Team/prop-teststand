@@ -51,8 +51,6 @@ class DeviceSnapshot:
     sensors: list[SensorSnapshot] = field(default_factory=list)
     controls: list[ControlSnapshot] = field(default_factory=list)
     last_sync_time: float | None = None
-    is_responsive: bool = True
-    missed_heartbeat_acks: int = 0
     heartbeat: HeartbeatSnapshot = field(default_factory=lambda: HeartbeatSnapshot(state="disconnected"))
 
 

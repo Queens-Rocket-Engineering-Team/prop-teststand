@@ -13,7 +13,6 @@ from libqretprop.runtime.telemetry_display_stream import (
     DISPLAY_POINTS_PER_BUCKET,
     DISPLAY_TARGET_HZ,
     TelemetryDisplayStream,
-    _DeviceBucket,
     _SensorBuffer,
 )
 from libqretprop.runtime.telemetry_ingest import TelemetryBatch, TelemetryReading
@@ -354,7 +353,7 @@ def test_disconnect_non_last_client_preserves_buckets() -> None:
     async def run() -> None:
         stream = TelemetryDisplayStream(target_hz=30.0, downsampler=_IdentityDownsampler())
         ws1 = await _connect(stream)
-        ws2 = await _connect(stream)
+        await _connect(stream)
 
         stream.publish_batch(_make_batch(timestamp_s=1.0))
         await stream.disconnect_client(_as_ws(ws1))

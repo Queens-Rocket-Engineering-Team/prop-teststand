@@ -1,17 +1,12 @@
 from __future__ import annotations
-import math
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-
-RATE_WINDOWS_S = (5, 15, 60)
-MAX_RATE_WINDOW_S = max(RATE_WINDOWS_S)
 
 
 def _label(value: Any) -> str:
@@ -30,41 +25,11 @@ def _clean_context(context: dict[str, object | None]) -> dict[str, object]:
 @dataclass(slots=True)
 class _RollingCounter:
     total: float = 0.0
-    buckets: dict[int, float] = field(default_factory=dict)
-    first_seen_s: float | None = None
 
-    def add(self, amount: float, now_s: float) -> None:
+    def add(self, amount: float) -> None:
         if amount <= 0:
             return
-        if self.first_seen_s is None:
-            self.first_seen_s = now_s
         self.total += amount
-        bucket = int(now_s)
-        self.buckets[bucket] = self.buckets.get(bucket, 0.0) + amount
-        self.prune(now_s)
-
-    def rates(self, now_s: float) -> dict[str, float]:
-        self.prune(now_s)
-        if self.first_seen_s is None:
-            return {f"{window}s": 0.0 for window in RATE_WINDOWS_S}
-
-        rates: dict[str, float] = {}
-        for window in RATE_WINDOWS_S:
-            start_bucket = int(now_s - window) + 1
-            amount = sum(
-                value
-                for bucket, value in self.buckets.items()
-                if bucket >= start_bucket
-            )
-            elapsed = max(1.0, min(float(window), now_s - self.first_seen_s))
-            rates[f"{window}s"] = amount / elapsed
-        return rates
-
-    def prune(self, now_s: float) -> None:
-        oldest_bucket = int(now_s - MAX_RATE_WINDOW_S)
-        for bucket in tuple(self.buckets):
-            if bucket < oldest_bucket:
-                self.buckets.pop(bucket)
 
 
 @dataclass(slots=True)
@@ -74,7 +39,6 @@ class _LatencySummary:
     min_value: float | None = None
     max_value: float | None = None
     last: float | None = None
-    samples: deque[float] = field(default_factory=lambda: deque(maxlen=256))
 
     def observe(self, value: float) -> None:
         value = max(0.0, value)
@@ -83,7 +47,6 @@ class _LatencySummary:
         self.min_value = value if self.min_value is None else min(self.min_value, value)
         self.max_value = value if self.max_value is None else max(self.max_value, value)
         self.last = value
-        self.samples.append(value)
 
     def to_dict(self) -> dict[str, float | int]:
         if self.count == 0:
@@ -94,15 +57,7 @@ class _LatencySummary:
             "min": self.min_value if self.min_value is not None else 0.0,
             "max": self.max_value if self.max_value is not None else 0.0,
             "last": self.last if self.last is not None else 0.0,
-            "recent_p95": self._recent_percentile(0.95),
         }
-
-    def _recent_percentile(self, percentile: float) -> float:
-        if not self.samples:
-            return 0.0
-        sorted_samples = sorted(self.samples)
-        index = max(0, math.ceil(percentile * len(sorted_samples)) - 1)
-        return sorted_samples[index]
 
 
 class Metrics:
@@ -154,19 +109,17 @@ class Metrics:
             },
             "telemetry": {
                 "ingest": {
-                    "aggregate": self._telemetry_metric_snapshot(self._telemetry_aggregate, now_s),
+                    "aggregate": self._telemetry_metric_snapshot(self._telemetry_aggregate),
                     "by_device": {
-                        device: self._telemetry_metric_snapshot(counters, now_s)
+                        device: self._telemetry_metric_snapshot(counters)
                         for device, counters in sorted(self._telemetry_by_device.items())
                     },
                 },
                 "decode_errors": {
                     "total": self._counter_totals(self._telemetry_decode_errors),
-                    "per_s": self._counter_rates(self._telemetry_decode_errors, now_s),
                 },
                 "streams": {
                     "dropped_batches_total": self._counter_totals(self._telemetry_dropped_batches),
-                    "dropped_batches_per_s": self._counter_rates(self._telemetry_dropped_batches, now_s),
                 },
             },
             "commands": {
@@ -195,29 +148,26 @@ class Metrics:
     def record_telemetry_datagram(self, byte_count: int, *, device: str | None = None) -> None:
         if not self._enabled:
             return
-        now_s = self._now()
-        self._counter(self._telemetry_aggregate, "udp_bytes").add(byte_count, now_s)
+        self._counter(self._telemetry_aggregate, "udp_bytes").add(byte_count)
         if device is not None:
-            self._device_counter(device, "udp_bytes").add(byte_count, now_s)
+            self._device_counter(device, "udp_bytes").add(byte_count)
 
     def record_telemetry_data_packet(self, device: str) -> None:
         if not self._enabled:
             return
-        now_s = self._now()
-        self._counter(self._telemetry_aggregate, "data_packets").add(1, now_s)
-        self._device_counter(device, "data_packets").add(1, now_s)
+        self._counter(self._telemetry_aggregate, "data_packets").add(1)
+        self._device_counter(device, "data_packets").add(1)
 
     def record_telemetry_readings(self, device: str, count: int) -> None:
         if not self._enabled or count <= 0:
             return
-        now_s = self._now()
-        self._counter(self._telemetry_aggregate, "readings").add(count, now_s)
-        self._device_counter(device, "readings").add(count, now_s)
+        self._counter(self._telemetry_aggregate, "readings").add(count)
+        self._device_counter(device, "readings").add(count)
 
     def record_telemetry_decode_error(self, kind: str) -> None:
         if not self._enabled:
             return
-        self._counter(self._telemetry_decode_errors, kind).add(1, self._now())
+        self._counter(self._telemetry_decode_errors, kind).add(1)
         self._add_event(
             "telemetry.decode_error",
             "warning",
@@ -228,7 +178,7 @@ class Metrics:
     def record_telemetry_dropped_batch(self, stream: str) -> None:
         if not self._enabled:
             return
-        self._counter(self._telemetry_dropped_batches, stream).add(1, self._now())
+        self._counter(self._telemetry_dropped_batches, stream).add(1)
         self._add_event(
             "telemetry.dropped_batch",
             "warning",
@@ -412,25 +362,16 @@ class Metrics:
     def _telemetry_metric_snapshot(
         self,
         counters: dict[str, _RollingCounter],
-        now_s: float,
     ) -> dict[str, object]:
         snapshot: dict[str, object] = {}
         for metric, counter in sorted(counters.items()):
             snapshot[f"{metric}_total"] = self._number(counter.total)
-            snapshot[f"{metric}_per_s"] = counter.rates(now_s)
         return snapshot
 
     @staticmethod
     def _counter_totals(counters: dict[str, _RollingCounter]) -> dict[str, int | float]:
         return {
             key: Metrics._number(counter.total)
-            for key, counter in sorted(counters.items())
-        }
-
-    @staticmethod
-    def _counter_rates(counters: dict[str, _RollingCounter], now_s: float) -> dict[str, dict[str, float]]:
-        return {
-            key: counter.rates(now_s)
             for key, counter in sorted(counters.items())
         }
 

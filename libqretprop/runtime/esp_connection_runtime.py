@@ -51,15 +51,13 @@ class ESPConnectionRuntime:
         self,
         *,
         state_stream: StatePublisher,
-        command_tracker: CommandTracker | None = None,
-        system_state: SystemState | None = None,
+        command_tracker: CommandTracker,
+        system_state: SystemState,
         metrics: Metrics | None = None,
     ) -> None:
         self.devices: dict[str, ESPDeviceSession] = {}
         self.metrics = metrics or NULL_METRICS
-        self.command_tracker = CommandTracker(metrics=self.metrics) if command_tracker is None else command_tracker
-        if system_state is None:
-            system_state = SystemState(command_tracker=self.command_tracker)
+        self.command_tracker = command_tracker
         self.system_state = system_state
         self.state_stream = state_stream
         self._connection_counter = count(1)
@@ -198,28 +196,14 @@ class ESPConnectionRuntime:
         return command
 
     async def send_heartbeat(self, session: ESPDeviceSession) -> bool:
-        command: CommandRecord | None = None
         try:
             packet = SimplePacket.create(PacketType.HEARTBEAT)
-            command = self.command_tracker.mark_sent(
-                connection_key=session.connection_key,
-                device_name=session.name,
-                device_address=session.address,
-                packet_type=PacketType.HEARTBEAT,
-                packet_sequence=packet.sequence,
-                now=time.monotonic(),
-            )
-            await session.driver.send_packet(packet)
-            self._publish_state_event(self.system_state.record_command_sent(command))
+            await self.send_tracked_command(session, packet)
+            return True
         except (BrokenPipeError, ConnectionResetError, OSError) as e:
-            if command is not None:
-                self.command_tracker.discard(command.command_id)
-
             ml.elog(f"{session.name} heartbeat send failed: {e}")
             self.remove_device(session)
             return False
-        else:
-            return True
 
     # ------------------------------------------------------------------ #
     # Device command operations                                            #
@@ -365,8 +349,6 @@ class ESPConnectionRuntime:
             if control is None:
                 continue
 
-            state_str = self._control_state_string(control_state.state)
-            session.set_control_state(control.name, state_str)
             self._publish_state_event(
                 self.system_state.update_control_state(session, control_state.id, control_state.state),
             )
@@ -377,7 +359,7 @@ class ESPConnectionRuntime:
         *,
         reason: str = "connection_cleanup",
     ) -> None:
-        tcp_socket = getattr(session, "socket", None)
+        tcp_socket = session.socket
         if tcp_socket:
             try:
                 tcp_socket.close()
@@ -387,7 +369,7 @@ class ESPConnectionRuntime:
             finally:
                 session.socket = None
 
-        monitor_task = getattr(session, "monitor_task", None)
+        monitor_task = session.monitor_task
         if monitor_task is not None:
             try:
                 monitor_task.cancel()
@@ -395,7 +377,7 @@ class ESPConnectionRuntime:
             except Exception as e:
                 ml.elog(f"Error cancelling monitor task for {session.name}: {e}")
 
-        heartbeat_task = getattr(session, "heartbeat_task", None)
+        heartbeat_task = session.heartbeat_task
         if heartbeat_task is not None:
             try:
                 heartbeat_task.cancel()
@@ -504,8 +486,6 @@ class ESPConnectionRuntime:
         if control_name is None:
             return
 
-        state_str = self._control_state_string(command.requested_state)
-        session.set_control_state(control_name, state_str)
         self._publish_state_event(
             self.system_state.update_control_state(
                 session,
@@ -513,14 +493,6 @@ class ESPConnectionRuntime:
                 command.requested_state,
             ),
         )
-
-    @staticmethod
-    def _control_state_string(state: ControlState) -> str:
-        if state == ControlState.OPEN:
-            return "OPEN"
-        if state == ControlState.CLOSED:
-            return "CLOSED"
-        return "UNKNOWN"
 
     def _publish_state_event(self, event: dict[str, object] | None) -> None:
         self.state_stream.publish(event)

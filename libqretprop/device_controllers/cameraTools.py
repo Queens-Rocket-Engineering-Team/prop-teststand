@@ -212,29 +212,6 @@ async def moveCamera(ip: str, x: float, y: float) -> None:
     except Exception as e:
         ml.elog(f"Failed to move camera at {ip}: {e}")
 
-"""Get the RTSP stream URL for a camera at given IP
-
-Args:
-    ip (str): The IP address of the camera
-"""
-async def getStreamURL(ip: str) -> str:
-    try:
-        if ip not in cameraRegistry:
-            raise Exception("Camera does not exist")
-
-        cam = cameraRegistry[ip]
-
-        streamSetup = {
-            "Stream": "RTP-Unicast",
-            "Transport": {"Protocol": "RTSP"},
-        }
-        streamUri = await cam.media.GetStreamUri({"ProfileToken": cam.token, "StreamSetup": streamSetup})
-
-        return streamUri.Uri
-    except Exception as e:
-        ml.elog(f"Failed to get stream URL for camera at {ip}: {e}")
-        raise
-
 async def startCameraRecording(ip: str) -> None:
     if ip not in cameraRegistry:
         ml.elog(f"Failed to start recording for camera at {ip}: Camera does not exist")
@@ -298,32 +275,3 @@ async def stopCameraRecording(ip: str) -> None:
                 raise Exception(f"Failed to stop recording for camera at {ip}: {e}")
     else:
         ml.elog(f"Failed to stop recording for camera at {ip}: Media server is not configured")
-
-async def getCameraRecordings(ip: str) -> list[str]:
-    if ip not in cameraRegistry:
-        ml.elog(f"Failed to get recordings for camera at {ip}: Camera does not exist")
-        raise Exception(f"Camera {ip} does not exist")
-
-    if config.serverConfig["services"]["mediamtx"] is not None:
-        mediamtx_ip = config.serverConfig["services"]["mediamtx"]["ip"]
-        mediamtx_port = config.serverConfig["services"]["mediamtx"]["api_port"]
-
-        async with aiohttp.ClientSession() as httpClient:
-            try:
-                ml.slog(f"Getting recordings for camera at {ip} via media server API")
-                response = await httpClient.get(f"http://{mediamtx_ip}:{mediamtx_port}/v3/recordings/{ip}", timeout=aiohttp.ClientTimeout(10))
-
-                if response.status != 200:
-                    raise Exception(f"Media server API returned status {response.status}")
-
-                data = await response.json()
-                return data.get("recordings", [])
-            except asyncio.TimeoutError:
-                ml.elog(f"Media server API request to get recordings timed out for camera at {ip}")
-                raise Exception("Media server API request timed out")
-            except Exception as e:
-                ml.elog(f"Failed to get recordings for camera at {ip}: {e}")
-                raise Exception(f"Failed to get recordings for camera at {ip}: {e}")
-    else:
-        ml.elog(f"Failed to get recordings for camera at {ip}: Media server is not configured")
-        raise Exception("Media server is not configured")

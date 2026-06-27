@@ -40,10 +40,6 @@ class ESPDeviceSession:
         self.qlcp_config = parsed_config
         self.driver = ESPDriver(tcp_socket, address, config=parsed_config)
 
-        self.control_states: dict[str, str] = {
-            control_name: control.default.name for control_name, control in self.controls.items()
-        }
-
         self.last_sync_time: float | None = None
         self._resync_pending = False
         self.is_responsive = True
@@ -99,11 +95,6 @@ class ESPDeviceSession:
     def mark_synced(self) -> None:
         """Record that the TIMESYNC ACK was received."""
         self._resync_pending = False
-
-    @property
-    def resync_pending(self) -> bool:
-        """Whether a TIMESYNC command is awaiting an ACK."""
-        return self._resync_pending
 
     def register_missed_heartbeat(self) -> bool:
         """Increment missed-heartbeat-ACK counter.
@@ -174,10 +165,6 @@ class ESPDeviceSession:
             return
 
         self.reset_heartbeat_misses()
-
-    def set_control_state(self, control_name: str, state: str) -> None:
-        """Update this session's local control-state cache."""
-        self.control_states[control_name.upper()] = state
 
     def control_name_for_id(self, control_id: int | None) -> str | None:
         if control_id is None:
