@@ -2,7 +2,7 @@ import logging
 
 import aiohttp
 
-import libqretprop.config_manager as config
+from libqretprop.config import MediaMTXConfig
 
 
 logger = logging.getLogger(__name__)
@@ -23,10 +23,12 @@ def _parse_mediamtx_record_flag(data: dict) -> bool | None:
 
 
 class MediaMTXClient:
+    def __init__(self, config: MediaMTXConfig) -> None:
+        self._config = config
+
     def _base_url(self) -> str:
-        mediamtx_config = config.server_config["services"]["mediamtx"]
-        mediamtx_ip = mediamtx_config["ip"]
-        mediamtx_port = mediamtx_config["api_port"]
+        mediamtx_ip = self._config["ip"]
+        mediamtx_port = self._config["api_port"]
         return f"http://{mediamtx_ip}:{mediamtx_port}"
 
     async def add_path(

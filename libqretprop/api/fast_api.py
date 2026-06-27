@@ -493,7 +493,7 @@ class ConfigsResponse(BaseModel):
 
 
 @app.get("/config", summary="Get the sensor and control config", response_model=ConfigsResponse)
-async def get_server_config(request: Request) -> ConfigsResponse:
+async def get_device_configs(request: Request) -> ConfigsResponse:
     rt = request.app.state.runtime
     configs: dict[str, dict] = {}
     for dev in rt.esp_runtime.get_registered_devices().values():

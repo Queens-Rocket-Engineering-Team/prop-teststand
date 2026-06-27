@@ -3,8 +3,6 @@ import os
 
 import onvif
 
-import libqretprop.config_manager as config
-
 
 class Camera:
     """A top level class representing the configuration of a connected Camera device.
@@ -36,12 +34,12 @@ class Camera:
     def set_recording(self, recording: bool) -> None:
         self.recording = recording
 
-    async def connect(self) -> None:
+    async def connect(self, username: str, password: str) -> None:
         try:
             # Load wsdl files for ONVIF
             wsdl_path = os.path.join(os.path.dirname(onvif.__file__), 'wsdl/')
 
-            self.camera = onvif.ONVIFCamera(self.address, self.port, config.server_config["accounts"]["camera"]["username"], config.server_config["accounts"]["camera"]["password"], wsdl_path)
+            self.camera = onvif.ONVIFCamera(self.address, self.port, username, password, wsdl_path)
             await asyncio.wait_for(self.camera.update_xaddrs(), timeout=5)
 
 

@@ -3,7 +3,7 @@ import logging
 import os
 
 import libqretprop
-import libqretprop.config_manager as config
+from libqretprop import config
 from libqretprop.api import fast_api
 from libqretprop.daemons.cli_terminal import command_processor
 from libqretprop.runtime.logging import configure_logging
@@ -22,10 +22,10 @@ async def main(no_discovery: bool = False) -> None:
 
     # Load server configuration
     config_path = os.getenv("PROP_CONFIG", "./config.yaml")
-    config.load_config(config_path)
+    server_config = config.load_config(config_path)
 
     # Build the runtime object graph (pure construction; no sockets or tasks yet).
-    runtime = build_runtime()
+    runtime = build_runtime(server_config)
     configure_logging(runtime.log_stream)
     logger.info(f"Starting server (version: {libqretprop.__version__})...")
 
