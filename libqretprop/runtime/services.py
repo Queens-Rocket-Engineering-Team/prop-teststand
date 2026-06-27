@@ -83,6 +83,7 @@ class RuntimeServices:
         await asyncio.gather(*runtime_tasks.values(), return_exceptions=True)
         self.esp_runtime.close_all()
         self.audio_runtime.close()
+        await self.camera_runtime.close()
 
         await asyncio.sleep(0)
         if log_task is not None and not log_task.done():

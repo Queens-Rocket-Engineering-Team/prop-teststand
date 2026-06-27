@@ -281,7 +281,7 @@ class ESPConnectionRuntime:
         packet: TrackedCommandPacket,
         label: str,
     ) -> None:
-        if not session.socket:
+        if not session.is_connected:
             logger.error(f"No socket available for {session.name} to send {label}.")
             self.remove_device(session)
             return
@@ -380,15 +380,12 @@ class ESPConnectionRuntime:
         *,
         reason: str = "connection_cleanup",
     ) -> None:
-        tcp_socket = session.socket
-        if tcp_socket:
+        if session.is_connected:
             try:
-                tcp_socket.close()
+                session.close()
                 logger.info(f"Closed socket for {session.name}")
             except OSError as e:
                 logger.error(f"Error closing socket for {session.name}: {e}")
-            finally:
-                session.socket = None
 
         monitor_task = session.monitor_task
         if monitor_task is not None:

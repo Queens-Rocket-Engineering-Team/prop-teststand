@@ -36,6 +36,17 @@ class CameraRuntime:
         self._cameras = cameras
         self._camera_account = camera_account
         self._mediamtx_config = mediamtx_config
+        self._http_session: aiohttp.ClientSession | None = None
+
+    def _get_http_session(self) -> aiohttp.ClientSession:
+        if self._http_session is None or self._http_session.closed:
+            self._http_session = aiohttp.ClientSession()
+        return self._http_session
+
+    async def close(self) -> None:
+        if self._http_session is not None and not self._http_session.closed:
+            await self._http_session.close()
+            self._http_session = None
 
     def cameras(self) -> list[Camera]:
         return list(self._registry.values())
@@ -100,24 +111,22 @@ class CameraRuntime:
         return file_path
 
     async def connect_all_cameras(self) -> None:
-        """Connect to all configured cameras and register them."""
-        async with aiohttp.ClientSession() as http_client:
-            cam_username, cam_password = self._camera_credentials()
+        """Connect to all configured cameras and register them, in parallel."""
+        http_client = self._get_http_session()
+        cam_username, cam_password = self._camera_credentials()
 
-            for camera in self._cameras:
-                camera_ip = camera["ip"]
-                camera_port = camera["onvif_port"]
+        async def connect_one(camera: CameraConfig) -> None:
+            camera_object = await self.register_camera(camera["ip"], camera["onvif_port"])
+            if camera_object is None or not self._mediamtx_configured():
+                return
+            await self._configure_media_server_for_camera(
+                http_client,
+                camera_object,
+                username=cam_username,
+                password=cam_password,
+            )
 
-                camera_object = await self.register_camera(camera_ip, camera_port)
-                if camera_object is None or not self._mediamtx_configured():
-                    continue
-
-                await self._configure_media_server_for_camera(
-                    http_client,
-                    camera_object,
-                    username=cam_username,
-                    password=cam_password,
-                )
+        await asyncio.gather(*(connect_one(camera) for camera in self._cameras))
 
     async def register_camera(self, ip: str, port: int) -> Camera | None:
         """Register a camera with its IP and ONVIF port."""
@@ -213,21 +222,20 @@ class CameraRuntime:
 
         # PATCH media server /v3/config/paths/patch/{ip} with {"record": true|false}
         if self._mediamtx_configured():
-            async with aiohttp.ClientSession() as http_client:
-                try:
-                    logger.info(f"{action_title} recording for camera at {ip} via media server API")
-                    response = await self._mediamtx.set_recording(http_client, ip, record=recording)
+            http_client = self._get_http_session()
+            try:
+                logger.info(f"{action_title} recording for camera at {ip} via media server API")
+                response = await self._mediamtx.set_recording(http_client, ip, record=recording)
 
-                    if response.status != 200:
-                        raise Exception(f"Media server API returned status {response.status}")
+                if response.status != 200:
+                    raise Exception(f"Media server API returned status {response.status}")
 
-                    # Mirror the MediaMTX recording state in the camera registry.
-                    camera.set_recording(recording)
-                except asyncio.TimeoutError:
-                    logger.error(f"Media server API request to {action} recording timed out for camera at {ip}")
-                    raise Exception("Media server API request timed out")
-                except Exception as e:
-                    logger.error(f"Failed to {action} recording for camera at {ip}: {e}")
-                    raise Exception(f"Failed to {action} recording for camera at {ip}: {e}")
+                camera.set_recording(recording)
+            except asyncio.TimeoutError:
+                logger.error(f"Media server API request to {action} recording timed out for camera at {ip}")
+                raise Exception("Media server API request timed out")
+            except Exception as e:
+                logger.error(f"Failed to {action} recording for camera at {ip}: {e}")
+                raise Exception(f"Failed to {action} recording for camera at {ip}: {e}")
         else:
             logger.error(f"Failed to {action} recording for camera at {ip}: Media server is not configured")

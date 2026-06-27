@@ -1,9 +1,11 @@
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from libqretprop.api.deps import get_runtime
 from libqretprop.api.security import auth_user
+from libqretprop.runtime.services import RuntimeServices
 
 
 router = APIRouter(tags=["system"])
@@ -28,13 +30,13 @@ async def get_health() -> dict:
 
 
 @router.get("/v1/state", summary="Get a structured snapshot of server state")
-async def get_state(request: Request) -> dict[str, Any]:
-    return request.app.state.runtime.system_state.to_dict()
+async def get_state(rt: Annotated[RuntimeServices, Depends(get_runtime)]) -> dict[str, Any]:
+    return rt.system_state.to_dict()
 
 
 @router.get("/v1/metrics", summary="Get live server metrics diagnostics")
-async def get_metrics(request: Request) -> dict[str, object]:
-    return request.app.state.runtime.metrics.to_dict()
+async def get_metrics(rt: Annotated[RuntimeServices, Depends(get_runtime)]) -> dict[str, object]:
+    return rt.metrics.to_dict()
 
 
 class ConfigsResponse(BaseModel):
@@ -43,8 +45,7 @@ class ConfigsResponse(BaseModel):
 
 
 @router.get("/config", summary="Get the sensor and control config", response_model=ConfigsResponse)
-async def get_device_configs(request: Request) -> ConfigsResponse:
-    rt = request.app.state.runtime
+async def get_device_configs(rt: Annotated[RuntimeServices, Depends(get_runtime)]) -> ConfigsResponse:
     configs: dict[str, dict] = {}
     for dev in rt.esp_runtime.get_registered_devices().values():
         configs[getattr(dev, "name", getattr(dev, "id", "unknown"))] = dev.qlcp_config.raw_config
@@ -52,11 +53,8 @@ async def get_device_configs(request: Request) -> ConfigsResponse:
 
 
 @router.get("/status", summary="Gets the current state of each valve. Status is reported to the log stream.")
-async def get_status(request: Request) -> None:
-    rt = request.app.state.runtime
+async def get_status(rt: Annotated[RuntimeServices, Depends(get_runtime)]) -> None:
     devices = rt.esp_runtime.get_registered_devices()
-
-    # Trigger a status request to all devices to refresh their latest states.
     for device in devices.values():
         await rt.esp_runtime.get_status(device)
 
