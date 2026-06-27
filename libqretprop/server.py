@@ -45,14 +45,6 @@ async def main(no_discovery: bool = False) -> None:
         logger.info("Started ESP/telemetry/state daemon tasks.")
     logger.info("Started log_stream daemon task.")
 
-    # Connect to all cameras
-    daemons["camera_connector"] = loop.create_task(runtime.camera_runtime.connect_all_cameras())
-    logger.info("Started camera_connector daemon task.")
-
-    # Discover all Kasa devices
-    daemons["kasa_discoverer"] = loop.create_task(runtime.kasa_runtime.discover_kasa_devices())
-    logger.info("Started kasa_discoverer daemon task.")
-
     # Command line interface daemon
     daemons["command_processor"] = loop.create_task(command_processor(runtime))
 
@@ -80,14 +72,14 @@ async def main(no_discovery: bool = False) -> None:
         if devices:
             logger.info(f"Registered devices at shutdown: {', '.join(devices.keys())}")
 
-        # Cancel app-level daemon tasks (FastAPI, camera, Kasa, command processor).
+        # Cancel app-level interface tasks.
         for name, task in daemons.items():
             if not task.done():
                 task.cancel()
                 logger.info(f"Cancelled {name} daemon task.")
         await asyncio.gather(*daemons.values(), return_exceptions=True)
 
-        # Stop ESP/telemetry/state daemons and close device connections
+        # Stop runtime tasks and close device connections
         await runtime.stop()
 
         print("\nServer stopped.\n")

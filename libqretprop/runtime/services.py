@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 class RuntimeServices:
     """Wired runtime object graph for the server process.
 
-    Owns the ESP/telemetry/state daemon lifecycle and runtime services.
+    Owns runtime daemon lifecycle and startup actions.
     """
 
     command_tracker: CommandTracker
@@ -59,7 +59,12 @@ class RuntimeServices:
             self._tasks["udp_listener"] = loop.create_task(self.telemetry_udp_listener.run())
             self._tasks["telemetry_display_flush"] = loop.create_task(self.telemetry_display_stream.run())
             self._tasks["auto_discovery"] = loop.create_task(self.discovery_service.run())
+        # Camera/Kasa startup is independent of ESP discovery.
+        self._tasks["camera_connector"] = loop.create_task(self.camera_runtime.connect_all_cameras())
+        self._tasks["kasa_discoverer"] = loop.create_task(self.kasa_runtime.discover_kasa_devices())
         self._tasks["log_stream"] = loop.create_task(self.log_stream.run())
+        logger.info("Started camera_connector daemon task.")
+        logger.info("Started kasa_discoverer daemon task.")
 
     async def stop(self) -> None:
         """Cancel and await all runtime daemon tasks, then close device connections."""
