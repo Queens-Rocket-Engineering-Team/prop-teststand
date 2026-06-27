@@ -16,7 +16,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project --no-dev
 
 COPY pyproject.toml uv.lock hatch_build.py ./
-COPY qlcp/ ./qlcp/
+COPY ctl-qlcp-lib/ ./ctl-qlcp-lib/
 
 # Hatchling package discovery needs the package directories to exist, but the
 # protocol build should stay cached independently from normal app source edits.

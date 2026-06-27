@@ -44,12 +44,12 @@ reinstall-package = ["prop-teststand"]
 cache-keys = [
     { file = "pyproject.toml" },
     { file = "hatch_build.py" },
-    { file = "qlcp/CMakeLists.txt" },
-    { file = "qlcp/src/**/*.c" },
-    { file = "qlcp/src/**/*.h" },
-    { file = "qlcp/include/**/*.h" },
-    { file = "qlcp/cmake/**/*.cmake" },
-    { file = "qlcp/cmake/**/*.in" },
+    { file = "ctl-qlcp-lib/CMakeLists.txt" },
+    { file = "ctl-qlcp-lib/src/**/*.c" },
+    { file = "ctl-qlcp-lib/src/**/*.h" },
+    { file = "ctl-qlcp-lib/include/**/*.h" },
+    { file = "ctl-qlcp-lib/cmake/**/*.cmake" },
+    { file = "ctl-qlcp-lib/cmake/**/*.in" },
 ]
 
 [build-system]
@@ -135,10 +135,10 @@ include = [
     "/README.md",
     "/libqretprop",
     "/qretproptools",
-    "/qlcp",
+    "/ctl-qlcp-lib",
 ]
 exclude = [
     "/libqretprop/_lib",
     "/libqretprop/_protocol",
-    "/qlcp/build",
+    "/ctl-qlcp-lib/build",
 ]

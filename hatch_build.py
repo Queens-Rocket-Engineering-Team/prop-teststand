@@ -20,7 +20,7 @@ from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 
 ROOT = Path(__file__).resolve().parent
-QLCP_DIR = ROOT / "qlcp"
+QLCP_DIR = ROOT / "ctl-qlcp-lib"
 QLCP_INCLUDE = QLCP_DIR / "include"
 LIB_DIR = ROOT / "libqretprop" / "_lib"
 PROTOCOL_DIR = ROOT / "libqretprop" / "_protocol"
