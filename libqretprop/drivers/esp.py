@@ -29,10 +29,11 @@ class ESPDriver:
         tcp_socket: socket.socket,
         address: str,
     ) -> None:
-        self.socket = tcp_socket
+        self.socket: socket.socket | None = tcp_socket
         self.address = address
 
     async def send_packet(self, packet: EncodablePacket) -> None:
+        assert self.socket is not None
         loop = asyncio.get_running_loop()
         await loop.sock_sendall(self.socket, packet.encode())
 
@@ -47,6 +48,7 @@ class ESPDriver:
         return header + payload
 
     async def read_exactly(self, byte_count: int) -> bytes:
+        assert self.socket is not None
         loop = asyncio.get_running_loop()
         chunks = bytearray()
 

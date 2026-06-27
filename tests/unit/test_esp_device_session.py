@@ -68,8 +68,7 @@ def test_resync_state_transitions() -> None:
         session.mark_synced()
         assert session.needs_resync() is False
     finally:
-        if session.socket is not None:
-            session.socket.close()
+        session.close()
         peer_sock.close()
 
 
@@ -93,8 +92,7 @@ def test_heartbeat_ack_resets_missed_heartbeat_state() -> None:
         assert session.missed_heartbeat_count == 0
         assert session.is_responsive is True
     finally:
-        if session.socket is not None:
-            session.socket.close()
+        session.close()
         peer_sock.close()
 
 
@@ -121,8 +119,7 @@ def test_runtime_marks_session_unresponsive_at_heartbeat_miss_limit() -> None:
         assert session.is_responsive is False
         assert session.address not in runtime.devices
     finally:
-        if session.socket is not None:
-            session.socket.close()
+        session.close()
         peer_sock.close()
 
 
@@ -149,8 +146,7 @@ def test_heartbeat_loop_exits_when_send_heartbeat_fails() -> None:
             assert runtime.expire_calls == 1
             assert runtime.send_calls == 1
         finally:
-            if session.socket is not None:
-                session.socket.close()
+            session.close()
             peer_sock.close()
 
     asyncio.run(run())

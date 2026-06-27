@@ -90,7 +90,6 @@ def _make_session(
             control.name.upper(): control
             for control in config.controls_by_id.values()
         },
-        socket=None,
         monitor_task=None,
         heartbeat_task=None,
         driver=FakeDriver(),
@@ -98,6 +97,7 @@ def _make_session(
         missed_heartbeat_count=0,
         HEARTBEAT_ACK_MISS_LIMIT=3,
         is_responsive=True,
+        is_connected=True,
     )
 
     def control_name_for_id(control_id: int | None) -> str | None:
@@ -118,10 +118,14 @@ def _make_session(
     def mark_unresponsive() -> None:
         session.is_responsive = False
 
+    def close() -> None:
+        session.is_connected = False
+
     session.control_name_for_id = control_name_for_id
     session.record_heartbeat_ack = record_heartbeat_ack
     session.register_missed_heartbeat = register_missed_heartbeat
     session.mark_unresponsive = mark_unresponsive
+    session.close = close
     return cast(ESPDeviceSession, session)
 
 

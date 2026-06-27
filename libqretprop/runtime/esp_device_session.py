@@ -37,7 +37,6 @@ class ESPDeviceSession:
     ) -> None:
         parsed_config = parse_config(config)
 
-        self.socket: socket.socket | None = tcp_socket
         self.address = address
         self.connection_key = connection_key
         self.qlcp_config = parsed_config
@@ -50,6 +49,18 @@ class ESPDeviceSession:
 
         self.monitor_task: asyncio.Task[Any] | None = None
         self.heartbeat_task: asyncio.Task[Any] | None = None
+
+    @property
+    def is_connected(self) -> bool:
+        """True while the TCP socket is open."""
+        return self.driver.socket is not None
+
+    def close(self) -> None:
+        """Close the TCP socket. Idempotent; may raise OSError on the first call."""
+        sock = self.driver.socket
+        if sock is not None:
+            self.driver.socket = None
+            sock.close()
 
     def start(
         self,
@@ -125,7 +136,7 @@ class ESPDeviceSession:
         """Read TCP packets and delegate session side effects to the runtime."""
         try:
             while True:
-                if self.socket is None:
+                if not self.is_connected:
                     logger.error(f"Device {self.name} has no socket.")
                     runtime.remove_device(self)
                     break
@@ -154,7 +165,7 @@ class ESPDeviceSession:
     async def heartbeat(self, runtime: ESPConnectionRuntime) -> None:
         """Run this session's heartbeat loop while policy stays in runtime."""
         while True:
-            if self.socket:
+            if self.is_connected:
                 if runtime.expire_command_timeouts(self):
                     break
 
