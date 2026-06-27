@@ -10,11 +10,12 @@ from wave import Wave_write
 
 from mumble import Mumble
 
-import libqretprop.config_manager as config
+from libqretprop.config import MumbleConfig
 
 
 class AudioRuntime:
-    def __init__(self) -> None:
+    def __init__(self, config: MumbleConfig) -> None:
+        self._config = config
         self._mumble: Mumble | None = None
         self._wav: Wave_write | None = None
         self._file_name: str | None = None
@@ -26,9 +27,8 @@ class AudioRuntime:
             if self._mumble is not None or self._stopping:
                 return {"error": "already recording"}
 
-            mumble_config = self._mumble_config()
             file_name = f"mumble_recording_{int(time.time())}"
-            temp_recording_dir = Path(mumble_config["temp_recording_dir"]).resolve()
+            temp_recording_dir = Path(self._config["temp_recording_dir"]).resolve()
             temp_recording_dir.mkdir(parents=True, exist_ok=True)
             temp_path = (temp_recording_dir / file_name).with_suffix(".wav")
 
@@ -38,10 +38,10 @@ class AudioRuntime:
             wav.setframerate(48000)
 
             mumble = Mumble(
-                mumble_config["ip"],
+                self._config["ip"],
                 "recorder",
-                password=mumble_config.get("password", ""),
-                port=mumble_config["port"],
+                password=self._config.get("password", ""),
+                port=self._config["port"],
                 debug=False,
             )
             mumble.callbacks.sound_received.set_handler(self._sound_received_handler)
@@ -173,11 +173,8 @@ class AudioRuntime:
         self._wav = None
         self._file_name = None
 
-    def _mumble_config(self) -> config.MumbleConfig:
-        return config.server_config["services"]["mumble"]
-
     def _recordings_root(self) -> Path:
-        return Path(self._mumble_config()["recording_dir"]).resolve()
+        return Path(self._config["recording_dir"]).resolve()
 
     def _temp_recordings_root(self) -> Path:
-        return Path(self._mumble_config()["temp_recording_dir"]).resolve()
+        return Path(self._config["temp_recording_dir"]).resolve()

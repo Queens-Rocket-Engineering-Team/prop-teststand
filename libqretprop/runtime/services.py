@@ -5,6 +5,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 
+from libqretprop.config import ServerConfig
 from libqretprop.integrations.mediamtx import MediaMTXClient
 from libqretprop.runtime.audio_runtime import AudioRuntime
 from libqretprop.runtime.camera_runtime import CameraRuntime
@@ -90,7 +91,7 @@ class RuntimeServices:
             await asyncio.gather(log_task, return_exceptions=True)
 
 
-def build_runtime() -> RuntimeServices:
+def build_runtime(config: ServerConfig) -> RuntimeServices:
     """Construct and wire the full runtime object graph.
 
     This is the single composition root.  Call once at server startup and pass
@@ -118,9 +119,15 @@ def build_runtime() -> RuntimeServices:
         telemetry_stream,
         telemetry_display_stream,
     )
-    audio_runtime = AudioRuntime()
-    mediamtx = MediaMTXClient()
-    camera_runtime = CameraRuntime(mediamtx=mediamtx)
+    mediamtx_config = config["services"]["mediamtx"]
+    audio_runtime = AudioRuntime(config["services"]["mumble"])
+    mediamtx = MediaMTXClient(mediamtx_config)
+    camera_runtime = CameraRuntime(
+        mediamtx=mediamtx,
+        cameras=config["cameras"],
+        camera_account=config["accounts"]["camera"],
+        mediamtx_config=mediamtx_config,
+    )
     kasa_runtime = KasaRuntime()
     return RuntimeServices(
         command_tracker=command_tracker,

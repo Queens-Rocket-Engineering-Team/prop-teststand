@@ -6,7 +6,7 @@ from typing import TypedDict
 
 import aiohttp
 
-import libqretprop.config_manager as config
+from libqretprop.config import AccountServiceConfig, CameraConfig, MediaMTXConfig
 from libqretprop.drivers.camera import Camera
 from libqretprop.integrations.mediamtx import MediaMTXClient
 
@@ -23,16 +23,25 @@ class RecordingFileData(TypedDict):
 
 
 class CameraRuntime:
-    def __init__(self, mediamtx: MediaMTXClient) -> None:
+    def __init__(
+        self,
+        mediamtx: MediaMTXClient,
+        *,
+        cameras: list[CameraConfig],
+        camera_account: AccountServiceConfig,
+        mediamtx_config: MediaMTXConfig,
+    ) -> None:
         self._registry: dict[str, Camera] = {}
         self._mediamtx = mediamtx
+        self._cameras = cameras
+        self._camera_account = camera_account
+        self._mediamtx_config = mediamtx_config
 
     def cameras(self) -> list[Camera]:
         return list(self._registry.values())
 
     def get_recordings_root(self) -> Path:
-        mediamtx_config = config.server_config["services"]["mediamtx"]
-        recordings_dir = mediamtx_config.get("recordings_dir")
+        recordings_dir = self._mediamtx_config.get("recordings_dir")
         if not recordings_dir:
             raise RuntimeError("MediaMTX recordings_dir is not configured")
         return Path(recordings_dir).resolve()
@@ -95,7 +104,7 @@ class CameraRuntime:
         async with aiohttp.ClientSession() as http_client:
             cam_username, cam_password = self._camera_credentials()
 
-            for camera in config.server_config["cameras"]:
+            for camera in self._cameras:
                 camera_ip = camera["ip"]
                 camera_port = camera["onvif_port"]
 
@@ -120,7 +129,7 @@ class CameraRuntime:
         try:
             # Create camera object and connect to it
             camera_object = Camera(ip, port)
-            await camera_object.connect()
+            await camera_object.connect(*self._camera_credentials())
 
             logger.info(f"Connected to camera {camera_object.hostname} ({ip})")
 
@@ -146,12 +155,12 @@ class CameraRuntime:
 
     def _camera_credentials(self) -> tuple[str, str]:
         return (
-            config.server_config["accounts"]["camera"]["username"],
-            config.server_config["accounts"]["camera"]["password"],
+            self._camera_account["username"],
+            self._camera_account["password"],
         )
 
     def _mediamtx_configured(self) -> bool:
-        return config.server_config["services"]["mediamtx"] is not None
+        return self._mediamtx_config is not None
 
     def _require_camera(self, ip: str) -> Camera:
         camera = self._registry.get(ip)

@@ -33,33 +33,10 @@ class ServerConfig(TypedDict):
     cameras: list[CameraConfig]
     services: ServicesConfig
 
-server_config: ServerConfig = {
-    "accounts": {},
-    "cameras": [],
-    # Services are required fields, so some default is needed
-    "services": {
-        "mediamtx": {
-            "ip": "",
-            "api_port": 0,
-            "webrtc_port": 0,
-            "recordings_dir": "./recordings/mediamtx",
-        },
-        "mumble": {
-            "ip": "",
-            "port": 0,
-            "password": "",
-            "recording_dir": "",
-            "temp_recording_dir": "",
-        },
-    }
-}
-
-def load_config(config_path: str) -> None:
-    global server_config
-
+def load_config(config_path: str) -> ServerConfig:
     try:
         with open(config_path, "r") as file:
-            server_config = yaml.safe_load(file.read())
+            return yaml.safe_load(file.read())
     except FileNotFoundError as exc:
         raise FileNotFoundError(f"Configuration file not found: {config_path}") from exc
     except yaml.YAMLError as exc:
