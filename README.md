@@ -37,7 +37,6 @@ flowchart LR
 |---------|-------------|
 | **server** | Main application — device discovery (SSDP), TCP listener, FastAPI, CLI, in-process log stream |
 | **media** | [MediaMTX](https://github.com/bluenviron/mediamtx) RTSP/WebRTC relay for camera streams |
-| **mockdevice** | Mock client device **(only available in development)** |
 
 ## Setup
 
@@ -54,8 +53,6 @@ docker compose -f compose.dev.yml up
 ```
 
 This starts all necessary services with file watching — code changes in `libqretprop/` and `config.yaml` trigger automatic restarts.
-
-To also run the mock device for testing, add `--profile mock`
 
 Follow server logs with:
 
@@ -81,6 +78,12 @@ uv run start_server
 `uv sync` installs the environment. The qlcp native library and CFFI protocol
 extension are rebuilt automatically during package installation.
 Run `uv sync` again to force a local protocol rebuild.
+
+Run the mock device locally for testing with:
+
+```bash
+uv run mock_device
+```
 
 ## Configuration
 
