@@ -35,7 +35,7 @@ def _make_device(
     address: str = "10.0.0.2",
     name: str = "TEST-DEVICE",
     connection_key: str = "conn-a",
-    missed_heartbeat_acks: int = 0,
+    heartbeat_misses: int = 0,
 ) -> Any:
     config = parse_config(_make_config(name=name))
     return SimpleNamespace(
@@ -45,8 +45,7 @@ def _make_device(
         type=config.device_type,
         qlcp_config=config,
         last_sync_time=None,
-        is_responsive=True,
-        missed_heartbeat_count=missed_heartbeat_acks,
+        missed_heartbeat_count=heartbeat_misses,
     )
 
 
@@ -280,7 +279,7 @@ def test_pending_heartbeat_is_summarized_not_listed_in_snapshot() -> None:
 
 def test_missed_heartbeat_state_is_summarized() -> None:
     state, tracker = _make_state()
-    device = _make_device(missed_heartbeat_acks=2)
+    device = _make_device(heartbeat_misses=2)
     state.register_device(device)
 
     _mark_sent(tracker, device, packet_type=PacketType.HEARTBEAT, now=10.0)

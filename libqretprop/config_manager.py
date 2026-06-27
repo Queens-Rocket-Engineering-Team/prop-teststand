@@ -1,6 +1,6 @@
 from typing import TypedDict
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 
 class AccountServiceConfig(TypedDict):
@@ -71,4 +71,3 @@ def load_config(config_path: str) -> None:
         raise FileNotFoundError(f"Configuration file not found: {config_path}") from exc
     except yaml.YAMLError as exc:
         raise ValueError(f"Failed to parse YAML configuration file '{config_path}': {exc}") from exc
-

@@ -1,10 +1,10 @@
+import os
+import subprocess
 import time
 import wave
-import subprocess
-import os
+from pathlib import Path
 
 from mumble import Mumble
-from pathlib import Path
 
 
 def start_recording(host: str, port: int, password: str, temp_recording_dir: str):

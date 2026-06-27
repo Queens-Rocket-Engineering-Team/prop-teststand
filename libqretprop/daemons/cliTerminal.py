@@ -9,7 +9,15 @@ import libqretprop.redis_logging as ml
 
 
 if TYPE_CHECKING:
+    from libqretprop.runtime.esp_device_session import ESPDeviceSession
     from libqretprop.runtime.services import RuntimeServices
+
+
+def _find_device(devices: dict[str, ESPDeviceSession], name: str) -> ESPDeviceSession | None:
+    for device in devices.values():
+        if device.name.lower() == name.lower():
+            return device
+    return None
 
 
 SERVERCOMMANDS = [
@@ -21,9 +29,6 @@ SERVERCOMMANDS = [
     "LIST",
     "HELP",
     "INFO",
-    "SENSORS",
-    "CONTROLS",
-    "WATCH",
     "REMOVE",
     "ESTOP",
 ]
@@ -93,19 +98,15 @@ async def handleServerCommand(runtime: RuntimeServices, command: str, args: list
             ml.slog("  Try: discover")
         else:
             ml.slog(f"Connected devices ({len(devices)}):")
-            for device in devices.values():
-                ml.slog(f"  {device.name} ({device.type}) - {device.address}")
-                ml.slog(f"    Sensors: {len(device.sensors)}, Controls: {len(device.controls)}")
+            for registered_device in devices.values():
+                ml.slog(f"  {registered_device.name} ({registered_device.type}) - {registered_device.address}")
+                ml.slog(f"    Sensors: {len(registered_device.sensors)}, Controls: {len(registered_device.controls)}")
     elif cmd == "REMOVE":
         if not args:
             ml.slog("Usage: remove <device_name>")
             return
         devices = runtime.esp_runtime.get_registered_devices()
-        device = None
-        for d in devices.values():
-            if d.name.upper() == args[0].upper():
-                device = d
-                break
+        device = _find_device(devices, args[0])
         if not device:
             ml.slog(f"Device '{args[0]}' not currently registered. Use \"LIST\" to see devices.")
             return
@@ -117,11 +118,7 @@ async def handleServerCommand(runtime: RuntimeServices, command: str, args: list
             ml.slog("Usage: info <device_name>")
             return
         devices = runtime.esp_runtime.get_registered_devices()
-        device = None
-        for d in devices.values():
-            if d.name.upper() == args[0].upper():
-                device = d
-                break
+        device = _find_device(devices, args[0])
         if not device:
             ml.slog(f"Device '{args[0]}' not found")
             return
@@ -163,11 +160,7 @@ async def handleDeviceCommand(runtime: RuntimeServices, command: str, args: list
 
     device_name = args[0]
     devices = runtime.esp_runtime.get_registered_devices()
-    device = None
-    for d in devices.values():
-        if d.name.lower() == device_name.lower():
-            device = d
-            break
+    device = _find_device(devices, device_name)
 
     if not device:
         ml.slog(f"Device '{device_name}' not found. Use 'list' to see devices.")

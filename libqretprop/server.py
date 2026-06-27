@@ -12,9 +12,7 @@ from libqretprop.device_controllers import cameraTools, kasaTools
 from libqretprop.runtime.services import build_runtime
 
 
-async def main(noDiscovery: bool = False,
-               cmdLine: bool = True,
-               ) -> None:
+async def main(noDiscovery: bool = False) -> None:
     """Run the server."""
 
     # -------
@@ -64,8 +62,7 @@ async def main(noDiscovery: bool = False,
     ml.slog("Started kasaDiscoverer daemon task.")
 
     # Command line interface daemon
-    if cmdLine:
-        daemons["commandProcessor"] = loop.create_task(commandProcessor(runtime))
+    daemons["commandProcessor"] = loop.create_task(commandProcessor(runtime))
 
 
     try:

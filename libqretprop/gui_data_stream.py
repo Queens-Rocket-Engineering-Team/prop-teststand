@@ -1,7 +1,6 @@
 # Import required modules
 import asyncio
 import json
-import os
 import re
 from datetime import datetime
 from zoneinfo import ZoneInfo

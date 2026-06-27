@@ -23,7 +23,6 @@ OPERATOR_VISIBLE_PACKET_TYPES = frozenset(
 MAINTENANCE_PACKET_TYPES = frozenset(
     {
         PacketType.HEARTBEAT,
-        PacketType.TIMESYNC,
     },
 )
 ACK_EXPECTED_PACKET_TYPES = frozenset(

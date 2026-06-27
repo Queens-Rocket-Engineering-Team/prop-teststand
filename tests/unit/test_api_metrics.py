@@ -30,6 +30,7 @@ def test_metrics_endpoint_returns_json_diagnostics(monkeypatch: pytest.MonkeyPat
         "recent_events",
     }
     assert body["telemetry"]["ingest"]["by_device"]["PANDA"]["udp_bytes_total"] == 128
+    assert "udp_bytes_per_s" not in body["telemetry"]["ingest"]["by_device"]["PANDA"]
 
 
 def test_metrics_endpoint_is_not_registered(monkeypatch: pytest.MonkeyPatch) -> None:

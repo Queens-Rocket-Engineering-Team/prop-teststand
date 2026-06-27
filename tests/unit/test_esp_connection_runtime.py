@@ -91,10 +91,6 @@ def _make_session(
     name: str = "TEST-DEVICE",
 ) -> ESPDeviceSession:
     config = parse_config(_make_config(name=name))
-    control_states = {
-        control.name.upper(): control.default.name
-        for control in config.controls_by_id.values()
-    }
     session = SimpleNamespace(
         address=address,
         connection_key=connection_key,
@@ -105,17 +101,15 @@ def _make_session(
             control.name.upper(): control
             for control in config.controls_by_id.values()
         },
-        control_states=control_states,
         socket=None,
+        monitor_task=None,
+        heartbeat_task=None,
         driver=FakeDriver(),
         last_sync_time=None,
         missed_heartbeat_count=0,
         HEARTBEAT_ACK_MISS_LIMIT=3,
         is_responsive=True,
     )
-
-    def set_control_state(control_name: str, state: str) -> None:
-        session.control_states[control_name.upper()] = state
 
     def control_name_for_id(control_id: int | None) -> str | None:
         if control_id is None:
@@ -135,7 +129,6 @@ def _make_session(
     def mark_unresponsive() -> None:
         session.is_responsive = False
 
-    session.set_control_state = set_control_state
     session.control_name_for_id = control_name_for_id
     session.record_heartbeat_ack = record_heartbeat_ack
     session.register_missed_heartbeat = register_missed_heartbeat
@@ -303,7 +296,6 @@ def test_runtime_ack_routes_through_tracker_and_updates_control_state() -> None:
     )
 
     assert command.state == CommandLifecycle.ACKED
-    assert device.control_states["VALVE1"] == "OPEN"
     assert state.snapshot().devices[0].controls[0].reported_state == "OPEN"
     assert [event["type"] for event in stream.events[-2:]] == ["command.acked", "control.updated"]
 
@@ -337,7 +329,6 @@ def test_runtime_nack_routes_through_tracker_without_control_update() -> None:
     )
 
     assert command.state == CommandLifecycle.NACKED
-    assert device.control_states["VALVE1"] == "CLOSED"
     assert state.snapshot().devices[0].controls[0].reported_state is None
     assert stream.events[-1]["type"] == "command.nacked"
 
@@ -358,7 +349,6 @@ def test_runtime_status_updates_reported_control_state() -> None:
         ),
     )
 
-    assert device.control_states["VALVE1"] == "OPEN"
     assert state.snapshot().devices[0].controls[0].reported_state == "OPEN"
     assert stream.events[-1]["type"] == "control.updated"
 

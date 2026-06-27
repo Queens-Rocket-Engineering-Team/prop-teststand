@@ -145,8 +145,9 @@ def write_stub(lib: Any) -> None:
 
     lines = [
         GENERATED_BANNER,
-        "from cffi.api import FFI",
         "from typing import Any",
+        "",
+        "from cffi.api import FFI",
         "",
         "ffi: FFI",
         "",
