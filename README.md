@@ -10,7 +10,7 @@ The server is designed to run on any linux machine as a headless hub between ESP
 flowchart LR
     ESP1[ESP32<br>Sensors & Valves] -->|TCP :50000| Server
     ESP2[ESP32<br>Sensors & Valves] -->|TCP :50000| Server
-    Cam[IP Cameras] -->|ONVIF / RTSP| Pi
+    Cam[IP Cameras] -->|ONVIF / RTSP| Server
 
     Server[Server<br>Jetson Nano]
 
