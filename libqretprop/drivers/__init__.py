@@ -1,5 +1,6 @@
 """Low-level device communication drivers."""
 
+from libqretprop.drivers.camera import Camera
 from libqretprop.drivers.esp import (
     ESPDriver,
     ESPDriverConnectionClosedError,
@@ -7,4 +8,4 @@ from libqretprop.drivers.esp import (
 )
 
 
-__all__ = ["ESPDriver", "ESPDriverConnectionClosedError", "ESPDriverError"]
+__all__ = ["Camera", "ESPDriver", "ESPDriverConnectionClosedError", "ESPDriverError"]
