@@ -4,15 +4,15 @@ Server application for QRET's propulsion test stand. Discovers and communicates 
 
 ## System Architecture
 
-The server is designed to run on a Raspberry Pi (or any Linux machine / WSL) as a headless hub between ESP32 devices and any number of clients.
+The server is designed to run on any linux machine as a headless hub between ESP32 devices and any number of clients.
 
 ```mermaid
 flowchart LR
-    ESP1[ESP32<br>Sensors & Valves] -->|TCP :50000| Pi
-    ESP2[ESP32<br>Sensors & Valves] -->|TCP :50000| Pi
+    ESP1[ESP32<br>Sensors & Valves] -->|TCP :50000| Server
+    ESP2[ESP32<br>Sensors & Valves] -->|TCP :50000| Server
     Cam[IP Cameras] -->|ONVIF / RTSP| Pi
 
-    Pi[Server<br>Raspberry Pi]
+    Server[Server<br>Jetson Nano]
 
     subgraph Clients
       direction TB
@@ -21,11 +21,11 @@ flowchart LR
       API[REST / WebSocket]
     end
 
-    Pi -->|FastAPI :8000| GUI
-    Pi -->|WebRTC / RTSP| Web
-    Pi -->|HTTP / WS| API
+    Server -->|FastAPI :8000| GUI
+    Server -->|WebRTC / RTSP| Web
+    Server -->|HTTP / WS| API
 
-    Here((YOU ARE HERE)) --> Pi:::youAreHere
+    Here((YOU ARE HERE)) --> Server:::youAreHere
     classDef youAreHere stroke:red, stroke-width:6px;
     linkStyle 5 stroke:red,stroke-width:4px
     style Here fill:transparent,stroke:none,color:red;
@@ -116,7 +116,6 @@ ESP32 devices configure themselves — each device sends a JSON CONFIG packet on
 |---------|-------------|
 | `start_server` | Start the main server |
 | `mock_device` | Simulate an ESP32 device for testing |
-| `full_gui` | Full PySide6 control panel (requires `gui` extra) |
 
 Once the server is running, an interactive CLI provides commands like `discover`, `list`, `stream <device> <Hz>`, `control <device> <name> <state>`, and `estop`.
 
@@ -128,7 +127,7 @@ For more information on protocol specifications, see [ctl-qlcp-lib](https://gith
 
 ## ESP32 Setup
 
-For the microcontroller side of this project, see [prop-esp32-logger](https://github.com/Queens-Rocket-Engineering-Team/prop-esp32-logger).
+For the microcontroller side of this project, see [ctl-node-firmware](https://github.com/Queens-Rocket-Engineering-Team/ctl-node-firmware).
 
 ## IDE Setup
 
