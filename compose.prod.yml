@@ -46,16 +46,5 @@ services:
 
     restart: always
 
-  mumble-web:
-    image: rankenstein/mumble-web:latest
-    ports:
-      - "8080:8080"
-    environment:
-      - MUMBLE_SERVER=mumble:64738
-    depends_on:
-      - mumble
-
-    restart: always
-
 volumes:
   murmur-data:
