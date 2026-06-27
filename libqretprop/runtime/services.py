@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass, field
 
 from libqretprop.integrations.mediamtx import MediaMTXClient
+from libqretprop.runtime.audio_runtime import AudioRuntime
 from libqretprop.runtime.camera_runtime import CameraRuntime
 from libqretprop.runtime.command_tracker import CommandTracker
 from libqretprop.runtime.discovery import DiscoveryService
@@ -27,8 +28,7 @@ logger = logging.getLogger(__name__)
 class RuntimeServices:
     """Wired runtime object graph for the server process.
 
-    Owns the ESP/telemetry/state daemon lifecycle and constructs camera/Kasa
-    runtimes.
+    Owns the ESP/telemetry/state daemon lifecycle and runtime services.
     """
 
     command_tracker: CommandTracker
@@ -43,6 +43,7 @@ class RuntimeServices:
     esp_connection_listener: ESPConnectionListener
     telemetry_ingest: TelemetryIngest
     telemetry_udp_listener: TelemetryUDPListener
+    audio_runtime: AudioRuntime
     camera_runtime: CameraRuntime
     kasa_runtime: KasaRuntime
     _tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict, init=False, repr=False)
@@ -75,6 +76,7 @@ class RuntimeServices:
                 logger.info(f"Cancelled {name} daemon task.")
         await asyncio.gather(*runtime_tasks.values(), return_exceptions=True)
         self.esp_runtime.close_all()
+        self.audio_runtime.close()
 
         await asyncio.sleep(0)
         if log_task is not None and not log_task.done():
@@ -111,6 +113,7 @@ def build_runtime() -> RuntimeServices:
         telemetry_stream,
         telemetry_display_stream,
     )
+    audio_runtime = AudioRuntime()
     mediamtx = MediaMTXClient()
     camera_runtime = CameraRuntime(mediamtx=mediamtx)
     kasa_runtime = KasaRuntime()
@@ -127,6 +130,7 @@ def build_runtime() -> RuntimeServices:
         esp_connection_listener=esp_connection_listener,
         telemetry_ingest=telemetry_ingest,
         telemetry_udp_listener=telemetry_udp_listener,
+        audio_runtime=audio_runtime,
         camera_runtime=camera_runtime,
         kasa_runtime=kasa_runtime,
     )

@@ -20,6 +20,7 @@ class MediaMTXConfig(TypedDict):
 class MumbleConfig(TypedDict):
     ip: str
     port: int
+    password: str
     recording_dir: str
     temp_recording_dir: str
 
@@ -46,6 +47,7 @@ server_config: ServerConfig = {
         "mumble": {
             "ip": "",
             "port": 0,
+            "password": "",
             "recording_dir": "",
             "temp_recording_dir": "",
         },
