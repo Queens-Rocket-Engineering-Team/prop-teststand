@@ -4,21 +4,11 @@ import contextlib
 import socket
 from typing import cast
 
-import pytest
-
 from libqretprop.runtime.telemetry_ingest import (
     TelemetryBatch,
     TelemetryIngest,
     TelemetryUDPListener,
 )
-
-
-@pytest.fixture(autouse=True)
-def _silence_logger(monkeypatch: pytest.MonkeyPatch) -> None:
-    # ml.slog/elog raise unless the Redis-backed logger is initialized, which it is not
-    # under pytest. The listener logs on startup and on errors, so stub them out.
-    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.ml.slog", lambda *a, **k: None)
-    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.ml.elog", lambda *a, **k: None)
 
 
 class FakeIngest:

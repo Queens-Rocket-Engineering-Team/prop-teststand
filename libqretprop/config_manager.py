@@ -17,10 +17,6 @@ class MediaMTXConfig(TypedDict):
     webrtc_port: int
     recordings_dir: str
 
-class RedisConfig(TypedDict):
-    ip: str
-    port: int
-
 class MumbleConfig(TypedDict):
     ip: str
     port: int
@@ -29,7 +25,6 @@ class MumbleConfig(TypedDict):
 
 class ServicesConfig(TypedDict):
     mediamtx: MediaMTXConfig
-    redis: RedisConfig
     mumble: MumbleConfig
 
 class ServerConfig(TypedDict):
@@ -37,7 +32,7 @@ class ServerConfig(TypedDict):
     cameras: list[CameraConfig]
     services: ServicesConfig
 
-serverConfig: ServerConfig = {
+server_config: ServerConfig = {
     "accounts": {},
     "cameras": [],
     # Services are required fields, so some default is needed
@@ -47,10 +42,6 @@ serverConfig: ServerConfig = {
             "api_port": 0,
             "webrtc_port": 0,
             "recordings_dir": "./recordings/mediamtx",
-        },
-        "redis": {
-            "ip": "",
-            "port": 0,
         },
         "mumble": {
             "ip": "",
@@ -62,11 +53,11 @@ serverConfig: ServerConfig = {
 }
 
 def load_config(config_path: str) -> None:
-    global serverConfig
+    global server_config
 
     try:
         with open(config_path, "r") as file:
-            serverConfig = yaml.safe_load(file.read())
+            server_config = yaml.safe_load(file.read())
     except FileNotFoundError as exc:
         raise FileNotFoundError(f"Configuration file not found: {config_path}") from exc
     except yaml.YAMLError as exc:

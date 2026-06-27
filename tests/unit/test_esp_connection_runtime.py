@@ -4,8 +4,6 @@ import socket
 from types import SimpleNamespace
 from typing import Any, cast
 
-import pytest
-
 from libqretprop.qlcp.config_parser import parse_config
 from libqretprop.qlcp.enums import ControlState, DeviceStatus, ErrorCode, PacketType
 from libqretprop.qlcp.packets import (
@@ -37,15 +35,6 @@ class FakeDriver:
 
     async def send_packet(self, packet: object) -> None:
         self.sent_packets.append(packet)
-
-
-@pytest.fixture(autouse=True)
-def _mute_runtime_logs(monkeypatch: pytest.MonkeyPatch) -> None:
-    from libqretprop.runtime import esp_connection_runtime
-
-    monkeypatch.setattr(esp_connection_runtime.ml, "slog", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(esp_connection_runtime.ml, "plog", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(esp_connection_runtime.ml, "elog", lambda *_args, **_kwargs: None)
 
 
 def _make_config(name: str = "TEST-DEVICE") -> dict[str, Any]:

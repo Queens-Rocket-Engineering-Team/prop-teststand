@@ -1,15 +1,14 @@
 from __future__ import annotations
 import asyncio
-import contextlib
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
-from fastapi import WebSocket, WebSocketDisconnect
 from tsdownsample import M4Downsampler
 
 from libqretprop.runtime.metrics import NULL_METRICS, Metrics
+from libqretprop.runtime.ws_fanout import BoundedWebSocketFanout
 
 
 if TYPE_CHECKING:
@@ -55,7 +54,11 @@ class _DeviceBucket:
     sensors: dict[int, _SensorBuffer] = field(default_factory=dict)
 
 
-class TelemetryDisplayStream:
+def _record_telemetry_drop(metrics: Metrics, stream: str) -> None:
+    metrics.record_telemetry_dropped_batch(stream)
+
+
+class TelemetryDisplayStream(BoundedWebSocketFanout):
     """Downsampled telemetry stream for the operator GUI at /ws/telemetry/display.
 
     Collects raw batches into fixed-width time buckets and emits downsampled
@@ -75,22 +78,16 @@ class TelemetryDisplayStream:
         max_queue: int = 128,
         metrics: Metrics | None = None,
     ) -> None:
-        self.metrics = metrics or NULL_METRICS
+        super().__init__(
+            stream_metric_label=STREAM_METRIC_LABEL,
+            max_queue=max_queue,
+            metrics=metrics or NULL_METRICS,
+            drop_recorder=_record_telemetry_drop,
+        )
         self._bucket_interval_s = 1.0 / target_hz
         self._points_per_bucket = points_per_bucket
         self._downsampler: Downsampler = M4Downsampler() if downsampler is None else downsampler
-        self._max_queue = max_queue
-        self._clients: dict[WebSocket, asyncio.Queue[dict[str, Any]]] = {}
         self._buckets: dict[str, _DeviceBucket] = {}
-        self._dropped_batches = 0
-
-    @property
-    def client_count(self) -> int:
-        return len(self._clients)
-
-    @property
-    def dropped_batches(self) -> int:
-        return self._dropped_batches
 
     def publish_batch(self, batch: TelemetryBatch) -> None:
         if not self._clients:
@@ -148,12 +145,7 @@ class TelemetryDisplayStream:
         if not bucket.sensors:
             return
         message = self.serialize_bucket(device_name, bucket)
-        for queue in self._clients.values():
-            try:
-                queue.put_nowait(message)
-            except asyncio.QueueFull:
-                self._dropped_batches += 1
-                self.metrics.record_telemetry_dropped_batch(STREAM_METRIC_LABEL)
+        self.publish_message(message)
 
     async def run(self) -> None:
         while True:
@@ -168,29 +160,6 @@ class TelemetryDisplayStream:
             for name in stale:
                 self._emit_bucket(name, self._buckets.pop(name))
 
-    async def connect_client(self, websocket: WebSocket) -> None:
-        await websocket.accept()
-        self._clients[websocket] = asyncio.Queue(maxsize=self._max_queue)
-        self.metrics.set_ws_clients(STREAM_METRIC_LABEL, self.client_count)
-
-    async def disconnect_client(self, websocket: WebSocket) -> None:
-        self._clients.pop(websocket, None)
-        self.metrics.set_ws_clients(STREAM_METRIC_LABEL, self.client_count)
+    def _after_disconnect(self) -> None:
         if not self._clients:
             self._buckets.clear()
-        with contextlib.suppress(Exception):
-            await websocket.close()
-
-    async def handle_client(self, websocket: WebSocket) -> None:
-        await self.connect_client(websocket)
-        queue = self._clients[websocket]
-        try:
-            while True:
-                message = await queue.get()
-                await websocket.send_json(message)
-        except WebSocketDisconnect:
-            pass
-        except Exception:
-            pass
-        finally:
-            await self.disconnect_client(websocket)

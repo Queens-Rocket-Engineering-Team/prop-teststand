@@ -120,7 +120,7 @@ def test_unsynced_session_uses_monotonic_timestamp(monkeypatch: pytest.MonkeyPat
 def test_unknown_device_address_is_logged_and_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = FakeRuntime()
     errors: list[str] = []
-    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.ml.elog", errors.append)
+    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", errors.append)
     ingest = TelemetryIngest(runtime)
 
     batch = ingest.handle_datagram(b"not decoded", "10.0.0.99")
@@ -134,7 +134,7 @@ def test_decode_error_records_metric(monkeypatch: pytest.MonkeyPatch) -> None:
     session = _make_session()
     runtime.devices[session.address] = session
     metrics = Metrics(time_fn=lambda: 100.0)
-    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.ml.elog", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", lambda *_args, **_kwargs: None)
     ingest = TelemetryIngest(runtime, metrics=metrics)
 
     batch = ingest.handle_datagram(b"not decoded", session.address)
@@ -168,7 +168,7 @@ def test_non_data_packet_is_logged_and_ignored(monkeypatch: pytest.MonkeyPatch) 
     session = _make_session()
     runtime.devices[session.address] = session
     errors: list[str] = []
-    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.ml.elog", errors.append)
+    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", errors.append)
     ingest = TelemetryIngest(runtime)
     packet = AckPacket.create(PacketType.HEARTBEAT, ack_sequence=4)
 
@@ -183,7 +183,7 @@ def test_unknown_sensor_id_is_logged_and_dropped(monkeypatch: pytest.MonkeyPatch
     session = _make_session()
     runtime.devices[session.address] = session
     errors: list[str] = []
-    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.ml.elog", errors.append)
+    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", errors.append)
     ingest = TelemetryIngest(runtime)
     packet = DataPacket(
         sequence=1,

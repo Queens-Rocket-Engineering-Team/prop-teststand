@@ -21,6 +21,7 @@ import random
 import socket
 import struct
 import time
+from typing import Any
 
 from libqretprop.qlcp.constants import HEADER_SIZE
 from libqretprop.qlcp.decoding import decode_packet_client
@@ -56,7 +57,7 @@ class MockSensorDevice:
         self.server_udp_port = 50001
 
         # Device configuration
-        self.config = {
+        self.config: dict[str, Any] = {
             "device_name": device_name,
             "device_type": "Sensor Monitor",
             "sensor_info": {
@@ -140,16 +141,16 @@ class MockSensorDevice:
         # Streaming state
         self.streaming = False
         self.stream_frequency = 10
-        self.stream_task = None
-        self.command_task = None
-        self.ssdp_task = None
+        self.stream_task: asyncio.Task[None] | None = None
+        self.command_task: asyncio.Task[None] | None = None
+        self.ssdp_task: asyncio.Task[None] | None = None
 
         # Timesync offset: added to local ticks to produce server-scale timestamps
         self.timesync_offset = 0
 
         # Socket
-        self.sock = None
-        self.ssdp_sock = None
+        self.sock: socket.socket | None = None
+        self.ssdp_sock: socket.socket | None = None
         self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Does not need to be None because no "connected" state for UDP
         self.udp_sock.setblocking(False)
 
@@ -386,6 +387,9 @@ class MockSensorDevice:
                 await self.handle_server_disconnect()
 
     async def handle_control_command(self, packet: ControlPacket):
+        if self.sock is None:
+            return
+
         command_id = packet.command_id
         state = packet.command_state
 
@@ -411,6 +415,9 @@ class MockSensorDevice:
             await loop.sock_sendall(self.sock, nack.encode())
 
     async def handle_stream_start(self, packet: StreamStartPacket):
+        if self.sock is None:
+            return
+
         self.stream_frequency = packet.frequency_hz
         self.streaming = True
 
@@ -426,6 +433,9 @@ class MockSensorDevice:
         self.stream_task = asyncio.create_task(self.stream_data())
 
     async def handle_stream_stop(self, packet=None):
+        if self.sock is None:
+            return
+
         self.streaming = False
         self.print_status("Stopping stream", "INFO")
 
@@ -497,6 +507,9 @@ class MockSensorDevice:
         await loop.sock_sendall(self.sock, ack.encode())
 
     async def send_status(self):
+        if self.sock is None:
+            return
+
         control_states = []
         # Preserve the order of controls as defined in the config
         for control_name in self.config["controls"]:
@@ -512,14 +525,14 @@ class MockSensorDevice:
 
         self.print_status("Sent STATUS: ACTIVE", "INFO")
         self.print_status(
-            f"Control states: " + ", ".join(f"{name}={self.valve_states.get(name, 'UNKNOWN')}" for name in self.config["controls"]), "INFO"
+            "Control states: " + ", ".join(f"{name}={self.valve_states.get(name, 'UNKNOWN')}" for name in self.config["controls"]), "INFO"
         )
 
     async def run(self):
         self.print_status("=== Mock Sensor Device Started ===", "SUCCESS")
         self.print_status(f"Device name: {self.device_name}", "INFO")
-        self.print_status(f"Sensors: TC1, TC2, PT1", "INFO")
-        self.print_status(f"Controls: AVFILL, AVVENT", "INFO")
+        self.print_status("Sensors: TC1, TC2, PT1", "INFO")
+        self.print_status("Controls: AVFILL, AVVENT", "INFO")
         print()
 
         if self.server_ip:

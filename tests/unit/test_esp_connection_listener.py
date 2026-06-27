@@ -4,17 +4,7 @@ import contextlib
 import socket
 from typing import cast
 
-import pytest
-
 from libqretprop.runtime.esp_connection_runtime import ESPConnectionListener, ESPConnectionRuntime
-
-
-@pytest.fixture(autouse=True)
-def _silence_logger(monkeypatch: pytest.MonkeyPatch) -> None:
-    # ml.slog/elog raise unless the Redis-backed logger is initialized, which it is not
-    # under pytest. The listener logs on startup and on each accepted connection.
-    monkeypatch.setattr("libqretprop.runtime.esp_connection_runtime.ml.slog", lambda *a, **k: None)
-    monkeypatch.setattr("libqretprop.runtime.esp_connection_runtime.ml.elog", lambda *a, **k: None)
 
 
 class FakeRuntime:

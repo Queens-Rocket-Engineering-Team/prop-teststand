@@ -4,7 +4,7 @@ import asyncio
 from libqretprop import server
 
 
-def parseArgs() -> argparse.Namespace:
+def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Start the QRET server.")
 
@@ -19,9 +19,9 @@ def parseArgs() -> argparse.Namespace:
 
 def main() -> None:
     """Start the QRET server."""
-    args = parseArgs()
+    args = parse_args()
     asyncio.run(server.main(
-        noDiscovery=args.no_discovery,
+        no_discovery=args.no_discovery,
     ))
 
 if __name__ == "__main__":

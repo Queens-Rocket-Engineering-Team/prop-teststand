@@ -35,10 +35,8 @@ flowchart LR
 
 | Service | Description |
 |---------|-------------|
-| **server** | Main application — device discovery (SSDP), TCP listener, FastAPI, CLI |
-| **redis** | Logging pub/sub and real-time data relay |
+| **server** | Main application — device discovery (SSDP), TCP listener, FastAPI, CLI, in-process log stream |
 | **media** | [MediaMTX](https://github.com/bluenviron/mediamtx) RTSP/WebRTC relay for camera streams |
-| **logs** | Log aggregator that reads from Redis channels |
 | **mockdevice** | Mock client device **(only available in development)** |
 
 ## Setup
@@ -59,6 +57,12 @@ This starts all necessary services with file watching — code changes in `libqr
 
 To also run the mock device for testing, add `--profile mock`
 
+Follow server logs with:
+
+```bash
+docker compose -f compose.dev.yml logs -f server
+```
+
 ### Production (Docker)
 
 ```bash
@@ -78,25 +82,17 @@ uv run start_server
 extension are rebuilt automatically during package installation.
 Run `uv sync` again to force a local protocol rebuild.
 
-Redis must be running separately for logging to work.
-
 ## Configuration
 
 The server reads `config.yaml` for service connections and camera definitions:
 
 ```yaml
 accounts:
-  redis:
-    username: server
-    password: ...
   camera:
     username: propcam
     password: ...
 
 services:
-  redis:
-    ip: localhost
-    port: 6379
   mediamtx:
     ip: localhost
     api_port: 9997
@@ -116,7 +112,6 @@ ESP32 devices configure themselves — each device sends a JSON CONFIG packet on
 | Command | Description |
 |---------|-------------|
 | `start_server` | Start the main server |
-| `see_logs` | View real-time logs from Redis (`-e` errors, `-d` debug, `-s` system) |
 | `mock_device` | Simulate an ESP32 device for testing |
 | `full_gui` | Full PySide6 control panel (requires `gui` extra) |
 

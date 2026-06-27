@@ -43,15 +43,6 @@ jobs:
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v3
 
-            - name: Extract Docker metadata (logs)
-              id: meta-logs
-              uses: docker/metadata-action@v5
-              with:
-                  images: ghcr.io/${{ github.repository }}-logs
-                  tags: |
-                      type=raw,value=latest
-                      type=raw,value=${{ github.ref_name }}
-
             - name: Extract Docker metadata (server)
               id: meta-server
               uses: docker/metadata-action@v5
@@ -72,13 +63,3 @@ jobs:
                       PROP_TESTSTAND_VERSION=${{ steps.package-version.outputs.version }}
                   tags: ${{ steps.meta-server.outputs.tags }}
                   labels: ${{ steps.meta-server.outputs.labels }}
-
-            - name: Build and push Docker image (logs)
-              uses: docker/build-push-action@v5
-              with:
-                  context: .
-                  file: ./Dockerfile.logs
-                  platforms: linux/amd64,linux/arm64
-                  push: true
-                  tags: ${{ steps.meta-logs.outputs.tags }}
-                  labels: ${{ steps.meta-logs.outputs.labels }}

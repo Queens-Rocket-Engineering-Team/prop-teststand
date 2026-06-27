@@ -6,14 +6,6 @@ import pytest
 from libqretprop.runtime.discovery import DiscoveryService
 
 
-@pytest.fixture(autouse=True)
-def _silence_logger(monkeypatch: pytest.MonkeyPatch) -> None:
-    # ml.dlog/slog raise unless the Redis-backed logger is initialized, which it is not
-    # under pytest. discover()/_create_socket log on send and on socket creation.
-    monkeypatch.setattr("libqretprop.runtime.discovery.ml.dlog", lambda *a, **k: None)
-    monkeypatch.setattr("libqretprop.runtime.discovery.ml.slog", lambda *a, **k: None)
-
-
 class FakeSocket:
     def __init__(self) -> None:
         self.sent: list[tuple[bytes, tuple[str, int]]] = []

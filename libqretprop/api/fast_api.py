@@ -1,3 +1,4 @@
+import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -7,21 +8,22 @@ from urllib.parse import quote
 from wave import Wave_write
 
 import uvicorn
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, WebSocket, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, WebSocket, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from mumble import Mumble
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
 import libqretprop.config_manager as config
 from libqretprop import mumble_recording
-from libqretprop import redis_logging as ml
-from libqretprop.device_controllers import cameraTools, kasaTools
-from libqretprop.gui_data_stream import router as log_router
+from libqretprop.device_controllers import camera_tools, kasa_tools
 from libqretprop.runtime.services import RuntimeServices
+
+
+logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
@@ -29,12 +31,11 @@ if TYPE_CHECKING:
 
 
 app = FastAPI()
-app.include_router(log_router)
 security = HTTPBasic()
 
 
 class AccessLogMiddleware(BaseHTTPMiddleware):
-    """Middleware to log requests to ml.slog instead of stdout."""
+    """Middleware to log requests instead of writing access logs to stdout."""
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         start_time = time.perf_counter()
@@ -49,14 +50,14 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
 
         client = request.client
         if client is None:
-            clientHost = "unknown"
-            clientPort = "unknown"
+            client_host = "unknown"
+            client_port = "unknown"
         else:
-            clientHost = client.host
-            clientPort = str(client.port)
+            client_host = client.host
+            client_port = str(client.port)
 
-        ml.slog(
-            f'{clientHost}:{clientPort} - "{request.method} {request.url.path} HTTP/1.1" {response.status_code} ({duration_ms:.0f}ms)',
+        logger.info(
+            f'{client_host}:{client_port} - "{request.method} {request.url.path} HTTP/1.1" {response.status_code} ({duration_ms:.0f}ms)',
         )
         return response
 
@@ -80,7 +81,7 @@ ALLOWED_USERS = {
 }
 
 
-async def startAPI(runtime: RuntimeServices) -> None:
+async def start_api(runtime: RuntimeServices) -> None:
     """Start the FastAPI server."""
     app.state.runtime = runtime
     config = uvicorn.Config(
@@ -95,10 +96,10 @@ async def startAPI(runtime: RuntimeServices) -> None:
     await server.serve()
 
 
-def authUser(creds: HTTPBasicCredentials = Depends(security)) -> str:
-    validCreds = creds.username in ALLOWED_USERS and creds.password == ALLOWED_USERS[creds.username]
+def auth_user(creds: HTTPBasicCredentials = Depends(security)) -> str:
+    valid_creds = creds.username in ALLOWED_USERS and creds.password == ALLOWED_USERS[creds.username]
 
-    if not validCreds:
+    if not valid_creds:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
@@ -120,8 +121,10 @@ class CommandResponse(BaseModel):
 
 
 class AutoDiscoveryConfig(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     enabled: bool
-    intervalSeconds: float
+    interval_seconds: float = Field(alias="intervalSeconds")
 
 
 class CameraInfo(BaseModel):
@@ -160,12 +163,12 @@ class KasaDeviceInfo(BaseModel):
 
 
 @app.get("/")  # Define a GET endpoint at the root “/”
-async def readRoot() -> dict:
+async def read_root() -> dict:
     return {"message": "Welcome to the Prop Control API! Authenticate through the /auth endpoint."}
 
 
 @app.get("/auth")  # Define a GET endpoint at “/auth”
-async def readAuth(user: Annotated[str, Depends(authUser)]) -> dict:
+async def read_auth(user: Annotated[str, Depends(auth_user)]) -> dict:
     if user == "noah":
         return {"message": "Welcome back Mr Stark!"}
 
@@ -173,23 +176,28 @@ async def readAuth(user: Annotated[str, Depends(authUser)]) -> dict:
 
 
 @app.get("/health")
-async def getHealth() -> dict:
+async def get_health() -> dict:
     return {"message": "The server is alive!"}
 
 
 @app.get("/v1/state", summary="Get a structured snapshot of server state")
-async def getState(request: Request) -> dict[str, Any]:
+async def get_state(request: Request) -> dict[str, Any]:
     return request.app.state.runtime.system_state.to_dict()
 
 
 @app.get("/v1/metrics", summary="Get live server metrics diagnostics")
-async def getMetrics(request: Request) -> dict[str, object]:
+async def get_metrics(request: Request) -> dict[str, object]:
     return request.app.state.runtime.metrics.to_dict()
 
 
 @app.websocket("/ws/state")
 async def websocket_state(websocket: WebSocket) -> None:
     await websocket.app.state.runtime.state_stream.handle_client(websocket)
+
+
+@app.websocket("/ws/logs")
+async def websocket_logs(websocket: WebSocket) -> None:
+    await websocket.app.state.runtime.log_stream.handle_client(websocket)
 
 
 @app.websocket("/ws/telemetry/raw")
@@ -206,16 +214,16 @@ async def websocket_display_telemetry(websocket: WebSocket) -> None:
     "/v1/command",
     summary="Send a command to the devices on the network",
 )  # Define a POST endpoint for device commands at “/command”
-async def sendDeviceCommand(
+async def send_device_command(
     request: Request,
     cmd: CommandRequest,
-    bgTasks: BackgroundTasks,
+    bg_tasks: BackgroundTasks,
 ) -> CommandResponse:
     rt = request.app.state.runtime
-    ml.slog(f"Command sent: '{cmd.command} {cmd.args}'")
+    logger.info(f"Command sent: '{cmd.command} {cmd.args}'")
 
     # Map the relevant command name to their functions
-    commandMap: dict[str, Callable] = {
+    command_map: dict[str, Callable] = {
         "GETS": rt.esp_runtime.get_single,
         "STREAM": rt.esp_runtime.start_streaming,
         "STOP": rt.esp_runtime.stop_streaming,
@@ -224,12 +232,12 @@ async def sendDeviceCommand(
 
     devices = rt.esp_runtime.get_registered_devices()
 
-    func = commandMap.get(cmd.command)
+    func = command_map.get(cmd.command)
     if func is None:
         raise HTTPException(400, f"Unknown command {cmd.command!r}")
 
     # Track if any commands were sent to at least one device, to avoid returning success if all targets were invalid
-    anyCommandsSent = False
+    any_commands_sent = False
 
     # Run the command in the background to not block the API
     for device in devices.values():
@@ -239,28 +247,28 @@ async def sendDeviceCommand(
                 raise HTTPException(400, "STREAM requires a frequency argument")
             try:
                 freq = int(cmd.args[0])
-                anyCommandsSent = True
-                bgTasks.add_task(func, device, freq)
+                any_commands_sent = True
+                bg_tasks.add_task(func, device, freq)
             except ValueError:
                 raise HTTPException(400, f"STREAM frequency must be an integer, got '{cmd.args[0]}'")
         elif cmd.command == "CONTROL":
-            # CONTROL needs controlName and controlState
+            # CONTROL needs control_name and control_state
             if len(cmd.args) < 2:
                 raise HTTPException(400, "CONTROL requires control name and state")
 
-            controlName = cmd.args[0].upper()
-            controlState = cmd.args[1].upper()
+            control_name = cmd.args[0].upper()
+            control_state = cmd.args[1].upper()
 
-            if controlName not in device.controls:
+            if control_name not in device.controls:
                 continue
 
-            anyCommandsSent = True
-            bgTasks.add_task(func, device, controlName, controlState)
+            any_commands_sent = True
+            bg_tasks.add_task(func, device, control_name, control_state)
         else:
-            anyCommandsSent = True
-            bgTasks.add_task(func, device, *cmd.args)
+            any_commands_sent = True
+            bg_tasks.add_task(func, device, *cmd.args)
 
-    if not anyCommandsSent:
+    if not any_commands_sent:
         raise HTTPException(400, "No valid target devices for the command")
 
     return CommandResponse(
@@ -270,37 +278,37 @@ async def sendDeviceCommand(
 
 
 @app.get("/v1/cameras", summary="Get the list of connected cameras")
-async def getCameras() -> CameraList:
-    cameras = cameraTools.cameraRegistry
+async def get_cameras() -> CameraList:
+    cameras = camera_tools.camera_registry
 
-    cameraDataList = []
+    camera_data_list = []
 
     for cam in cameras.values():
-        cameraData = CameraInfo(ip=cam.address, hostname=cam.hostname, stream_path=f"/{cam.address}", recording=cam.recording)
-        cameraDataList.append(cameraData)
+        camera_data = CameraInfo(ip=cam.address, hostname=cam.hostname, stream_path=f"/{cam.address}", recording=cam.recording)
+        camera_data_list.append(camera_data)
 
-    return CameraList(cameras=cameraDataList)
+    return CameraList(cameras=camera_data_list)
 
 
 @app.post("/v1/cameras/reconnect", summary="Reconnect all cameras")
-async def reconnectCameras() -> CameraList:
-    ml.slog("User sent camera reconnect")
-    await cameraTools.connectAllCameras()
-    return await getCameras()
+async def reconnect_cameras() -> CameraList:
+    logger.info("User sent camera reconnect")
+    await camera_tools.connect_all_cameras()
+    return await get_cameras()
 
 
 @app.post("/v1/camera", summary="Control a camera's movement")
-async def controlCamera(
+async def control_camera(
     ip: str,
     x_movement: float,
     y_movement: float,
-    bgTasks: BackgroundTasks,
+    bg_tasks: BackgroundTasks,
 ) -> CommandResponse:
 
-    ml.slog(f"User sent camera move command to {ip}: <{x_movement}, {y_movement}>")
+    logger.info(f"User sent camera move command to {ip}: <{x_movement}, {y_movement}>")
 
-    bgTasks.add_task(
-        cameraTools.moveCamera,
+    bg_tasks.add_task(
+        camera_tools.move_camera,
         ip,
         x_movement,
         y_movement,
@@ -313,14 +321,14 @@ async def controlCamera(
 
 
 @app.post("/v1/camera/recordings/start", summary="Start recording a camera's stream")
-async def startCameraRecording(
+async def start_camera_recording(
     ip: str,
 ) -> CommandResponse:
 
-    ml.slog(f"User sent camera recording start command to {ip}")
+    logger.info(f"User sent camera recording start command to {ip}")
 
     try:
-        await cameraTools.startCameraRecording(ip)
+        await camera_tools.start_camera_recording(ip)
     except Exception as e:
         raise HTTPException(500, f"Failed to start recording for camera at {ip}") from e
 
@@ -331,14 +339,14 @@ async def startCameraRecording(
 
 
 @app.post("/v1/camera/recordings/stop", summary="Stop recording a camera's stream")
-async def stopCameraRecording(
+async def stop_camera_recording(
     ip: str,
 ) -> CommandResponse:
 
-    ml.slog(f"User sent camera recording stop command to {ip}")
+    logger.info(f"User sent camera recording stop command to {ip}")
 
     try:
-        await cameraTools.stopCameraRecording(ip)
+        await camera_tools.stop_camera_recording(ip)
     except Exception as e:
         raise HTTPException(500, f"Failed to stop recording for camera at {ip}") from e
 
@@ -349,93 +357,93 @@ async def stopCameraRecording(
 
 
 @app.get("/v1/camera/recordings", summary="List camera recordings available for download")
-async def listCameraRecordings(ip: str | None = None) -> CameraRecordingList:
+async def list_camera_recordings(ip: str | None = None) -> CameraRecordingList:
     try:
-        cameraRecordingFiles = cameraTools.listRecordingFiles(ip)
+        camera_recording_files = camera_tools.list_recording_files(ip)
     except Exception as e:
-        ml.elog(f"Failed to list camera recordings: {e}")
+        logger.error(f"Failed to list camera recordings: {e}")
         raise HTTPException(500, "Failed to list camera recordings") from e
 
-    cameraRecordings = [
+    camera_recordings = [
         CameraRecordingFileInfo(
-            filename=cameraRecording["filename"],
-            camera_ip=cameraRecording["camera_ip"],
-            camera_hostname=cameraRecording["camera_hostname"],
-            size_bytes=cameraRecording["size_bytes"],
-            modified_unix_ms=cameraRecording["modified_unix_ms"],
-            download_path=f"/v1/camera/recordings/download/{quote(cameraRecording['filename'])}",
+            filename=camera_recording["filename"],
+            camera_ip=camera_recording["camera_ip"],
+            camera_hostname=camera_recording["camera_hostname"],
+            size_bytes=camera_recording["size_bytes"],
+            modified_unix_ms=camera_recording["modified_unix_ms"],
+            download_path=f"/v1/camera/recordings/download/{quote(camera_recording['filename'])}",
         )
-        for cameraRecording in cameraRecordingFiles
+        for camera_recording in camera_recording_files
     ]
 
-    return CameraRecordingList(recordings=cameraRecordings)
+    return CameraRecordingList(recordings=camera_recordings)
 
 
 @app.get("/v1/camera/recordings/download/{filename}", summary="Download a camera recording file")
-async def downloadCameraRecording(filename: str) -> FileResponse:
+async def download_camera_recording(filename: str) -> FileResponse:
     try:
-        filePath = cameraTools.getRecordingFilePath(filename)
+        file_path = camera_tools.get_recording_file_path(filename)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     except FileNotFoundError as e:
         raise HTTPException(404, str(e)) from e
     except Exception as e:
-        ml.elog(f"Failed to load recording file '{filename}': {e}")
+        logger.error(f"Failed to load recording file '{filename}': {e}")
         raise HTTPException(500, "Failed to open recording file") from e
 
-    return FileResponse(path=filePath, media_type="video/mp4", filename=filePath.name)
+    return FileResponse(path=file_path, media_type="video/mp4", filename=file_path.name)
 
 
 @app.get("/v1/kasa", summary="Get the list of discovered Kasa devices")
-async def getKasaDevices() -> list[KasaDeviceInfo]:
-    devices = list(kasaTools.kasaRegistry.values())
+async def get_kasa_devices() -> list[KasaDeviceInfo]:
+    devices = list(kasa_tools.kasa_registry.values())
 
-    deviceDataList = []
+    device_data_list = []
 
     try:
         for dev in devices:
             await dev.update()  # Update device info before reporting
             alias = dev.alias if dev.alias is not None else ""
-            deviceDataList.append(KasaDeviceInfo(alias=alias, host=dev.host, model=dev.model, active=dev.is_on))
+            device_data_list.append(KasaDeviceInfo(alias=alias, host=dev.host, model=dev.model, active=dev.is_on))
 
-        return deviceDataList
+        return device_data_list
     except Exception as e:
-        ml.elog(f"Failed to get Kasa device info: {e}")
+        logger.error(f"Failed to get Kasa device info: {e}")
         raise HTTPException(500, "Failed to get Kasa device info")
 
 
 @app.get("/v1/kasa/discover", summary="Discover Kasa devices on the network")
-async def discoverKasaDevices() -> list[KasaDeviceInfo]:
-    ml.slog("User sent Kasa discover command")
-    await kasaTools.discoverKasaDevices()
+async def discover_kasa_devices() -> list[KasaDeviceInfo]:
+    logger.info("User sent Kasa discover command")
+    await kasa_tools.discover_kasa_devices()
 
-    return await getKasaDevices()
+    return await get_kasa_devices()
 
 
 @app.post("/v1/kasa", summary="Control a Kasa device's power state")
-async def controlKasaDevice(
+async def control_kasa_device(
     host: str,
     active: bool,
 ) -> KasaDeviceInfo:
 
-    ml.slog(f"User sent Kasa control command to {host}: active={active}")
+    logger.info(f"User sent Kasa control command to {host}: active={active}")
 
-    if host not in kasaTools.kasaRegistry:
+    if host not in kasa_tools.kasa_registry:
         raise HTTPException(404, f"No Kasa device found at {host}")
 
     try:
-        await kasaTools.setKasaDeviceState(host, active)
+        await kasa_tools.set_kasa_device_state(host, active)
 
-        dev = kasaTools.kasaRegistry[host]
+        dev = kasa_tools.kasa_registry[host]
         alias = dev.alias if dev.alias is not None else ""
         return KasaDeviceInfo(alias=alias, host=dev.host, model=dev.model, active=dev.is_on)
     except Exception as e:
-        ml.slog(f"Error while controlling Kasa device at {host} (active={active}): {repr(e)}")
+        logger.error(f"Error while controlling Kasa device at {host} (active={active}): {repr(e)}")
         raise HTTPException(500, f"Failed to control Kasa device at {host}")
 
 
 @app.get("/v1/autodiscovery", summary="Get autodiscovery settings")
-async def getAutodiscoverySettings(request: Request) -> AutoDiscoveryConfig:
+async def get_autodiscovery_settings(request: Request) -> AutoDiscoveryConfig:
     ds = request.app.state.runtime.discovery_service
     return AutoDiscoveryConfig(
         enabled=ds.periodic_enabled,
@@ -444,12 +452,12 @@ async def getAutodiscoverySettings(request: Request) -> AutoDiscoveryConfig:
 
 
 @app.post("/v1/autodiscovery", summary="Update autodiscovery settings")
-async def updateAutodiscoverySettings(
+async def update_autodiscovery_settings(
     request: Request,
     enabled: bool | None = None,
-    intervalSeconds: float | None = None,
+    interval_seconds: Annotated[float | None, Query(alias="intervalSeconds")] = None,
 ) -> AutoDiscoveryConfig:
-    if intervalSeconds is not None and intervalSeconds <= 0:
+    if interval_seconds is not None and interval_seconds <= 0:
         raise HTTPException(400, "intervalSeconds must be greater than 0")
 
     ds = request.app.state.runtime.discovery_service
@@ -457,10 +465,10 @@ async def updateAutodiscoverySettings(
     if enabled is not None:
         ds.periodic_enabled = enabled
 
-    if intervalSeconds is not None:
-        ds.periodic_interval_s = intervalSeconds
+    if interval_seconds is not None:
+        ds.periodic_interval_s = interval_seconds
 
-    ml.slog(f"User updated autodiscovery: enabled={ds.periodic_enabled}, intervalSeconds={ds.periodic_interval_s}s")
+    logger.info(f"User updated autodiscovery: enabled={ds.periodic_enabled}, intervalSeconds={ds.periodic_interval_s}s")
 
     return AutoDiscoveryConfig(
         enabled=ds.periodic_enabled,
@@ -469,8 +477,8 @@ async def updateAutodiscoverySettings(
 
 
 @app.post("/v1/discover", summary="Send a SSP discover request for new ESP Devices")
-async def discoverDevices(request: Request) -> CommandResponse:
-    ml.slog("User sent device discover command")
+async def discover_devices(request: Request) -> CommandResponse:
+    logger.info("User sent device discover command")
     request.app.state.runtime.discovery_service.discover()
     return CommandResponse(
         status="sent",
@@ -479,7 +487,7 @@ async def discoverDevices(request: Request) -> CommandResponse:
 
 
 @app.post("/v1/estop", summary="Emergency stop - stops all streaming and control commands immediately")
-async def emergencyStop(request: Request) -> None:
+async def emergency_stop(request: Request) -> None:
     rt = request.app.state.runtime
     devices = rt.esp_runtime.get_registered_devices()
     for device in devices.values():
@@ -492,7 +500,7 @@ class ConfigsResponse(BaseModel):
 
 
 @app.get("/config", summary="Get the sensor and control config", response_model=ConfigsResponse)
-async def getServerConfig(request: Request) -> ConfigsResponse:
+async def get_server_config(request: Request) -> ConfigsResponse:
     rt = request.app.state.runtime
     configs: dict[str, dict] = {}
     for dev in rt.esp_runtime.get_registered_devices().values():
@@ -500,12 +508,12 @@ async def getServerConfig(request: Request) -> ConfigsResponse:
     return ConfigsResponse(count=len(configs), configs=configs)
 
 
-@app.get("/status", summary="Gets the current state of each valve. Status is reported to redis log channel.")
-async def getStatus(request: Request) -> None:
+@app.get("/status", summary="Gets the current state of each valve. Status is reported to the log stream.")
+async def get_status(request: Request) -> None:
     rt = request.app.state.runtime
     devices = rt.esp_runtime.get_registered_devices()
 
-    # Trigger a status request to all devices to get their latest states for the response and to log to the redis log channel
+    # Trigger a status request to all devices to refresh their latest states.
     for device in devices.values():
         await rt.esp_runtime.get_status(device)
 
@@ -517,7 +525,7 @@ class AudioRecordingState:
     file_name: str | None = None
     lock: Lock = field(default_factory=Lock)
 
-def getAudioRecordingState(request: Request) -> AudioRecordingState:
+def get_audio_recording_state(request: Request) -> AudioRecordingState:
     state = getattr(request.app.state, "audio_recording", None)
     if state is None:
         state = AudioRecordingState()
@@ -526,70 +534,76 @@ def getAudioRecordingState(request: Request) -> AudioRecordingState:
 
 @app.post("/v1/audio/start")
 def start(request: Request) -> dict[str, str]:
-    audioState = getAudioRecordingState(request)
+    audio_state = get_audio_recording_state(request)
 
-    with audioState.lock:
-        if audioState.mumble is not None:
+    with audio_state.lock:
+        if audio_state.mumble is not None:
             return {"error": "already recording"}
 
-        MUMBLE_HOST = config.serverConfig["services"]["mumble"]["ip"]
-        MUMBLE_PORT = config.serverConfig["services"]["mumble"]["port"]
-        MUMBLE_TEMP_RECORDING_DIR = config.serverConfig["services"]["mumble"]["temp_recording_dir"]
+        mumble_host = config.server_config["services"]["mumble"]["ip"]
+        mumble_port = config.server_config["services"]["mumble"]["port"]
+        mumble_temp_recording_dir = config.server_config["services"]["mumble"]["temp_recording_dir"]
 
-        mumble, wav, file_name = mumble_recording.start_recording(MUMBLE_HOST, MUMBLE_PORT, "", MUMBLE_TEMP_RECORDING_DIR)
-        audioState.mumble = mumble
-        audioState.wav = wav
-        audioState.file_name = file_name
+        mumble, wav, file_name = mumble_recording.start_recording(mumble_host, mumble_port, "", mumble_temp_recording_dir)
+        audio_state.mumble = mumble
+        audio_state.wav = wav
+        audio_state.file_name = file_name
 
         return {"status": "started"}
 
 @app.post("/v1/audio/stop")
 def stop(request: Request) -> dict[str, str | None]:
-    audioState = getAudioRecordingState(request)
+    audio_state = get_audio_recording_state(request)
 
-    MUMBLE_TEMP_RECORDING_DIR = config.serverConfig["services"]["mumble"]["temp_recording_dir"]
-    MUMBLE_RECORDING_DIR = config.serverConfig["services"]["mumble"]["recording_dir"]
+    mumble_temp_recording_dir = config.server_config["services"]["mumble"]["temp_recording_dir"]
+    mumble_recording_dir = config.server_config["services"]["mumble"]["recording_dir"]
 
-    with audioState.lock:
-        if audioState.mumble is None or audioState.wav is None:
+    with audio_state.lock:
+        if audio_state.mumble is None or audio_state.wav is None:
             return {"error": "not recording"}
 
-        file_name = audioState.file_name
+        file_name = audio_state.file_name
 
-        mumble_recording.stop_recording(audioState.mumble, audioState.wav, MUMBLE_TEMP_RECORDING_DIR, MUMBLE_RECORDING_DIR, file_name if file_name else "recording-unknown")
+        mumble_recording.stop_recording(
+            audio_state.mumble,
+            audio_state.wav,
+            mumble_temp_recording_dir,
+            mumble_recording_dir,
+            file_name if file_name else "recording-unknown",
+        )
 
-        audioState.mumble = None
-        audioState.wav = None
-        audioState.file_name = None
+        audio_state.mumble = None
+        audio_state.wav = None
+        audio_state.file_name = None
 
         return {"status": "stopped", "file": file_name}
 
 
 @app.get("/v1/audio/files")
 def list_recordings() -> dict[str, list[dict[str, str]]]:
-    MUMBLE_RECORDING_DIR = config.serverConfig["services"]["mumble"]["recording_dir"]
-    RECORDINGS_DIR = Path(MUMBLE_RECORDING_DIR)
+    mumble_recording_dir = config.server_config["services"]["mumble"]["recording_dir"]
+    recordings_dir = Path(mumble_recording_dir)
 
     files = [
         {
             "filename": f.name,
             "download_path": f"/v1/audio/files/{f.name}",
         }
-        for f in RECORDINGS_DIR.iterdir()
+        for f in recordings_dir.iterdir()
         if f.suffix == ".opus"
     ]
 
     # Sort files by modified time, newest first
-    files.sort(key=lambda f: (RECORDINGS_DIR / f["filename"]).stat().st_mtime, reverse=True)
+    files.sort(key=lambda f: (recordings_dir / f["filename"]).stat().st_mtime, reverse=True)
     return {"files": files}
 
 @app.get("/v1/audio/files/{filename}")
 def download_recording(filename: str) -> FileResponse:
-    MUMBLE_RECORDING_DIR = config.serverConfig["services"]["mumble"]["recording_dir"]
-    RECORDINGS_DIR = Path(MUMBLE_RECORDING_DIR)
+    mumble_recording_dir = config.server_config["services"]["mumble"]["recording_dir"]
+    recordings_dir = Path(mumble_recording_dir)
 
-    path = (RECORDINGS_DIR / filename).resolve()
-    if not str(path).startswith(str(RECORDINGS_DIR.resolve())):
+    path = (recordings_dir / filename).resolve()
+    if not str(path).startswith(str(recordings_dir.resolve())):
         raise HTTPException(status_code=400, detail="Invalid filename")
     if not path.exists():
         raise HTTPException(status_code=404, detail="File not found")

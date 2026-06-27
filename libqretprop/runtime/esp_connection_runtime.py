@@ -1,12 +1,12 @@
 from __future__ import annotations
 import asyncio
 import json
+import logging
 import socket
 import time
 from itertools import count
 from typing import TYPE_CHECKING, Any, Protocol
 
-import libqretprop.redis_logging as ml
 from libqretprop.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
 from libqretprop.qlcp.enums import ControlState, PacketType
 from libqretprop.qlcp.packets import (
@@ -23,6 +23,9 @@ from libqretprop.runtime.command_tracker import CommandTracker
 from libqretprop.runtime.esp_device_session import ESPDeviceSession
 from libqretprop.runtime.metrics import NULL_METRICS, Metrics
 from libqretprop.state import SystemState
+
+
+logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
@@ -89,12 +92,12 @@ class ESPConnectionRuntime:
         try:
             packet = await driver.read_packet()
         except ESPDriverConnectionClosedError:
-            ml.elog(f"Device {address} disconnected during config.")
+            logger.error(f"Device {address} disconnected during config.")
             client_socket.close()
             return None
 
         if not isinstance(packet, ConfigPacket):
-            ml.elog(f"Expected CONFIG from {address}, got {type(packet).__name__}. Closing connection.")
+            logger.error(f"Expected CONFIG from {address}, got {type(packet).__name__}. Closing connection.")
             client_socket.close()
             return None
 
@@ -124,7 +127,7 @@ class ESPConnectionRuntime:
 
         old_session = self.devices.get(address)
         if old_session is not None:
-            ml.elog(
+            logger.error(
                 f"Device {address} attempted to connect and is already registered. Closing old connection.",
             )
             self._disconnect_registered_device(old_session, reason="duplicate_address")
@@ -138,7 +141,7 @@ class ESPConnectionRuntime:
         listener_loop = asyncio.get_running_loop() if loop is None else loop
         new_session.start(self, loop=listener_loop)
 
-        ml.slog(f"Device {new_session.name} registered from {address}")
+        logger.info(f"Device {new_session.name} registered from {address}")
 
         ack = AckPacket.create(PacketType.CONFIG, config_sequence)
         await new_session.driver.send_packet(ack)
@@ -147,7 +150,7 @@ class ESPConnectionRuntime:
 
         status_request = SimplePacket.create(PacketType.STATUS_REQUEST)
         await self.send_tracked_command(new_session, status_request)
-        ml.plog(f"Sent initial STATUS_REQUEST to {new_session.name}")
+        logger.debug(f"Sent initial STATUS_REQUEST to {new_session.name}")
 
         return new_session
 
@@ -159,7 +162,7 @@ class ESPConnectionRuntime:
         ]
 
         for session in matching_sessions:
-            ml.elog(
+            logger.error(
                 f"Device {session.name} reconnected from a new address. Closing old connection at {session.address}.",
             )
             self._disconnect_registered_device(session, reason="reconnected_name")
@@ -171,7 +174,7 @@ class ESPConnectionRuntime:
             self.metrics.record_device_disconnection("server_shutdown", device=session.name)
 
         self.devices.clear()
-        ml.slog("Closed all device sockets and cleared registry.")
+        logger.info("Closed all device sockets and cleared registry.")
 
     async def send_tracked_command(
         self,
@@ -192,7 +195,7 @@ class ESPConnectionRuntime:
         timesync = SimplePacket.create(PacketType.TIMESYNC)
         command = await self.send_tracked_command(session, timesync)
         prefix = "initial " if initial else ""
-        ml.plog(f"Sent {prefix}TIMESYNC to {session.name}")
+        logger.debug(f"Sent {prefix}TIMESYNC to {session.name}")
         return command
 
     async def send_heartbeat(self, session: ESPDeviceSession) -> bool:
@@ -201,7 +204,7 @@ class ESPConnectionRuntime:
             await self.send_tracked_command(session, packet)
             return True
         except (BrokenPipeError, ConnectionResetError, OSError) as e:
-            ml.elog(f"{session.name} heartbeat send failed: {e}")
+            logger.error(f"{session.name} heartbeat send failed: {e}")
             self.remove_device(session)
             return False
 
@@ -214,7 +217,7 @@ class ESPConnectionRuntime:
 
     async def start_streaming(self, session: ESPDeviceSession, frequency_hz: int) -> None:
         if not frequency_hz or frequency_hz < 1 or frequency_hz > 65535:
-            ml.elog(f"Invalid frequency: {frequency_hz}. Must be between 1-65535 Hz.")
+            logger.error(f"Invalid frequency: {frequency_hz}. Must be between 1-65535 Hz.")
             return
         await self._send_or_remove(
             session,
@@ -235,10 +238,10 @@ class ESPConnectionRuntime:
         control_state = control_state.upper()
 
         if control_name not in session.controls:
-            ml.elog(f"Invalid control name '{control_name}'. Valid: {list(session.controls.keys())}")
+            logger.error(f"Invalid control name '{control_name}'. Valid: {list(session.controls.keys())}")
             return
         if control_state not in ["OPEN", "CLOSE"]:
-            ml.elog(f"Invalid state '{control_state}'. Valid: OPEN, CLOSE")
+            logger.error(f"Invalid state '{control_state}'. Valid: OPEN, CLOSE")
             return
 
         command_id = session.controls[control_name].id
@@ -262,14 +265,14 @@ class ESPConnectionRuntime:
         label: str,
     ) -> None:
         if not session.socket:
-            ml.elog(f"No socket available for {session.name} to send {label}.")
+            logger.error(f"No socket available for {session.name} to send {label}.")
             self.remove_device(session)
             return
         try:
             await self.send_tracked_command(session, packet)
-            ml.slog(f"Sent {label} to {session.name}")
+            logger.info(f"Sent {label} to {session.name}")
         except Exception as e:
-            ml.elog(f"Error sending {label} to {session.name}: {e}")
+            logger.error(f"Error sending {label} to {session.name}: {e}")
             self.remove_device(session)
 
     def expire_command_timeouts(self, session: ESPDeviceSession) -> bool:
@@ -284,7 +287,7 @@ class ESPConnectionRuntime:
                 if self._handle_missed_heartbeat(session, expired):
                     return True
             else:
-                ml.plog(
+                logger.debug(
                     f"{session.name} command timeout: {expired.packet_type.name} seq={expired.packet_sequence}",
                 )
 
@@ -298,29 +301,29 @@ class ESPConnectionRuntime:
             now=time.monotonic(),
         )
         if command is None:
-            ml.plog(
+            logger.debug(
                 f"{session.name} unmatched ACK for {packet.ack_packet_type.name} seq={packet.ack_sequence}",
             )
 
         if packet.ack_packet_type == PacketType.TIMESYNC:
             session.last_sync_time = time.monotonic()
             session.mark_synced()
-            ml.plog(f"{session.name} TIMESYNC completed")
+            logger.debug(f"{session.name} TIMESYNC completed")
         elif packet.ack_packet_type == PacketType.HEARTBEAT:
             session.record_heartbeat_ack(command)
             if command is not None:
                 self._publish_state_event(self.system_state.record_command_acked(command))
-            ml.plog(f"{session.name} HEARTBEAT ACK seq={packet.ack_sequence}")
+            logger.debug(f"{session.name} HEARTBEAT ACK seq={packet.ack_sequence}")
         elif packet.ack_packet_type == PacketType.CONTROL:
             if command is not None:
                 self._publish_state_event(self.system_state.record_command_acked(command))
                 self._update_control_from_ack(session, command)
             else:
-                ml.plog(f"{session.name} ACK for CONTROL seq={packet.ack_sequence}")
+                logger.debug(f"{session.name} ACK for CONTROL seq={packet.ack_sequence}")
         else:
             if command is not None:
                 self._publish_state_event(self.system_state.record_command_acked(command))
-            ml.plog(f"{session.name} ACK for {packet.ack_packet_type.name} seq={packet.ack_sequence}")
+            logger.debug(f"{session.name} ACK for {packet.ack_packet_type.name} seq={packet.ack_sequence}")
 
         return command
 
@@ -333,14 +336,14 @@ class ESPConnectionRuntime:
             now=time.monotonic(),
         )
         if command is None:
-            ml.plog(
+            logger.debug(
                 f"{session.name} unmatched NACK for {packet.nack_packet_type.name} "
                 f"seq={packet.nack_sequence} error={packet.error_code.name}",
             )
         else:
             self._publish_state_event(self.system_state.record_command_nacked(command))
 
-        ml.plog(f"{session.name} NACK for {packet.nack_packet_type.name} error={packet.error_code.name}")
+        logger.debug(f"{session.name} NACK for {packet.nack_packet_type.name} error={packet.error_code.name}")
         return command
 
     def handle_status(self, session: ESPDeviceSession, packet: StatusPacket) -> None:
@@ -363,9 +366,9 @@ class ESPConnectionRuntime:
         if tcp_socket:
             try:
                 tcp_socket.close()
-                ml.slog(f"Closed socket for {session.name}")
+                logger.info(f"Closed socket for {session.name}")
             except OSError as e:
-                ml.elog(f"Error closing socket for {session.name}: {e}")
+                logger.error(f"Error closing socket for {session.name}: {e}")
             finally:
                 session.socket = None
 
@@ -373,17 +376,17 @@ class ESPConnectionRuntime:
         if monitor_task is not None:
             try:
                 monitor_task.cancel()
-                ml.slog(f"Cancelled monitor task for {session.name}")
+                logger.info(f"Cancelled monitor task for {session.name}")
             except Exception as e:
-                ml.elog(f"Error cancelling monitor task for {session.name}: {e}")
+                logger.error(f"Error cancelling monitor task for {session.name}: {e}")
 
         heartbeat_task = session.heartbeat_task
         if heartbeat_task is not None:
             try:
                 heartbeat_task.cancel()
-                ml.slog(f"Cancelled heartbeat task for {session.name}")
+                logger.info(f"Cancelled heartbeat task for {session.name}")
             except Exception as e:
-                ml.elog(f"Error cancelling heartbeat task for {session.name}: {e}")
+                logger.error(f"Error cancelling heartbeat task for {session.name}: {e}")
 
         self._publish_failed_command_events(
             self.command_tracker.fail_connection(session.connection_key, reason=reason),
@@ -396,9 +399,9 @@ class ESPConnectionRuntime:
         if self.is_current_connection(session):
             del self.devices[session.address]
             self.metrics.record_device_disconnection("connection_cleanup", device=session.name)
-            ml.slog(f"{session.name} removed from registry.")
+            logger.info(f"{session.name} removed from registry.")
         else:
-            ml.plog(f"Ignored stale removal for {session.name} at {session.address}")
+            logger.debug(f"Ignored stale removal for {session.name} at {session.address}")
 
     def _disconnect_registered_device(self, session: ESPDeviceSession, *, reason: str) -> None:
         self.cleanup_device(session)
@@ -414,7 +417,7 @@ class ESPConnectionRuntime:
     ) -> None:
         match packet:
             case DataPacket():
-                ml.elog(
+                logger.error(
                     f"Unexpected DATA packet received over TCP from {session.name}. This should be sent over UDP. Ignoring.",
                 )
             case StatusPacket(control_states=control_states) if control_states:
@@ -424,7 +427,7 @@ class ESPConnectionRuntime:
             case NackPacket():
                 self.handle_nack(session, packet)
             case _:
-                ml.elog(f"Received unexpected packet type {type(packet).__name__} from {session.name} over TCP")
+                logger.error(f"Received unexpected packet type {type(packet).__name__} from {session.name} over TCP")
 
     def _track_sent_command(
         self,
@@ -466,20 +469,20 @@ class ESPConnectionRuntime:
 
         at_limit = session.register_missed_heartbeat()
         if not at_limit:
-            ml.plog(
+            logger.debug(
                 f"{session.name} missed HEARTBEAT ACK seq={command.packet_sequence} "
                 f"({session.missed_heartbeat_count}/{session.HEARTBEAT_ACK_MISS_LIMIT})",
             )
             return False
 
         session.mark_unresponsive()
-        ml.elog(f"{session.name} marked unresponsive: missed {session.missed_heartbeat_count} HEARTBEAT ACKs")
+        logger.error(f"{session.name} marked unresponsive: missed {session.missed_heartbeat_count} HEARTBEAT ACKs")
         self.remove_device(session)
         return True
 
     def _update_control_from_ack(self, session: ESPDeviceSession, command: CommandRecord) -> None:
         if command.control_id is None or command.requested_state is None:
-            ml.plog(f"{session.name} ACK for CONTROL seq={command.packet_sequence}")
+            logger.debug(f"{session.name} ACK for CONTROL seq={command.packet_sequence}")
             return
 
         control_name = command.control_name or session.control_name_for_id(command.control_id)
@@ -528,7 +531,7 @@ class ESPConnectionListener:
         server_socket.listen(self.backlog)
         server_socket.setblocking(False)
 
-        ml.slog(f"TCP listener started on port {self.port}")
+        logger.info(f"TCP listener started on port {self.port}")
 
         loop = asyncio.get_event_loop()
 
@@ -536,14 +539,14 @@ class ESPConnectionListener:
             try:
                 client_socket, addr = await loop.sock_accept(server_socket)
                 client_socket.setblocking(False)
-                ml.slog(f"Accepted TCP connection from {addr[0]}")
+                logger.info(f"Accepted TCP connection from {addr[0]}")
 
                 await self.runtime.accept_connection(client_socket, addr[0])
 
             except asyncio.CancelledError:
-                ml.slog("TCP listener cancelled")
+                logger.info("TCP listener cancelled")
                 server_socket.close()
                 raise
             except Exception as e:
-                ml.elog(f"Error in TCP listener: {e}")
+                logger.error(f"Error in TCP listener: {e}")
                 await asyncio.sleep(0.1)

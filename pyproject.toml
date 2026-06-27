@@ -14,9 +14,9 @@ dependencies = [
     "pyqtgraph",
     "keyboard",
     "types-keyboard",
-    "redis",
     "fastapi>=0.116.1",
     "uvicorn[standard]>=0.35.0", # Essential for websockets
+    "websockets>=16.0",
     "aioconsole>=0.8.1",
     "aiohttp>=3.13.2",
     "pyyaml>=6.0.3",
@@ -61,7 +61,6 @@ pymumble = { git = "https://git.sr.ht/~oopsbagel/pymumble" }
 
 [project.scripts]
 # CLI TOOLS
-see_logs = "qretproptools.cli.see_logs.see_logs:main"
 start_server = "qretproptools.cli.start_server.start_server:main"
 mock_device = "qretproptools.cli.mock_device.mock_device:main"
 

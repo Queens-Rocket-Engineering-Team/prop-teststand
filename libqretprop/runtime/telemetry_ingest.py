@@ -1,14 +1,17 @@
 from __future__ import annotations
 import asyncio
+import logging
 import socket
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
-import libqretprop.redis_logging as ml
 from libqretprop.qlcp.decoding import decode_packet_server
 from libqretprop.qlcp.packets import DataPacket
 from libqretprop.runtime.metrics import NULL_METRICS, Metrics
+
+
+logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
@@ -68,7 +71,7 @@ class TelemetryIngest:
         if session is None:
             self.metrics.record_telemetry_datagram(len(data))
             self.metrics.record_telemetry_decode_error("unknown_device")
-            ml.elog(f"Received UDP packet from unknown device {address}")
+            logger.error(f"Received UDP packet from unknown device {address}")
             return None
 
         self.metrics.record_telemetry_datagram(len(data), device=session.name)
@@ -77,12 +80,12 @@ class TelemetryIngest:
             packet = decode_packet_server(data)
         except Exception as e:
             self.metrics.record_telemetry_decode_error("decode")
-            ml.elog(f"Error decoding UDP packet from {address}: {e}")
+            logger.error(f"Error decoding UDP packet from {address}: {e}")
             return None
 
         if not isinstance(packet, DataPacket):
             self.metrics.record_telemetry_decode_error("non_data")
-            ml.elog(f"Received non-DATA packet over UDP from {session.name}. Ignoring.")
+            logger.error(f"Received non-DATA packet over UDP from {session.name}. Ignoring.")
             return None
 
         return self.handle_packet(packet, session)
@@ -96,7 +99,7 @@ class TelemetryIngest:
             sensor = session.qlcp_config.sensors_by_id.get(reading.sensor_id)
             if sensor is None:
                 self.metrics.record_telemetry_decode_error("unknown_sensor")
-                ml.elog(
+                logger.error(
                     f"Received DATA reading for unknown sensor id {reading.sensor_id} from {session.name}. Ignoring.",
                 )
                 continue
@@ -154,7 +157,7 @@ class TelemetryUDPListener:
         udp_socket.bind(("0.0.0.0", self.port))  # noqa: S104
         udp_socket.setblocking(False)
 
-        ml.slog(f"UDP listener started on port {self.port}")
+        logger.info(f"UDP listener started on port {self.port}")
 
         while True:
             try:
@@ -178,9 +181,9 @@ class TelemetryUDPListener:
                 await asyncio.sleep(0)  # Yield to let other tasks run
 
             except asyncio.CancelledError:
-                ml.slog("UDP listener cancelled")
+                logger.info("UDP listener cancelled")
                 udp_socket.close()
                 raise
             except Exception as e:
-                ml.elog(f"Error in UDP listener: {e}")
+                logger.error(f"Error in UDP listener: {e}")
                 await asyncio.sleep(0.1)

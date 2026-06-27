@@ -1,15 +1,9 @@
 accounts:
-  redis:
-    username: server
-    password: propteambestteam
   camera:
     username: propcam
     password: propteambestteam
 
 services:
-  redis:
-    ip: localhost
-    port: 6379
   mediamtx:
     ip: localhost
     api_port: 9997
