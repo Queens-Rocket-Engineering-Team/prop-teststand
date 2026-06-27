@@ -3,11 +3,13 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Callable
-from typing import Any
-
-from fastapi import WebSocket
+from typing import TYPE_CHECKING, Any
 
 from libqretprop.runtime.metrics import NULL_METRICS, Metrics
+
+
+if TYPE_CHECKING:
+    from fastapi import WebSocket
 
 
 logger = logging.getLogger(__name__)

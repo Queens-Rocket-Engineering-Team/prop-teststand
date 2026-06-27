@@ -4,8 +4,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from libqretprop.config import ServerConfig
 from libqretprop.integrations.mediamtx import MediaMTXClient
 from libqretprop.runtime.audio_runtime import AudioRuntime
 from libqretprop.runtime.camera_runtime import CameraRuntime
@@ -20,6 +20,10 @@ from libqretprop.runtime.telemetry_display_stream import TelemetryDisplayStream
 from libqretprop.runtime.telemetry_ingest import TelemetryIngest, TelemetryUDPListener
 from libqretprop.runtime.telemetry_stream import TelemetryStreamRuntime
 from libqretprop.state import SystemState
+
+
+if TYPE_CHECKING:
+    from libqretprop.config import ServerConfig
 
 
 logger = logging.getLogger(__name__)
