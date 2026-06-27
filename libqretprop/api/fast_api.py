@@ -1,24 +1,17 @@
 import logging
 import time
-from dataclasses import dataclass, field
-from pathlib import Path
-from threading import Lock
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 from urllib.parse import quote
-from wave import Wave_write
 
 import uvicorn
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, WebSocket, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from mumble import Mumble
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
-import libqretprop.config_manager as config
-from libqretprop import mumble_recording
 from libqretprop.runtime.services import RuntimeServices
 
 
@@ -518,93 +511,25 @@ async def get_status(request: Request) -> None:
         await rt.esp_runtime.get_status(device)
 
 
-@dataclass
-class AudioRecordingState:
-    mumble: Mumble | None = None
-    wav: Wave_write | None = None
-    file_name: str | None = None
-    lock: Lock = field(default_factory=Lock)
-
-def get_audio_recording_state(request: Request) -> AudioRecordingState:
-    state = getattr(request.app.state, "audio_recording", None)
-    if state is None:
-        state = AudioRecordingState()
-        request.app.state.audio_recording = state
-    return state
-
 @app.post("/v1/audio/start")
 def start(request: Request) -> dict[str, str]:
-    audio_state = get_audio_recording_state(request)
-
-    with audio_state.lock:
-        if audio_state.mumble is not None:
-            return {"error": "already recording"}
-
-        mumble_host = config.server_config["services"]["mumble"]["ip"]
-        mumble_port = config.server_config["services"]["mumble"]["port"]
-        mumble_temp_recording_dir = config.server_config["services"]["mumble"]["temp_recording_dir"]
-
-        mumble, wav, file_name = mumble_recording.start_recording(mumble_host, mumble_port, "", mumble_temp_recording_dir)
-        audio_state.mumble = mumble
-        audio_state.wav = wav
-        audio_state.file_name = file_name
-
-        return {"status": "started"}
+    return request.app.state.runtime.audio_runtime.start()
 
 @app.post("/v1/audio/stop")
 def stop(request: Request) -> dict[str, str | None]:
-    audio_state = get_audio_recording_state(request)
-
-    mumble_temp_recording_dir = config.server_config["services"]["mumble"]["temp_recording_dir"]
-    mumble_recording_dir = config.server_config["services"]["mumble"]["recording_dir"]
-
-    with audio_state.lock:
-        if audio_state.mumble is None or audio_state.wav is None:
-            return {"error": "not recording"}
-
-        file_name = audio_state.file_name
-
-        mumble_recording.stop_recording(
-            audio_state.mumble,
-            audio_state.wav,
-            mumble_temp_recording_dir,
-            mumble_recording_dir,
-            file_name if file_name else "recording-unknown",
-        )
-
-        audio_state.mumble = None
-        audio_state.wav = None
-        audio_state.file_name = None
-
-        return {"status": "stopped", "file": file_name}
+    return request.app.state.runtime.audio_runtime.stop()
 
 
 @app.get("/v1/audio/files")
-def list_recordings() -> dict[str, list[dict[str, str]]]:
-    mumble_recording_dir = config.server_config["services"]["mumble"]["recording_dir"]
-    recordings_dir = Path(mumble_recording_dir)
-
-    files = [
-        {
-            "filename": f.name,
-            "download_path": f"/v1/audio/files/{f.name}",
-        }
-        for f in recordings_dir.iterdir()
-        if f.suffix == ".opus"
-    ]
-
-    # Sort files by modified time, newest first
-    files.sort(key=lambda f: (recordings_dir / f["filename"]).stat().st_mtime, reverse=True)
-    return {"files": files}
+def list_recordings(request: Request) -> dict[str, list[dict[str, str]]]:
+    return {"files": request.app.state.runtime.audio_runtime.list_recordings()}
 
 @app.get("/v1/audio/files/{filename}")
-def download_recording(filename: str) -> FileResponse:
-    mumble_recording_dir = config.server_config["services"]["mumble"]["recording_dir"]
-    recordings_dir = Path(mumble_recording_dir)
-
-    path = (recordings_dir / filename).resolve()
-    if not str(path).startswith(str(recordings_dir.resolve())):
-        raise HTTPException(status_code=400, detail="Invalid filename")
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
+def download_recording(request: Request, filename: str) -> FileResponse:
+    try:
+        path = request.app.state.runtime.audio_runtime.get_recording_path(filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
     return FileResponse(path, media_type="audio/opus", filename=filename)

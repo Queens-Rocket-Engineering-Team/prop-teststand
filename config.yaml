@@ -11,6 +11,7 @@ services:
   mumble:
     ip: localhost
     port: 64738
+    password: ""
     temp_recording_dir: /tmp/mumble_recordings
     recording_dir: ./recordings/mumble
 
