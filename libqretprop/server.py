@@ -6,7 +6,6 @@ import libqretprop
 import libqretprop.config_manager as config
 from libqretprop.api import fast_api
 from libqretprop.daemons.cli_terminal import command_processor
-from libqretprop.device_controllers import camera_tools, kasa_tools
 from libqretprop.runtime.logging import configure_logging
 from libqretprop.runtime.services import build_runtime
 
@@ -47,11 +46,11 @@ async def main(no_discovery: bool = False) -> None:
     logger.info("Started log_stream daemon task.")
 
     # Connect to all cameras
-    daemons["camera_connector"] = loop.create_task(camera_tools.connect_all_cameras())
+    daemons["camera_connector"] = loop.create_task(runtime.camera_runtime.connect_all_cameras())
     logger.info("Started camera_connector daemon task.")
 
     # Discover all Kasa devices
-    daemons["kasa_discoverer"] = loop.create_task(kasa_tools.discover_kasa_devices())
+    daemons["kasa_discoverer"] = loop.create_task(runtime.kasa_runtime.discover_kasa_devices())
     logger.info("Started kasa_discoverer daemon task.")
 
     # Command line interface daemon

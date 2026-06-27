@@ -26,6 +26,16 @@ class Camera:
         # Whether the camera is currently recording via media server
         self.recording = False
 
+    @property
+    def stream_path(self) -> str:
+        return f"/{self.address}"
+
+    def rtsp_stream_source(self, username: str, password: str) -> str:
+        return f"rtsp://{username}:{password}@{self.address}/stream1"
+
+    def set_recording(self, recording: bool) -> None:
+        self.recording = recording
+
     async def connect(self) -> None:
         try:
             # Load wsdl files for ONVIF
@@ -58,3 +68,7 @@ class Camera:
             if self.camera is not None:
                 await self.camera.close()
             raise
+
+    async def move_relative(self, x: float, y: float) -> None:
+        """Move the camera by relative pan/tilt amounts."""
+        await self.ptz.RelativeMove({"ProfileToken": self.token, "Translation": {"PanTilt": {"x": x, "y": y}, "Zoom": {"x": 0}}})

@@ -5,9 +5,12 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 
+from libqretprop.integrations.mediamtx import MediaMTXClient
+from libqretprop.runtime.camera_runtime import CameraRuntime
 from libqretprop.runtime.command_tracker import CommandTracker
 from libqretprop.runtime.discovery import DiscoveryService
 from libqretprop.runtime.esp_connection_runtime import ESPConnectionListener, ESPConnectionRuntime
+from libqretprop.runtime.kasa_runtime import KasaRuntime
 from libqretprop.runtime.log_stream import LogStream
 from libqretprop.runtime.metrics import Metrics
 from libqretprop.runtime.state_stream import StateStream
@@ -24,8 +27,8 @@ logger = logging.getLogger(__name__)
 class RuntimeServices:
     """Wired runtime object graph for the server process.
 
-    Owns the ESP/telemetry/state daemon lifecycle.  Camera, Kasa, and audio
-    tasks are owned by ``server.main()`` and are not part of this container.
+    Owns the ESP/telemetry/state daemon lifecycle and constructs camera/Kasa
+    runtimes.
     """
 
     command_tracker: CommandTracker
@@ -40,6 +43,8 @@ class RuntimeServices:
     esp_connection_listener: ESPConnectionListener
     telemetry_ingest: TelemetryIngest
     telemetry_udp_listener: TelemetryUDPListener
+    camera_runtime: CameraRuntime
+    kasa_runtime: KasaRuntime
     _tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict, init=False, repr=False)
 
     def start(self, loop: asyncio.AbstractEventLoop, *, include_device_daemons: bool = True) -> None:
@@ -106,6 +111,9 @@ def build_runtime() -> RuntimeServices:
         telemetry_stream,
         telemetry_display_stream,
     )
+    mediamtx = MediaMTXClient()
+    camera_runtime = CameraRuntime(mediamtx=mediamtx)
+    kasa_runtime = KasaRuntime()
     return RuntimeServices(
         command_tracker=command_tracker,
         metrics=metrics,
@@ -119,4 +127,6 @@ def build_runtime() -> RuntimeServices:
         esp_connection_listener=esp_connection_listener,
         telemetry_ingest=telemetry_ingest,
         telemetry_udp_listener=telemetry_udp_listener,
+        camera_runtime=camera_runtime,
+        kasa_runtime=kasa_runtime,
     )

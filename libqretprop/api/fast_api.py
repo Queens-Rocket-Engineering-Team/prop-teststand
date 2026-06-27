@@ -19,7 +19,6 @@ from starlette.responses import Response
 
 import libqretprop.config_manager as config
 from libqretprop import mumble_recording
-from libqretprop.device_controllers import camera_tools, kasa_tools
 from libqretprop.runtime.services import RuntimeServices
 
 
@@ -278,27 +277,28 @@ async def send_device_command(
 
 
 @app.get("/v1/cameras", summary="Get the list of connected cameras")
-async def get_cameras() -> CameraList:
-    cameras = camera_tools.camera_registry
+async def get_cameras(request: Request) -> CameraList:
+    cameras = request.app.state.runtime.camera_runtime.cameras()
 
     camera_data_list = []
 
-    for cam in cameras.values():
-        camera_data = CameraInfo(ip=cam.address, hostname=cam.hostname, stream_path=f"/{cam.address}", recording=cam.recording)
+    for cam in cameras:
+        camera_data = CameraInfo(ip=cam.address, hostname=cam.hostname, stream_path=cam.stream_path, recording=cam.recording)
         camera_data_list.append(camera_data)
 
     return CameraList(cameras=camera_data_list)
 
 
 @app.post("/v1/cameras/reconnect", summary="Reconnect all cameras")
-async def reconnect_cameras() -> CameraList:
+async def reconnect_cameras(request: Request) -> CameraList:
     logger.info("User sent camera reconnect")
-    await camera_tools.connect_all_cameras()
-    return await get_cameras()
+    await request.app.state.runtime.camera_runtime.connect_all_cameras()
+    return await get_cameras(request)
 
 
 @app.post("/v1/camera", summary="Control a camera's movement")
 async def control_camera(
+    request: Request,
     ip: str,
     x_movement: float,
     y_movement: float,
@@ -308,7 +308,7 @@ async def control_camera(
     logger.info(f"User sent camera move command to {ip}: <{x_movement}, {y_movement}>")
 
     bg_tasks.add_task(
-        camera_tools.move_camera,
+        request.app.state.runtime.camera_runtime.move_camera,
         ip,
         x_movement,
         y_movement,
@@ -322,13 +322,14 @@ async def control_camera(
 
 @app.post("/v1/camera/recordings/start", summary="Start recording a camera's stream")
 async def start_camera_recording(
+    request: Request,
     ip: str,
 ) -> CommandResponse:
 
     logger.info(f"User sent camera recording start command to {ip}")
 
     try:
-        await camera_tools.start_camera_recording(ip)
+        await request.app.state.runtime.camera_runtime.start_camera_recording(ip)
     except Exception as e:
         raise HTTPException(500, f"Failed to start recording for camera at {ip}") from e
 
@@ -340,13 +341,14 @@ async def start_camera_recording(
 
 @app.post("/v1/camera/recordings/stop", summary="Stop recording a camera's stream")
 async def stop_camera_recording(
+    request: Request,
     ip: str,
 ) -> CommandResponse:
 
     logger.info(f"User sent camera recording stop command to {ip}")
 
     try:
-        await camera_tools.stop_camera_recording(ip)
+        await request.app.state.runtime.camera_runtime.stop_camera_recording(ip)
     except Exception as e:
         raise HTTPException(500, f"Failed to stop recording for camera at {ip}") from e
 
@@ -357,9 +359,9 @@ async def stop_camera_recording(
 
 
 @app.get("/v1/camera/recordings", summary="List camera recordings available for download")
-async def list_camera_recordings(ip: str | None = None) -> CameraRecordingList:
+async def list_camera_recordings(request: Request, ip: str | None = None) -> CameraRecordingList:
     try:
-        camera_recording_files = camera_tools.list_recording_files(ip)
+        camera_recording_files = request.app.state.runtime.camera_runtime.list_recording_files(ip)
     except Exception as e:
         logger.error(f"Failed to list camera recordings: {e}")
         raise HTTPException(500, "Failed to list camera recordings") from e
@@ -380,9 +382,9 @@ async def list_camera_recordings(ip: str | None = None) -> CameraRecordingList:
 
 
 @app.get("/v1/camera/recordings/download/{filename}", summary="Download a camera recording file")
-async def download_camera_recording(filename: str) -> FileResponse:
+async def download_camera_recording(request: Request, filename: str) -> FileResponse:
     try:
-        file_path = camera_tools.get_recording_file_path(filename)
+        file_path = request.app.state.runtime.camera_runtime.get_recording_file_path(filename)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     except FileNotFoundError as e:
@@ -395,14 +397,11 @@ async def download_camera_recording(filename: str) -> FileResponse:
 
 
 @app.get("/v1/kasa", summary="Get the list of discovered Kasa devices")
-async def get_kasa_devices() -> list[KasaDeviceInfo]:
-    devices = list(kasa_tools.kasa_registry.values())
-
+async def get_kasa_devices(request: Request) -> list[KasaDeviceInfo]:
     device_data_list = []
 
     try:
-        for dev in devices:
-            await dev.update()  # Update device info before reporting
+        for dev in await request.app.state.runtime.kasa_runtime.get_devices():
             alias = dev.alias if dev.alias is not None else ""
             device_data_list.append(KasaDeviceInfo(alias=alias, host=dev.host, model=dev.model, active=dev.is_on))
 
@@ -413,28 +412,29 @@ async def get_kasa_devices() -> list[KasaDeviceInfo]:
 
 
 @app.get("/v1/kasa/discover", summary="Discover Kasa devices on the network")
-async def discover_kasa_devices() -> list[KasaDeviceInfo]:
+async def discover_kasa_devices(request: Request) -> list[KasaDeviceInfo]:
     logger.info("User sent Kasa discover command")
-    await kasa_tools.discover_kasa_devices()
+    await request.app.state.runtime.kasa_runtime.discover_kasa_devices()
 
-    return await get_kasa_devices()
+    return await get_kasa_devices(request)
 
 
 @app.post("/v1/kasa", summary="Control a Kasa device's power state")
 async def control_kasa_device(
+    request: Request,
     host: str,
     active: bool,
 ) -> KasaDeviceInfo:
 
     logger.info(f"User sent Kasa control command to {host}: active={active}")
 
-    if host not in kasa_tools.kasa_registry:
+    kasa_runtime = request.app.state.runtime.kasa_runtime
+
+    if kasa_runtime.get_device(host) is None:
         raise HTTPException(404, f"No Kasa device found at {host}")
 
     try:
-        await kasa_tools.set_kasa_device_state(host, active)
-
-        dev = kasa_tools.kasa_registry[host]
+        dev = await kasa_runtime.set_kasa_device_state(host, active)
         alias = dev.alias if dev.alias is not None else ""
         return KasaDeviceInfo(alias=alias, host=dev.host, model=dev.model, active=dev.is_on)
     except Exception as e:
