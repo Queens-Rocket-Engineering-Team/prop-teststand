@@ -29,25 +29,29 @@ class ESPDriver:
         tcp_socket: socket.socket,
         address: str,
     ) -> None:
-        self.socket: socket.socket | None = tcp_socket
+        self.socket: socket.socket = tcp_socket
         self.address = address
 
     async def send_packet(self, packet: EncodablePacket) -> None:
+        """Send a QLCP packet over TCP."""
         assert self.socket is not None
         loop = asyncio.get_running_loop()
         await loop.sock_sendall(self.socket, packet.encode())
 
     async def read_packet(self) -> ServerReceivedPacket:
+        """Read an incoming QLCP packet over TCP."""
         packet_data = await self.read_packet_bytes()
         return decode_packet_server(packet_data)
 
     async def read_packet_bytes(self) -> bytes:
+        """Read the raw bytes of an incoming QLCP packet over TCP."""
         header = await self.read_exactly(HEADER_SIZE)
         packet_len = get_packet_len(header)
         payload = await self.read_exactly(packet_len - HEADER_SIZE)
         return header + payload
 
     async def read_exactly(self, byte_count: int) -> bytes:
+        """Read exactly the specified number of bytes from the TCP socket."""
         assert self.socket is not None
         loop = asyncio.get_running_loop()
         chunks = bytearray()

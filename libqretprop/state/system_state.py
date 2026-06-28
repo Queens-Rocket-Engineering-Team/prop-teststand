@@ -7,7 +7,6 @@ from libqretprop.qlcp.enums import ControlState, PacketType
 from libqretprop.runtime.command_types import (
     OPERATOR_VISIBLE_PACKET_TYPES,
     CommandRecord,
-    CommandSummary,
 )
 from libqretprop.state.models import (
     CommandCollectionSnapshot,
@@ -35,12 +34,6 @@ class CommandTrackerView(Protocol):
     @property
     def recent_completed(self) -> tuple[CommandRecord, ...]: ...
 
-    def get_summary(
-        self,
-        connection_key: str,
-        packet_type: PacketType,
-    ) -> CommandSummary | None: ...
-
 
 @dataclass(slots=True)
 class _ReportedControlState:
@@ -57,7 +50,6 @@ class _DeviceState:
     connected: bool
     device: ESPDeviceSession | None = None
     reported_controls: dict[int, _ReportedControlState] = field(default_factory=dict)
-    disconnected_at: float | None = None
 
 
 class SystemState:
@@ -93,7 +85,6 @@ class SystemState:
 
         device_state.connected = False
         device_state.device = device
-        device_state.disconnected_at = time.monotonic()
         return self._make_event(
             "device.disconnected",
             device_name=device_state.device_name,
@@ -192,9 +183,7 @@ class SystemState:
             id=sensor.id,
             name=sensor.name,
             type=sensor.type,
-            index=sensor.sensor_index,
             unit=sensor.unit.name,
-            raw=sensor.raw,
         )
 
     def _snapshot_control(
@@ -208,12 +197,10 @@ class SystemState:
             id=control.id,
             name=control.name,
             type=control.control_type,
-            index=control.control_index,
             default_state=control.default.name,
             reported_state=reported_state.state if reported_state is not None else None,
             reported_timestamp=reported_state.timestamp if reported_state is not None else None,
             pending_command_id=self._pending_command_id(device_state, control.id),
-            raw=control.raw,
         )
 
     def _pending_command_id(self, device_state: _DeviceState, control_id: int) -> int | None:
@@ -238,11 +225,6 @@ class SystemState:
     def _snapshot_heartbeat(self, device_state: _DeviceState) -> HeartbeatSnapshot:
         device = device_state.device
         consecutive_misses = device.missed_heartbeat_count if device is not None else 0
-        heartbeat_summary = (
-            self._command_tracker.get_summary(device_state.connection_key, PacketType.HEARTBEAT)
-            if device is not None
-            else None
-        )
 
         if not device_state.connected:
             state = "disconnected"
@@ -253,11 +235,7 @@ class SystemState:
 
         return HeartbeatSnapshot(
             state=state,
-            last_sent_time=heartbeat_summary.last_sent_at if heartbeat_summary is not None else None,
-            last_ack_time=heartbeat_summary.last_acked_at if heartbeat_summary is not None else None,
-            pending=bool(heartbeat_summary and heartbeat_summary.pending_count > 0),
             consecutive_misses=consecutive_misses,
-            last_timeout_time=heartbeat_summary.last_timed_out_at if heartbeat_summary is not None else None,
         )
 
     def _snapshot_commands(self) -> CommandCollectionSnapshot:

@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Any
 
 from libqretprop.qlcp.enums import ControlState, Unit
 
@@ -9,9 +8,7 @@ class SensorConfig:
     id: int
     name: str
     type: str
-    sensor_index: str
     unit: Unit
-    raw: dict[str, Any] | None = None
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
@@ -53,9 +50,7 @@ class ControlConfig:
     id: int
     name: str
     default: ControlState
-    control_index: str
     control_type: str
-    raw: dict[str, Any] | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -64,4 +59,3 @@ class DeviceConfig:
     device_type: str
     sensors_by_id: dict[int, SensorConfig]
     controls_by_id: dict[int, ControlConfig]
-    raw_config: dict[str, Any]

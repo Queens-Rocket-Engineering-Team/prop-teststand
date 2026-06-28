@@ -2,7 +2,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from libqretprop.runtime.metrics import NULL_METRICS, Metrics
@@ -16,12 +15,6 @@ logger = logging.getLogger(__name__)
 
 
 JsonMessage = dict[str, Any]
-DropRecorder = Callable[[Metrics, str], None]
-
-
-def record_telemetry_drop(metrics: Metrics, stream: str) -> None:
-    """Default drop recorder for telemetry streams; records a dropped batch in metrics."""
-    metrics.record_telemetry_dropped_batch(stream)
 
 
 class BoundedWebSocketFanout:
@@ -38,22 +31,15 @@ class BoundedWebSocketFanout:
         stream_metric_label: str,
         max_queue: int,
         metrics: Metrics | None = None,
-        drop_recorder: DropRecorder | None = None,
     ) -> None:
         self.metrics = metrics or NULL_METRICS
         self._stream_metric_label = stream_metric_label
         self._max_queue = max_queue
         self._clients: dict[WebSocket, asyncio.Queue[JsonMessage]] = {}
-        self._dropped_batches = 0
-        self._drop_recorder = drop_recorder
 
     @property
     def client_count(self) -> int:
         return len(self._clients)
-
-    @property
-    def dropped_batches(self) -> int:
-        return self._dropped_batches
 
     def publish_message(self, message: JsonMessage) -> None:
         """Queue *message* to every connected client without blocking."""
@@ -61,9 +47,7 @@ class BoundedWebSocketFanout:
             try:
                 queue.put_nowait(message)
             except asyncio.QueueFull:
-                self._dropped_batches += 1
-                if self._drop_recorder is not None:
-                    self._drop_recorder(self.metrics, self._stream_metric_label)
+                self.metrics.record_telemetry_dropped_batch(self._stream_metric_label)
 
     async def connect_client(self, websocket: WebSocket) -> None:
         await websocket.accept()

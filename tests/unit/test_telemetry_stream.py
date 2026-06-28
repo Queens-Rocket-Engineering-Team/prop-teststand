@@ -5,6 +5,7 @@ from typing import Any, cast
 
 from fastapi import WebSocket
 
+from libqretprop.runtime.metrics import Metrics
 from libqretprop.runtime.telemetry_ingest import TelemetryBatch, TelemetryReading
 from libqretprop.runtime.telemetry_stream import TelemetryStreamRuntime
 
@@ -110,25 +111,31 @@ def test_publish_batch_queues_serialized_message_to_each_client() -> None:
 
 def test_full_queue_does_not_block_and_increments_dropped_batches() -> None:
     async def run() -> None:
-        runtime = TelemetryStreamRuntime(max_queue=1)
+        metrics = Metrics()
+        runtime = TelemetryStreamRuntime(max_queue=1, metrics=metrics)
         websocket = FakeWebSocket()
         await runtime.connect_client(_as_websocket(websocket))
 
         runtime.publish_batch(_make_batch())  # fills the queue
         runtime.publish_batch(_make_batch())  # dropped, must not block or raise
 
-        assert runtime.dropped_batches == 1
+        d = cast(dict[str, Any], metrics.to_dict())
+        dropped = d["telemetry"]["streams"]["dropped_batches_total"]
+        assert dropped["telemetry_raw"] == 1
         assert runtime._clients[_as_websocket(websocket)].qsize() == 1
 
     asyncio.run(run())
 
 
 def test_publish_batch_with_no_clients_is_a_noop() -> None:
-    runtime = TelemetryStreamRuntime()
+    metrics = Metrics()
+    runtime = TelemetryStreamRuntime(metrics=metrics)
 
     runtime.publish_batch(_make_batch())
 
-    assert runtime.dropped_batches == 0
+    d = cast(dict[str, Any], metrics.to_dict())
+    dropped = d["telemetry"]["streams"]["dropped_batches_total"]
+    assert dropped == {}
 
 
 def test_handle_client_sends_published_batch() -> None:

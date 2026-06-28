@@ -7,7 +7,6 @@ services:
   mediamtx:
     ip: localhost
     api_port: 9997
-    webrtc_port: 8889 # Relayed to GUI for connection
   mumble:
     ip: localhost
     port: 64738

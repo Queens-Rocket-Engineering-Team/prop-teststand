@@ -1,6 +1,6 @@
 from __future__ import annotations
 import time
-from collections import deque
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -14,24 +14,6 @@ def _label(value: Any) -> str:
     return str(name if name is not None else value)
 
 
-def _clean_context(context: dict[str, object | None]) -> dict[str, object]:
-    return {
-        key: value
-        for key, value in context.items()
-        if value is not None
-    }
-
-
-@dataclass(slots=True)
-class _RollingCounter:
-    total: float = 0.0
-
-    def add(self, amount: float) -> None:
-        if amount <= 0:
-            return
-        self.total += amount
-
-
 @dataclass(slots=True)
 class _LatencySummary:
     count: int = 0
@@ -41,6 +23,7 @@ class _LatencySummary:
     last: float | None = None
 
     def observe(self, value: float) -> None:
+        """Record a new latency observation."""
         value = max(0.0, value)
         self.count += 1
         self.total += value
@@ -49,6 +32,7 @@ class _LatencySummary:
         self.last = value
 
     def to_dict(self) -> dict[str, float | int]:
+        """Return a dict summary of the latency observations."""
         if self.count == 0:
             return {}
         return {
@@ -70,7 +54,6 @@ class Metrics:
         *,
         time_fn: Callable[[], float] | None = None,
         recent_event_limit: int = 100,
-        enabled: bool = True,
     ) -> None:
         if time_fn is None:
             self._wall_time_fn = time.time
@@ -80,29 +63,31 @@ class Metrics:
             self._monotonic_fn = time_fn
         self._started_wall_s = self._wall_time_fn()
         self._started_monotonic_s = self._monotonic_fn()
-        self._enabled = enabled
         self._recent_events: deque[dict[str, object]] = deque(maxlen=recent_event_limit)
 
-        self._telemetry_aggregate: dict[str, _RollingCounter] = {}
-        self._telemetry_by_device: dict[str, dict[str, _RollingCounter]] = {}
+        self._telemetry_aggregate: defaultdict[str, float] = defaultdict(float)
+        self._telemetry_by_device: defaultdict[str, defaultdict[str, float]] = defaultdict(
+            lambda: defaultdict(float)
+        )
         self._telemetry_data_packet_times: deque[float] = deque()
-        self._telemetry_data_packet_times_by_device: dict[str, deque[float]] = {}
-        self._telemetry_decode_errors: dict[str, _RollingCounter] = {}
-        self._telemetry_dropped_batches: dict[str, _RollingCounter] = {}
+        self._telemetry_data_packet_times_by_device: defaultdict[str, deque[float]] = defaultdict(deque)
+        self._telemetry_decode_errors: defaultdict[str, float] = defaultdict(float)
+        self._telemetry_dropped_batches: defaultdict[str, float] = defaultdict(float)
 
-        self._command_totals: dict[tuple[str, str], int] = {}
-        self._command_rtt_seconds: dict[str, _LatencySummary] = {}
+        self._command_totals: defaultdict[tuple[str, str], int] = defaultdict(int)
+        self._command_rtt_seconds: defaultdict[str, _LatencySummary] = defaultdict(_LatencySummary)
 
         self._ws_clients: dict[str, int] = {}
 
-        self._http_totals: dict[tuple[str, str], int] = {}
-        self._http_duration_seconds: dict[tuple[str, str], _LatencySummary] = {}
+        self._http_totals: defaultdict[tuple[str, str], int] = defaultdict(int)
+        self._http_duration_seconds: defaultdict[tuple[str, str], _LatencySummary] = defaultdict(_LatencySummary)
 
         self._device_connections_total = 0
-        self._device_disconnections_total: dict[str, int] = {}
-        self._heartbeat_misses_total: dict[str, int] = {}
+        self._device_disconnections_total: defaultdict[str, int] = defaultdict(int)
+        self._heartbeat_misses_total: defaultdict[str, int] = defaultdict(int)
 
     def to_dict(self) -> dict[str, object]:
+        """Return a JSON-serializable snapshot of the current metrics."""
         now_s = self._now()
         now_wall_s = self._wall_now()
         return {
@@ -158,42 +143,34 @@ class Metrics:
         }
 
     def record_telemetry_datagram(self, byte_count: int, *, device: str | None = None) -> None:
-        if not self._enabled:
-            return
-        self._counter(self._telemetry_aggregate, "udp_bytes").add(byte_count)
+        """Record the receipt of a telemetry UDP datagram."""
+        self._telemetry_aggregate["udp_bytes"] += byte_count
         if device is not None:
-            self._device_counter(device, "udp_bytes").add(byte_count)
+            self._telemetry_by_device[device]["udp_bytes"] += byte_count
 
     def record_telemetry_data_packet(self, device: str) -> None:
-        if not self._enabled:
-            return
+        """Record the receipt of a telemetry DATA packet."""
         now_s = self._now()
-        self._counter(self._telemetry_aggregate, "data_packets").add(1)
-        self._device_counter(device, "data_packets").add(1)
+        self._telemetry_aggregate["data_packets"] += 1
+        self._telemetry_by_device[device]["data_packets"] += 1
         self._record_data_packet_sample(self._telemetry_data_packet_times, now_s)
-        self._record_data_packet_sample(self._device_data_packet_times(device), now_s)
+        self._record_data_packet_sample(self._telemetry_data_packet_times_by_device[device], now_s)
 
     def record_telemetry_readings(self, device: str, count: int) -> None:
-        if not self._enabled or count <= 0:
+        """Record the number of sensor readings received in a telemetry DATA packet."""
+        if count <= 0:
             return
-        self._counter(self._telemetry_aggregate, "readings").add(count)
-        self._device_counter(device, "readings").add(count)
+        self._telemetry_aggregate["readings"] += count
+        self._telemetry_by_device[device]["readings"] += count
 
     def record_telemetry_decode_error(self, kind: str) -> None:
-        if not self._enabled:
-            return
-        self._counter(self._telemetry_decode_errors, kind).add(1)
-        self._add_event(
-            "telemetry.decode_error",
-            "warning",
-            f"Telemetry decode error: {kind}",
-            error_kind=kind,
-        )
+        """Record a telemetry decode error of the given kind."""
+        self._telemetry_decode_errors[kind] += 1
+        self._add_event("telemetry.decode_error", "warning", f"Telemetry decode error: {kind}", error_kind=kind)
 
     def record_telemetry_dropped_batch(self, stream: str) -> None:
-        if not self._enabled:
-            return
-        self._counter(self._telemetry_dropped_batches, stream).add(1)
+        """Record a telemetry batch dropped due to a slow client."""
+        self._telemetry_dropped_batches[stream] += 1
         self._add_event(
             "telemetry.dropped_batch",
             "warning",
@@ -202,15 +179,14 @@ class Metrics:
         )
 
     def set_ws_clients(self, stream: str, count: int) -> None:
-        if self._enabled:
-            self._ws_clients[stream] = count
+        """Set the current number of connected WebSocket clients for a given stream."""
+        self._ws_clients[stream] = count
 
     def record_command_acked(self, packet_type: Any, rtt_seconds: float) -> None:
-        if not self._enabled:
-            return
-        packet_type_label = _label(packet_type)
-        self._increment_command(packet_type_label, "acked")
-        self._latency(self._command_rtt_seconds, packet_type_label).observe(rtt_seconds)
+        """Record that a command was ACKed and its round-trip time."""
+        label = _label(packet_type)
+        self._command_totals[(label, "acked")] += 1
+        self._command_rtt_seconds[label].observe(rtt_seconds)
 
     def record_command_nacked(
         self,
@@ -219,32 +195,23 @@ class Metrics:
         device: str | None = None,
         error_code: Any | None = None,
     ) -> None:
-        if not self._enabled:
-            return
-        packet_type_label = _label(packet_type)
-        error_code_label = _label(error_code) if error_code is not None else None
-        self._increment_command(packet_type_label, "nacked")
+        """Record that a command was NACKed, optionally with an error code."""
+        label = _label(packet_type)
+        self._command_totals[(label, "nacked")] += 1
         self._add_event(
             "command.nacked",
             "warning",
-            f"{packet_type_label} command NACKed",
-            packet_type=packet_type_label,
+            f"{label} command NACKed",
+            packet_type=label,
             device=device,
-            error_code=error_code_label,
+            error_code=_label(error_code) if error_code is not None else None,
         )
 
     def record_command_timed_out(self, packet_type: Any, *, device: str | None = None) -> None:
-        if not self._enabled:
-            return
-        packet_type_label = _label(packet_type)
-        self._increment_command(packet_type_label, "timed_out")
-        self._add_event(
-            "command.timed_out",
-            "warning",
-            f"{packet_type_label} command timed out",
-            packet_type=packet_type_label,
-            device=device,
-        )
+        """Record that a command timed out waiting for an ACK or NACK."""
+        label = _label(packet_type)
+        self._command_totals[(label, "timed_out")] += 1
+        self._add_event("command.timed_out", "warning", f"{label} command timed out", packet_type=label, device=device)
 
     def record_command_connection_failed(
         self,
@@ -253,60 +220,39 @@ class Metrics:
         device: str | None = None,
         reason: str | None = None,
     ) -> None:
-        if not self._enabled:
-            return
-        packet_type_label = _label(packet_type)
-        self._increment_command(packet_type_label, "connection_failed")
+        """Record that a command failed because the connection closed before an ACK or NACK."""
+        label = _label(packet_type)
+        self._command_totals[(label, "connection_failed")] += 1
         self._add_event(
             "command.connection_failed",
             "error",
-            f"{packet_type_label} command failed because the connection closed",
-            packet_type=packet_type_label,
+            f"{label} command failed because the connection closed",
+            packet_type=label,
             device=device,
             reason=reason,
         )
 
     def record_device_connection(self, *, device: str | None = None) -> None:
-        if not self._enabled:
-            return
+        """Record that a device has connected."""
         self._device_connections_total += 1
-        self._add_event(
-            "device.connected",
-            "info",
-            "Device connection registered",
-            device=device,
-        )
+        self._add_event("device.connected", "info", "Device connection registered", device=device)
 
     def record_device_disconnection(self, reason: str, *, device: str | None = None) -> None:
-        if not self._enabled:
-            return
-        self._device_disconnections_total[reason] = self._device_disconnections_total.get(reason, 0) + 1
-        self._add_event(
-            "device.disconnected",
-            "warning",
-            f"Device disconnected: {reason}",
-            device=device,
-            reason=reason,
-        )
+        """Record that a device has disconnected, with a reason."""
+        self._device_disconnections_total[reason] += 1
+        self._add_event("device.disconnected", "warning", f"Device disconnected: {reason}", device=device, reason=reason)
 
     def record_heartbeat_miss(self, device: str) -> None:
-        if not self._enabled:
-            return
-        self._heartbeat_misses_total[device] = self._heartbeat_misses_total.get(device, 0) + 1
-        self._add_event(
-            "heartbeat.missed",
-            "warning",
-            f"{device} missed a HEARTBEAT ACK",
-            device=device,
-        )
+        """Record that a device has missed a HEARTBEAT ACK."""
+        self._heartbeat_misses_total[device] += 1
+        self._add_event("heartbeat.missed", "warning", f"{device} missed a HEARTBEAT ACK", device=device)
 
     def observe_http_request(self, method: str, path: str, status: int | str, duration_seconds: float) -> None:
-        if not self._enabled:
-            return
+        """Record an HTTP request and its duration, optionally logging errors."""
         status_label = str(status)
         key = (method, status_label)
-        self._http_totals[key] = self._http_totals.get(key, 0) + 1
-        self._latency(self._http_duration_seconds, key).observe(duration_seconds)
+        self._http_totals[key] += 1
+        self._http_duration_seconds[key].observe(duration_seconds)
         status_int = int(status_label)
         if status_int >= 400:
             self._add_event(
@@ -319,114 +265,78 @@ class Metrics:
             )
 
     def _now(self) -> float:
+        """Return the current monotonic time in seconds."""
         return self._monotonic_fn()
 
     def _wall_now(self) -> float:
+        """Return the current wall-clock time in seconds since the epoch."""
         return self._wall_time_fn()
 
     @staticmethod
     def _unix_ms(timestamp_s: float) -> int:
+        """Convert a timestamp in seconds to milliseconds."""
         return int(timestamp_s * 1000)
 
-    def _counter(self, counters: dict[str, _RollingCounter], key: str) -> _RollingCounter:
-        counter = counters.get(key)
-        if counter is None:
-            counter = _RollingCounter()
-            counters[key] = counter
-        return counter
-
-    def _device_counter(self, device: str, metric: str) -> _RollingCounter:
-        counters = self._telemetry_by_device.get(device)
-        if counters is None:
-            counters = {}
-            self._telemetry_by_device[device] = counters
-        return self._counter(counters, metric)
-
-    def _device_data_packet_times(self, device: str) -> deque[float]:
-        samples = self._telemetry_data_packet_times_by_device.get(device)
-        if samples is None:
-            samples = deque()
-            self._telemetry_data_packet_times_by_device[device] = samples
-        return samples
-
     def _record_data_packet_sample(self, samples: deque[float], now_s: float) -> None:
+        """Record a sample of a telemetry DATA packet arrival time and prune old samples."""
         samples.append(now_s)
         self._prune_data_packet_samples(samples, now_s)
 
     def _prune_data_packet_samples(self, samples: deque[float], now_s: float) -> None:
+        """Prune telemetry DATA packet samples older than the rate window."""
         cutoff_s = now_s - self.DATA_PACKET_RATE_WINDOW_S
         while samples and samples[0] <= cutoff_s:
             samples.popleft()
 
-    @staticmethod
-    def _latency(
-        summaries: dict[Any, _LatencySummary],
-        key: Any,
-    ) -> _LatencySummary:
-        summary = summaries.get(key)
-        if summary is None:
-            summary = _LatencySummary()
-            summaries[key] = summary
-        return summary
-
-    def _add_event(
-        self,
-        kind: str,
-        severity: str,
-        message: str,
-        **context: object | None,
-    ) -> None:
-        now_s = self._wall_now()
+    def _add_event(self, kind: str, severity: str, message: str, **context: object | None) -> None:
+        """Add a recent event to the metrics, with optional context."""
         event: dict[str, object] = {
-            "at_unix_ms": self._unix_ms(now_s),
+            "at_unix_ms": self._unix_ms(self._wall_now()),
             "kind": kind,
             "severity": severity,
             "message": message,
         }
-        event.update(_clean_context(context))
+        event.update({k: v for k, v in context.items() if v is not None})
         self._recent_events.append(event)
-
-    def _increment_command(self, packet_type: str, outcome: str) -> None:
-        key = (packet_type, outcome)
-        self._command_totals[key] = self._command_totals.get(key, 0) + 1
 
     def _telemetry_metric_snapshot(
         self,
-        counters: dict[str, _RollingCounter],
+        counters: dict[str, float],
         *,
         data_packet_times: deque[float] | None = None,
         now_s: float | None = None,
     ) -> dict[str, object]:
-        snapshot: dict[str, object] = {}
-        for metric, counter in sorted(counters.items()):
-            snapshot[f"{metric}_total"] = self._number(counter.total)
+        """Return a snapshot of telemetry metrics, including data packet rate if samples are provided."""
+        snapshot: dict[str, object] = {
+            f"{metric}_total": self._number(total)
+            for metric, total in sorted(counters.items())
+        }
         if data_packet_times is not None and "data_packets" in counters:
-            if now_s is None:
-                now_s = self._now()
-            self._prune_data_packet_samples(data_packet_times, now_s)
+            self._prune_data_packet_samples(data_packet_times, now_s or self._now())
             snapshot["data_packets_per_s"] = len(data_packet_times) / self.DATA_PACKET_RATE_WINDOW_S
         return snapshot
 
     @staticmethod
-    def _counter_totals(counters: dict[str, _RollingCounter]) -> dict[str, int | float]:
-        return {
-            key: Metrics._number(counter.total)
-            for key, counter in sorted(counters.items())
-        }
+    def _counter_totals(counters: dict[str, float]) -> dict[str, int | float]:
+        """Return a snapshot of counter totals."""
+        return {key: Metrics._number(total) for key, total in sorted(counters.items())}
 
     def _nested_command_totals(self) -> dict[str, dict[str, int]]:
+        """Return a nested dict of command outcome totals by packet type and outcome."""
         nested: dict[str, dict[str, int]] = {}
         for (packet_type, outcome), count in sorted(self._command_totals.items()):
             nested.setdefault(packet_type, {})[outcome] = count
         return nested
 
     def _nested_http_totals(self) -> dict[str, dict[str, int]]:
+        """Return a nested dict of HTTP request totals by method and status code."""
         nested: dict[str, dict[str, int]] = {}
         for (method, status), count in sorted(self._http_totals.items()):
             nested.setdefault(method, {})[status] = count
         return nested
 
     def _nested_http_durations(self) -> dict[str, dict[str, dict[str, float | int]]]:
+        """Return a nested dict of HTTP request duration summaries by method and status code."""
         nested: dict[str, dict[str, dict[str, float | int]]] = {}
         for (method, status), summary in sorted(self._http_duration_seconds.items()):
             nested.setdefault(method, {})[status] = summary.to_dict()
@@ -434,7 +344,8 @@ class Metrics:
 
     @staticmethod
     def _number(value: float) -> int | float:
+        """Return an int if the value is an integer, otherwise return the float."""
         return int(value) if value.is_integer() else value
 
 
-NULL_METRICS = Metrics(enabled=False)
+NULL_METRICS = Metrics()

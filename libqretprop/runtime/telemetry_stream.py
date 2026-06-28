@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from libqretprop.runtime.metrics import NULL_METRICS, Metrics
-from libqretprop.runtime.ws_fanout import BoundedWebSocketFanout, record_telemetry_drop
+from libqretprop.runtime.ws_fanout import BoundedWebSocketFanout
 
 
 if TYPE_CHECKING:
@@ -25,7 +25,6 @@ class TelemetryStreamRuntime(BoundedWebSocketFanout):
             stream_metric_label=STREAM_METRIC_LABEL,
             max_queue=max_queue,
             metrics=metrics or NULL_METRICS,
-            drop_recorder=record_telemetry_drop,
         )
 
     def serialize_batch(self, batch: TelemetryBatch) -> dict[str, Any]:

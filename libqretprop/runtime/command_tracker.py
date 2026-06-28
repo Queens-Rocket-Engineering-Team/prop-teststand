@@ -7,12 +7,10 @@ from typing import TYPE_CHECKING
 from libqretprop.runtime.command_types import (
     ACK_EXPECTED_PACKET_TYPES,
     DEFAULT_RECENT_COMPLETED_LIMIT,
-    MAINTENANCE_PACKET_TYPES,
     OPERATOR_VISIBLE_PACKET_TYPES,
     CommandKey,
     CommandLifecycle,
     CommandRecord,
-    CommandSummary,
 )
 from libqretprop.runtime.metrics import NULL_METRICS, Metrics
 
@@ -33,15 +31,11 @@ class CommandTracker:
         recent_completed_limit: int = DEFAULT_RECENT_COMPLETED_LIMIT,
         metrics: Metrics | None = None,
     ) -> None:
-        if recent_completed_limit < 0:
-            raise ValueError("recent_completed_limit must be non-negative")
-
         self.metrics = metrics or NULL_METRICS
         self._next_command_id = 1
         self._pending_records: dict[int, CommandRecord] = {}
         self._pending: dict[CommandKey, int] = {}
         self._recent_completed: deque[CommandRecord] = deque(maxlen=recent_completed_limit)
-        self._summaries: dict[tuple[str, PacketType], CommandSummary] = {}
 
     @property
     def pending(self) -> tuple[CommandRecord, ...]:
@@ -50,13 +44,6 @@ class CommandTracker:
     @property
     def recent_completed(self) -> tuple[CommandRecord, ...]:
         return tuple(self._recent_completed)
-
-    def get_summary(
-        self,
-        connection_key: str,
-        packet_type: PacketType,
-    ) -> CommandSummary | None:
-        return self._summaries.get((connection_key, packet_type))
 
     def mark_sent(
         self,
@@ -87,7 +74,6 @@ class CommandTracker:
         )
 
         self._next_command_id += 1
-        self._mark_sent_summary(record)
         if record.ack_expected:
             self._replace_duplicate_pending(record)
             self._pending_records[record.command_id] = record
@@ -194,14 +180,12 @@ class CommandTracker:
             self._complete_record(record)
             failed.append(record)
 
-        self._remove_connection_summaries(connection_key)
         return failed
 
     def discard(self, command_id: int) -> CommandRecord | None:
         record = self._pending_records.pop(command_id, None)
         if record is not None:
             self._pending.pop(record.key, None)
-            self._decrement_summary_pending(record)
             return record
 
         for recent_record in tuple(self._recent_completed):
@@ -241,66 +225,12 @@ class CommandTracker:
         self._complete_record(existing_record)
 
     def _complete_record(self, record: CommandRecord) -> None:
-        self._update_completed_summary(record)
         if record.packet_type in OPERATOR_VISIBLE_PACKET_TYPES:
             self._recent_completed.append(record)
 
     @staticmethod
     def _timestamp(now: float | None) -> float:
         return time.monotonic() if now is None else now
-
-    def _mark_sent_summary(self, record: CommandRecord) -> None:
-        summary = self._get_summary_for_record(record)
-        if summary is None:
-            return
-
-        summary.device_name = record.device_name
-        summary.device_address = record.device_address
-        summary.last_sent_at = record.sent_at
-        if record.ack_expected:
-            summary.pending_count += 1
-
-    def _update_completed_summary(self, record: CommandRecord) -> None:
-        summary = self._get_summary_for_record(record)
-        if summary is None:
-            return
-
-        self._decrement_summary_pending(record)
-        if record.acked_at is not None:
-            summary.last_acked_at = record.acked_at
-        if record.nacked_at is not None:
-            summary.last_nacked_at = record.nacked_at
-            summary.last_error_code = record.nack_error_code
-        if record.timed_out_at is not None:
-            summary.last_timed_out_at = record.timed_out_at
-
-    def _get_summary_for_record(self, record: CommandRecord) -> CommandSummary | None:
-        if record.packet_type not in MAINTENANCE_PACKET_TYPES:
-            return None
-
-        key = (record.connection_key, record.packet_type)
-        summary = self._summaries.get(key)
-        if summary is None:
-            summary = CommandSummary(
-                connection_key=record.connection_key,
-                device_name=record.device_name,
-                device_address=record.device_address,
-                packet_type=record.packet_type,
-            )
-            self._summaries[key] = summary
-        return summary
-
-    def _decrement_summary_pending(self, record: CommandRecord) -> None:
-        summary = self._summaries.get((record.connection_key, record.packet_type))
-        if summary is None:
-            return
-
-        summary.pending_count = max(0, summary.pending_count - 1)
-
-    def _remove_connection_summaries(self, connection_key: str) -> None:
-        for summary_key in list(self._summaries):
-            if summary_key[0] == connection_key:
-                self._summaries.pop(summary_key)
 
     @staticmethod
     def _ack_expected(packet_type: PacketType) -> bool:

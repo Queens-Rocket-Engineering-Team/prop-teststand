@@ -40,17 +40,11 @@ class LogStream(BoundedWebSocketFanout):
         )
         self._ingress: Queue[JsonMessage] = Queue(maxsize=max_ingress_queue)
         self._drain_batch_size = drain_batch_size
-        self._dropped_ingress_records = 0
-
-    @property
-    def dropped_ingress_records(self) -> int:
-        return self._dropped_ingress_records
 
     def enqueue(self, message: JsonMessage) -> None:
         try:
             self._ingress.put_nowait(message)
         except Full:
-            self._dropped_ingress_records += 1
             with contextlib.suppress(Empty):
                 self._ingress.get_nowait()
             with contextlib.suppress(Full):

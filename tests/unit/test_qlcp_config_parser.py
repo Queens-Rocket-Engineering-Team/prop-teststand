@@ -1,13 +1,6 @@
 import pytest
 
-from libqretprop.qlcp.config_models import (
-    CurrentSensorConfig,
-    LoadCellConfig,
-    PressureTransducerConfig,
-    ResistanceSensorConfig,
-    SensorConfig,
-    ThermocoupleConfig,
-)
+from libqretprop.qlcp.config_models import SensorConfig
 from libqretprop.qlcp.config_parser import QLCPConfigError, parse_config
 from libqretprop.qlcp.enums import ControlState, Unit
 
@@ -85,61 +78,49 @@ def test_parse_config_valid_full() -> None:
     assert result.device_type == "Sensor Monitor"
 
     assert len(result.sensors_by_id) == 6
-    assert isinstance(result.sensors_by_id[0], ThermocoupleConfig)
-    assert result.sensors_by_id[0].name == "TC1"
-    assert result.sensors_by_id[0].type == "thermocouple"
-    assert result.sensors_by_id[0].sensor_index == "TC1"
-    assert result.sensors_by_id[0].thermo_type == "K"
-    assert result.sensors_by_id[0].unit == Unit.CELSIUS
 
-    assert isinstance(result.sensors_by_id[1], PressureTransducerConfig)
-    assert result.sensors_by_id[1].name == "PT1"
-    assert result.sensors_by_id[1].type == "pressure_transducer"
-    assert result.sensors_by_id[1].sensor_index == "PT1"
-    assert result.sensors_by_id[1].resistor_ohms == 350
-    assert result.sensors_by_id[1].max_pressure_psi == 500
-    assert result.sensors_by_id[1].unit == Unit.PSI
+    s = result.sensors_by_id[0]
+    assert isinstance(s, SensorConfig)
+    assert s.name == "TC1"
+    assert s.type == "thermocouple"
+    assert s.unit == Unit.CELSIUS
 
-    assert isinstance(result.sensors_by_id[2], PressureTransducerConfig)
-    assert result.sensors_by_id[2].name == "PT2"
-    assert result.sensors_by_id[2].type == "pressure_transducer"
-    assert result.sensors_by_id[2].sensor_index == "PT2"
-    assert result.sensors_by_id[2].resistor_ohms == 400
-    assert result.sensors_by_id[2].max_pressure_psi == 600
-    assert result.sensors_by_id[2].unit == Unit.PSI
+    s = result.sensors_by_id[1]
+    assert isinstance(s, SensorConfig)
+    assert s.name == "PT1"
+    assert s.type == "pressure_transducer"
+    assert s.unit == Unit.PSI
 
-    assert isinstance(result.sensors_by_id[3], LoadCellConfig)
-    assert result.sensors_by_id[3].name == "LC1"
-    assert result.sensors_by_id[3].type == "load_cell"
-    assert result.sensors_by_id[3].sensor_index == "LC1"
-    assert result.sensors_by_id[3].load_rating_n == 1000
-    assert result.sensors_by_id[3].full_scale_voltage == pytest.approx(0.01)
-    assert result.sensors_by_id[3].unit == Unit.NEWTONS
+    s = result.sensors_by_id[2]
+    assert isinstance(s, SensorConfig)
+    assert s.name == "PT2"
+    assert s.type == "pressure_transducer"
+    assert s.unit == Unit.PSI
 
-    assert isinstance(result.sensors_by_id[4], ResistanceSensorConfig)
-    assert result.sensors_by_id[4].name == "RS1"
-    assert result.sensors_by_id[4].type == "resistance_sensor"
-    assert result.sensors_by_id[4].sensor_index == "RS1"
-    assert result.sensors_by_id[4].injected_current_ua == 1000
-    assert result.sensors_by_id[4].r_short == 50
-    assert result.sensors_by_id[4].unit == Unit.OHMS
+    s = result.sensors_by_id[3]
+    assert isinstance(s, SensorConfig)
+    assert s.name == "LC1"
+    assert s.type == "load_cell"
+    assert s.unit == Unit.NEWTONS
 
-    assert isinstance(result.sensors_by_id[5], CurrentSensorConfig)
-    assert result.sensors_by_id[5].name == "CS1"
-    assert result.sensors_by_id[5].type == "current_sensor"
-    assert result.sensors_by_id[5].sensor_index == "CS1"
-    assert result.sensors_by_id[5].shunt_resistor_ohms == 0.1
-    assert result.sensors_by_id[5].csa_gain == 50
-    assert result.sensors_by_id[5].unit == Unit.AMPS
+    s = result.sensors_by_id[4]
+    assert isinstance(s, SensorConfig)
+    assert s.name == "RS1"
+    assert s.type == "resistance_sensor"
+    assert s.unit == Unit.OHMS
+
+    s = result.sensors_by_id[5]
+    assert isinstance(s, SensorConfig)
+    assert s.name == "CS1"
+    assert s.type == "current_sensor"
+    assert s.unit == Unit.AMPS
 
     assert len(result.controls_by_id) == 2
     assert result.controls_by_id[0].name == "VALVE1"
     assert result.controls_by_id[0].default == ControlState.OPEN
-    assert result.controls_by_id[0].control_index == "VALVE1"
     assert result.controls_by_id[0].control_type == "solenoid"
     assert result.controls_by_id[1].name == "VALVE2"
     assert result.controls_by_id[1].default == ControlState.CLOSED
-    assert result.controls_by_id[1].control_index == "VALVE2"
     assert result.controls_by_id[1].control_type == "solenoid"
 
 
@@ -173,20 +154,18 @@ def test_parse_config_sensors_only() -> None:
     assert result.device_type == "Sensor Monitor"
 
     assert len(result.sensors_by_id) == 2
-    assert isinstance(result.sensors_by_id[0], ThermocoupleConfig)
-    assert result.sensors_by_id[0].name == "TC1"
-    assert result.sensors_by_id[0].type == "thermocouple"
-    assert result.sensors_by_id[0].sensor_index == "TC1"
-    assert result.sensors_by_id[0].thermo_type == "K"
-    assert result.sensors_by_id[0].unit == Unit.CELSIUS
 
-    assert isinstance(result.sensors_by_id[1], PressureTransducerConfig)
-    assert result.sensors_by_id[1].name == "PT1"
-    assert result.sensors_by_id[1].type == "pressure_transducer"
-    assert result.sensors_by_id[1].sensor_index == "PT1"
-    assert result.sensors_by_id[1].resistor_ohms == 350
-    assert result.sensors_by_id[1].max_pressure_psi == 500
-    assert result.sensors_by_id[1].unit == Unit.PSI
+    s = result.sensors_by_id[0]
+    assert isinstance(s, SensorConfig)
+    assert s.name == "TC1"
+    assert s.type == "thermocouple"
+    assert s.unit == Unit.CELSIUS
+
+    s = result.sensors_by_id[1]
+    assert isinstance(s, SensorConfig)
+    assert s.name == "PT1"
+    assert s.type == "pressure_transducer"
+    assert s.unit == Unit.PSI
 
     assert len(result.controls_by_id) == 0
 
@@ -211,7 +190,6 @@ def test_parse_config_controls_only() -> None:
     assert len(result.controls_by_id) == 1
     assert result.controls_by_id[0].name == "VALVE1"
     assert result.controls_by_id[0].default == ControlState.OPEN
-    assert result.controls_by_id[0].control_index == "PT202"
     assert result.controls_by_id[0].control_type == "solenoid"
 
 TETS_CONFIG_DUPLICATE_SENSOR_NAMES = {
@@ -269,7 +247,6 @@ def test_parse_config_unknown_sensor_falls_back_to_generic_config() -> None:
     assert type(result.sensors_by_id[0]) is SensorConfig
     assert result.sensors_by_id[0].name == "FS1"
     assert result.sensors_by_id[0].type == "future_sensor"
-    assert result.sensors_by_id[0].sensor_index == "FS1"
     assert result.sensors_by_id[0].unit == Unit.UNITLESS
 
 
@@ -292,46 +269,9 @@ def test_parse_config_invalid_unit_raises() -> None:
         parse_config(config)
 
 
-def test_parse_config_numeric_sensor_index_raises() -> None:
-    config = {
-        "device_name": "TEST-DEVICE-7",
-        "device_type": "Sensor Monitor",
-        "sensor_info": {
-            "thermocouple": {
-                "TC1": {
-                    "sensor_index": 1,
-                    "type": "K",
-                    "unit": "C",
-                },
-            },
-        },
-    }
-
-    with pytest.raises(QLCPConfigError, match="thermocouple sensor 'TC1' field must be a string: sensor_index"):
-        parse_config(config)
-
-
-def test_parse_config_numeric_control_index_raises() -> None:
-    config = {
-        "device_name": "TEST-DEVICE-8",
-        "device_type": "Sensor Monitor",
-        "controls": {
-            "VALVE1": {
-                "control_index": 1,
-                "type": "solenoid",
-                "default_state": "CLOSED",
-            },
-        },
-    }
-
-    with pytest.raises(QLCPConfigError, match="control 'VALVE1' field must be a string: control_index"):
-        parse_config(config)
-
-
-@pytest.mark.parametrize("missing_field", ["control_index", "type", "default_state"])
+@pytest.mark.parametrize("missing_field", ["type", "default_state"])
 def test_parse_config_missing_control_field_raises(missing_field: str) -> None:
     control_details = {
-        "control_index": "AV1",
         "type": "solenoid",
         "default_state": "CLOSED",
     }
@@ -350,10 +290,9 @@ def test_parse_config_missing_control_field_raises(missing_field: str) -> None:
         parse_config(config)
 
 
-@pytest.mark.parametrize("missing_field", ["sensor_index", "type", "unit"])
-def test_parse_config_missing_thermocouple_field_raises(missing_field: str) -> None:
+@pytest.mark.parametrize("missing_field", ["unit"])
+def test_parse_config_missing_sensor_field_raises(missing_field: str) -> None:
     sensor_details = {
-        "sensor_index": "TC1",
         "type": "K",
         "unit": "C",
     }

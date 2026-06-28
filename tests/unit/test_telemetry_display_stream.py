@@ -9,6 +9,7 @@ import pytest
 from fastapi import WebSocket
 from tsdownsample import M4Downsampler
 
+from libqretprop.runtime.metrics import Metrics
 from libqretprop.runtime.telemetry_display_stream import (
     DISPLAY_POINTS_PER_BUCKET,
     DISPLAY_TARGET_HZ,
@@ -91,6 +92,17 @@ async def _connect(stream: TelemetryDisplayStream) -> FakeWebSocket:
     return ws
 
 
+def _make_stream(
+    *,
+    target_hz: float = DISPLAY_TARGET_HZ,
+    max_queue: int = 128,
+    metrics: Metrics | None = None,
+) -> TelemetryDisplayStream:
+    stream = TelemetryDisplayStream(target_hz=target_hz, max_queue=max_queue, metrics=metrics)
+    stream._downsampler = cast(Any, _IdentityDownsampler())
+    return stream
+
+
 # ---------------------------------------------------------------------------
 # _SensorBuffer
 # ---------------------------------------------------------------------------
@@ -98,7 +110,7 @@ async def _connect(stream: TelemetryDisplayStream) -> FakeWebSocket:
 
 def test_sensor_buffer_empty_returns_no_points() -> None:
     buf = _SensorBuffer(0, "PT101", "PSI", "pressure_transducer")
-    assert buf.to_points(_IdentityDownsampler(), 8) == []
+    assert buf.to_points(cast(M4Downsampler, _IdentityDownsampler()), 8) == []
 
 
 def test_sensor_buffer_collects_samples() -> None:
@@ -114,7 +126,7 @@ def test_sensor_buffer_to_points_uses_downsampler() -> None:
     for i in range(5):
         buf.add(float(i), float(i * 10))
 
-    points = buf.to_points(_IdentityDownsampler(), 3)
+    points = buf.to_points(cast(M4Downsampler, _IdentityDownsampler()), 3)
 
     assert points == [{"t": 0.0, "v": 0.0}, {"t": 1.0, "v": 10.0}, {"t": 2.0, "v": 20.0}]
 
@@ -139,14 +151,14 @@ def test_sensor_buffer_to_points_with_m4() -> None:
 
 
 def test_publish_batch_no_clients_is_noop() -> None:
-    stream = TelemetryDisplayStream(downsampler=_IdentityDownsampler())
+    stream = _make_stream()
     stream.publish_batch(_make_batch(timestamp_s=1.0))
     assert stream._buckets == {}
 
 
 def test_publish_batch_creates_bucket_for_device() -> None:
     async def run() -> None:
-        stream = TelemetryDisplayStream(downsampler=_IdentityDownsampler())
+        stream = _make_stream()
         await _connect(stream)
         stream.publish_batch(_make_batch(timestamp_s=1.0))
         assert "MockDevice" in stream._buckets
@@ -156,7 +168,7 @@ def test_publish_batch_creates_bucket_for_device() -> None:
 
 def test_publish_batch_accumulates_within_bucket() -> None:
     async def run() -> None:
-        stream = TelemetryDisplayStream(target_hz=30.0, downsampler=_IdentityDownsampler())
+        stream = _make_stream(target_hz=30.0)
         ws = await _connect(stream)
         interval = 1.0 / 30.0
 
@@ -172,7 +184,7 @@ def test_publish_batch_accumulates_within_bucket() -> None:
 
 def test_publish_batch_emits_on_boundary_crossing() -> None:
     async def run() -> None:
-        stream = TelemetryDisplayStream(target_hz=30.0, downsampler=_IdentityDownsampler())
+        stream = _make_stream(target_hz=30.0)
         ws = await _connect(stream)
         interval = 1.0 / 30.0
 
@@ -191,7 +203,7 @@ def test_publish_batch_emits_on_boundary_crossing() -> None:
 
 def test_publish_batch_broadcasts_to_all_clients() -> None:
     async def run() -> None:
-        stream = TelemetryDisplayStream(target_hz=30.0, downsampler=_IdentityDownsampler())
+        stream = _make_stream(target_hz=30.0)
         ws1 = await _connect(stream)
         ws2 = await _connect(stream)
         interval = 1.0 / 30.0
@@ -207,7 +219,8 @@ def test_publish_batch_broadcasts_to_all_clients() -> None:
 
 def test_full_queue_increments_dropped_batches() -> None:
     async def run() -> None:
-        stream = TelemetryDisplayStream(target_hz=30.0, downsampler=_IdentityDownsampler(), max_queue=1)
+        metrics = Metrics()
+        stream = _make_stream(target_hz=30.0, max_queue=1, metrics=metrics)
         await _connect(stream)
         interval = 1.0 / 30.0
 
@@ -215,14 +228,16 @@ def test_full_queue_increments_dropped_batches() -> None:
         stream.publish_batch(_make_batch(timestamp_s=interval * 1.5))  # emits bucket 0
         stream.publish_batch(_make_batch(timestamp_s=interval * 2.5))  # emits bucket 1, queue full
 
-        assert stream.dropped_batches == 1
+        d = cast(dict[str, Any], metrics.to_dict())
+        dropped = d["telemetry"]["streams"]["dropped_batches_total"]
+        assert dropped["telemetry_display"] == 1
 
     asyncio.run(run())
 
 
 def test_buckets_are_independent_per_device() -> None:
     async def run() -> None:
-        stream = TelemetryDisplayStream(target_hz=30.0, downsampler=_IdentityDownsampler())
+        stream = _make_stream(target_hz=30.0)
         ws = await _connect(stream)
         interval = 1.0 / 30.0
 
@@ -245,7 +260,7 @@ def test_buckets_are_independent_per_device() -> None:
 
 def test_serialize_bucket_wire_format() -> None:
     async def run() -> None:
-        stream = TelemetryDisplayStream(target_hz=30.0, downsampler=_IdentityDownsampler())
+        stream = _make_stream(target_hz=30.0)
         ws = await _connect(stream)
         interval = 1.0 / 30.0
 
@@ -276,7 +291,7 @@ def test_serialize_bucket_wire_format() -> None:
 
 def test_run_flushes_trailing_bucket() -> None:
     async def run() -> None:
-        stream = TelemetryDisplayStream(target_hz=30.0, downsampler=_IdentityDownsampler())
+        stream = _make_stream(target_hz=30.0)
         ws = await _connect(stream)
 
         stream.publish_batch(_make_batch(timestamp_s=1.0))
@@ -296,7 +311,7 @@ def test_run_flushes_trailing_bucket() -> None:
 
 def test_run_skips_flush_when_no_clients() -> None:
     async def run() -> None:
-        stream = TelemetryDisplayStream(target_hz=30.0, downsampler=_IdentityDownsampler())
+        stream = _make_stream(target_hz=30.0)
         ws = await _connect(stream)
 
         stream.publish_batch(_make_batch(timestamp_s=1.0))
@@ -335,7 +350,7 @@ def test_connect_client_accepts_websocket() -> None:
 
 def test_disconnect_last_client_clears_buckets() -> None:
     async def run() -> None:
-        stream = TelemetryDisplayStream(target_hz=30.0, downsampler=_IdentityDownsampler())
+        stream = _make_stream(target_hz=30.0)
         ws = await _connect(stream)
 
         stream.publish_batch(_make_batch(timestamp_s=1.0))
@@ -351,7 +366,7 @@ def test_disconnect_last_client_clears_buckets() -> None:
 
 def test_disconnect_non_last_client_preserves_buckets() -> None:
     async def run() -> None:
-        stream = TelemetryDisplayStream(target_hz=30.0, downsampler=_IdentityDownsampler())
+        stream = _make_stream(target_hz=30.0)
         ws1 = await _connect(stream)
         await _connect(stream)
 
@@ -366,7 +381,7 @@ def test_disconnect_non_last_client_preserves_buckets() -> None:
 
 def test_handle_client_delivers_emitted_message() -> None:
     async def run() -> None:
-        stream = TelemetryDisplayStream(target_hz=30.0, downsampler=_IdentityDownsampler())
+        stream = _make_stream(target_hz=30.0)
         ws = FakeWebSocket()
         task = asyncio.create_task(stream.handle_client(_as_ws(ws)))
         await asyncio.sleep(0)
@@ -387,7 +402,7 @@ def test_handle_client_delivers_emitted_message() -> None:
 
 def test_handle_client_cleans_up_on_send_failure() -> None:
     async def run() -> None:
-        stream = TelemetryDisplayStream(target_hz=30.0, downsampler=_IdentityDownsampler())
+        stream = _make_stream(target_hz=30.0)
         ws = FakeWebSocket(fail_after=0)
         task = asyncio.create_task(stream.handle_client(_as_ws(ws)))
         await asyncio.sleep(0)

@@ -54,7 +54,6 @@ def test_log_stream_ingress_queue_keeps_newest_message_when_full() -> None:
     stream.enqueue({"level": "INFO", "data": "old", "timestamp_ws": "00:00:00"})
     stream.enqueue({"level": "INFO", "data": "new", "timestamp_ws": "00:00:01"})
 
-    assert stream.dropped_ingress_records == 1
     assert stream._next_batch()[0]["data"] == "new"
 
 
