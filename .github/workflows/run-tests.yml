@@ -1,4 +1,4 @@
-name: Test with Pytest and uv
+name: Run pytest
 
 on:
   push:
