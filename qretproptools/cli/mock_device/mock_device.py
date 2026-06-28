@@ -55,7 +55,7 @@ from libqretprop.qlcp.packets import (
 )
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("MockDevice")
 
 # Default device config: 2 thermocouples (ids 0-1, CELSIUS) + 2 pressure transducers (ids 2-3, PSI).
 # Sensor ordering in sensor_info determines the ids assigned by parse_config.
@@ -749,7 +749,7 @@ async def async_main() -> None:
             datefmt="%H:%M:%S",
         )
     )
-    root = logging.getLogger("qretproptools")
+    root = logging.getLogger("MockDevice")
     root.addHandler(handler)
     root.setLevel(logging.DEBUG)
 
