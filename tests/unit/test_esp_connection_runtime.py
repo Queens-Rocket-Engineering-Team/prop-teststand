@@ -392,6 +392,115 @@ def test_runtime_command_visibility_policy_for_status_request_and_estop() -> Non
     asyncio.run(run())
 
 
+def test_status_packet_with_no_controls_does_not_error(caplog: Any) -> None:
+    import logging
+
+    runtime, _tracker, state, stream = _make_runtime()
+    device = _make_session(runtime)
+    runtime.devices[device.address] = device
+    state.register_device(device)
+
+    empty_status = StatusPacket(
+        sequence=1,
+        timestamp=0,
+        status=DeviceStatus.ACTIVE,
+        control_states=[],  # sensors-only board
+    )
+
+    with caplog.at_level(logging.ERROR):
+        asyncio.run(runtime.handle_packet(device, empty_status))
+
+    # Must not log an "unexpected packet type" error.
+    assert not any(
+        "unexpected packet type" in record.message.lower() for record in caplog.records
+    ), f"Unexpected error log: {[r.message for r in caplog.records]}"
+
+
+def test_remove_device_cleanup_before_mark_disconnected() -> None:
+    close_called_at: list[str] = []
+
+    runtime, _tracker, state, stream = _make_runtime()
+    device = _make_session(runtime)
+    runtime.devices[device.address] = device
+    state.register_device(device)
+
+    # Patch cleanup_device and mark_disconnected to record call order.
+    original_cleanup = runtime.cleanup_device
+    original_mark = runtime.system_state.mark_disconnected
+
+    def recording_cleanup(session: Any, *, reason: str = "connection_cleanup") -> None:
+        close_called_at.append("cleanup")
+        original_cleanup(session, reason=reason)
+
+    def recording_mark(session: Any) -> Any:
+        close_called_at.append("mark_disconnected")
+        return original_mark(session)
+
+    runtime.cleanup_device = recording_cleanup  # type: ignore[assignment]
+    runtime.system_state.mark_disconnected = recording_mark  # type: ignore[assignment]
+
+    runtime.remove_device(device)
+
+    assert close_called_at == ["cleanup", "mark_disconnected"], (
+        f"Wrong teardown order: {close_called_at}"
+    )
+
+
+def test_close_all_cleanup_before_mark_disconnected() -> None:
+    close_called_at: list[str] = []
+
+    runtime, _tracker, state, stream = _make_runtime()
+    device = _make_session(runtime)
+    runtime.devices[device.address] = device
+    state.register_device(device)
+
+    original_cleanup = runtime.cleanup_device
+    original_mark = runtime.system_state.mark_disconnected
+
+    def recording_cleanup(session: Any, *, reason: str = "connection_cleanup") -> None:
+        close_called_at.append("cleanup")
+        original_cleanup(session, reason=reason)
+
+    def recording_mark(session: Any) -> Any:
+        close_called_at.append("mark_disconnected")
+        return original_mark(session)
+
+    runtime.cleanup_device = recording_cleanup  # type: ignore[assignment]
+    runtime.system_state.mark_disconnected = recording_mark  # type: ignore[assignment]
+
+    runtime.close_all()
+
+    assert close_called_at == ["cleanup", "mark_disconnected"], (
+        f"Wrong teardown order in close_all: {close_called_at}"
+    )
+    assert runtime.devices == {}, "Devices registry was not cleared"
+
+
+def test_disconnection_metric_recorded_on_remove_device() -> None:
+    from libqretprop.runtime.metrics import Metrics
+
+    tracker = CommandTracker()
+    state = SystemState(command_tracker=tracker)
+    stream = FakeStateStream()
+    metrics = Metrics()
+    runtime = ESPConnectionRuntime(
+        command_tracker=tracker,
+        system_state=state,
+        state_stream=stream,
+        metrics=metrics,
+    )
+    device = _make_session(runtime)
+    runtime.devices[device.address] = device
+    state.register_device(device)
+
+    runtime.remove_device(device)
+
+    metrics_dict = metrics.to_dict()
+    device_lifecycle = metrics_dict["device_lifecycle"]
+    assert isinstance(device_lifecycle, dict)
+    assert device_lifecycle["disconnections_total"] == {"connection_cleanup": 1}
+
+
 def test_session_monitor_routes_packets_to_runtime() -> None:
     async def run() -> None:
         packet_seen = asyncio.Event()

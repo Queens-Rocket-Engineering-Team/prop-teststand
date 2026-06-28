@@ -174,7 +174,7 @@ class CameraRuntime:
     def _require_camera(self, ip: str) -> Camera:
         camera = self._registry.get(ip)
         if camera is None:
-            raise Exception("Camera does not exist")
+            raise KeyError(f"Camera {ip} does not exist")
         return camera
 
     def _record_path_for(self, camera: Camera) -> str:
@@ -216,9 +216,9 @@ class CameraRuntime:
 
         try:
             camera = self._require_camera(ip)
-        except Exception as e:
-            logger.error(f"Failed to {action} recording for camera at {ip}: {e}")
-            raise Exception(f"Camera {ip} does not exist") from e
+        except KeyError:
+            logger.error(f"Failed to {action} recording for camera at {ip}: camera not registered")
+            raise
 
         # PATCH media server /v3/config/paths/patch/{ip} with {"record": true|false}
         if self._mediamtx_configured():
@@ -228,14 +228,16 @@ class CameraRuntime:
                 response = await self._mediamtx.set_recording(http_client, ip, record=recording)
 
                 if response.status != 200:
-                    raise Exception(f"Media server API returned status {response.status}")
+                    raise RuntimeError(f"Media server API returned status {response.status}")
 
                 camera.set_recording(recording)
             except asyncio.TimeoutError:
                 logger.error(f"Media server API request to {action} recording timed out for camera at {ip}")
-                raise Exception("Media server API request timed out")
+                raise RuntimeError("Media server API request timed out")
+            except RuntimeError:
+                raise
             except Exception as e:
                 logger.error(f"Failed to {action} recording for camera at {ip}: {e}")
-                raise Exception(f"Failed to {action} recording for camera at {ip}: {e}")
+                raise RuntimeError(f"Failed to {action} recording for camera at {ip}: {e}") from e
         else:
             logger.error(f"Failed to {action} recording for camera at {ip}: Media server is not configured")

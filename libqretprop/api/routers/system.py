@@ -4,24 +4,15 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from libqretprop.api.deps import get_runtime
-from libqretprop.api.security import auth_user
 from libqretprop.runtime.services import RuntimeServices
 
 
 router = APIRouter(tags=["system"])
 
 
-@router.get("/")  # Define a GET endpoint at the root “/”
+@router.get("/")
 async def read_root() -> dict:
-    return {"message": "Welcome to the Prop Control API! Authenticate through the /auth endpoint."}
-
-
-@router.get("/auth")  # Define a GET endpoint at “/auth”
-async def read_auth(user: Annotated[str, Depends(auth_user)]) -> dict:
-    if user == "noah":
-        return {"message": "Welcome back Mr Stark!"}
-
-    return {"message": f"Authenticated as, {user}!"}
+    return {"message": "Welcome to the Prop Control API!"}
 
 
 @router.get("/health")
@@ -48,7 +39,7 @@ class ConfigsResponse(BaseModel):
 async def get_device_configs(rt: Annotated[RuntimeServices, Depends(get_runtime)]) -> ConfigsResponse:
     configs: dict[str, dict] = {}
     for dev in rt.esp_runtime.get_registered_devices().values():
-        configs[getattr(dev, "name", getattr(dev, "id", "unknown"))] = dev.qlcp_config.raw_config
+        configs[dev.name] = dev.qlcp_config.raw_config
     return ConfigsResponse(count=len(configs), configs=configs)
 
 
@@ -57,4 +48,3 @@ async def get_status(rt: Annotated[RuntimeServices, Depends(get_runtime)]) -> No
     devices = rt.esp_runtime.get_registered_devices()
     for device in devices.values():
         await rt.esp_runtime.get_status(device)
-

@@ -1,7 +1,7 @@
 import logging
 from typing import Annotated, Literal, Union
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from libqretprop.api.deps import get_runtime
@@ -51,7 +51,6 @@ class AutoDiscoveryConfig(BaseModel):
 )
 async def send_device_command(
     cmd: CommandRequest,
-    bg_tasks: BackgroundTasks,
     rt: Annotated[RuntimeServices, Depends(get_runtime)],
 ) -> CommandResponse:
     logger.info(f"Command sent: {cmd.command!r}")
@@ -63,18 +62,18 @@ async def send_device_command(
         match cmd:
             case GetSingleCommand():
                 any_commands_sent = True
-                bg_tasks.add_task(rt.esp_runtime.get_single, device)
+                await rt.esp_runtime.get_single(device)
             case StopCommand():
                 any_commands_sent = True
-                bg_tasks.add_task(rt.esp_runtime.stop_streaming, device)
+                await rt.esp_runtime.stop_streaming(device)
             case StreamCommand(frequency_hz=freq):
                 any_commands_sent = True
-                bg_tasks.add_task(rt.esp_runtime.start_streaming, device, freq)
+                await rt.esp_runtime.start_streaming(device, freq)
             case ControlCommand(control_name=control_name, control_state=control_state):
                 if control_name.upper() not in device.controls:
                     continue
                 any_commands_sent = True
-                bg_tasks.add_task(rt.esp_runtime.set_control, device, control_name.upper(), control_state)
+                await rt.esp_runtime.set_control(device, control_name.upper(), control_state)
 
     if not any_commands_sent:
         raise HTTPException(400, "No valid target devices for the command")

@@ -5,14 +5,7 @@ import onvif
 
 
 class Camera:
-    """A top level class representing the configuration of a connected Camera device.
-
-    Parameters
-    ----------
-        address (str): The IP address of the camera.
-        port (int): The tcp port of the camera's ONVIF service.
-
-    """
+    """ONVIF connection and low-level services for a single camera device."""
     def __init__(self,
                  address: str,
                  port: int,

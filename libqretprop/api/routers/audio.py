@@ -12,12 +12,18 @@ router = APIRouter(tags=["audio"])
 
 @router.post("/v1/audio/start")
 def start(rt: Annotated[RuntimeServices, Depends(get_runtime)]) -> dict[str, str]:
-    return rt.audio_runtime.start()
+    try:
+        return rt.audio_runtime.start()
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
 
 
 @router.post("/v1/audio/stop")
 def stop(rt: Annotated[RuntimeServices, Depends(get_runtime)]) -> dict[str, str | None]:
-    return rt.audio_runtime.stop()
+    try:
+        return rt.audio_runtime.stop()
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
 
 
 @router.get("/v1/audio/files")

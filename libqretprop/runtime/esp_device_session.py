@@ -144,7 +144,7 @@ class ESPDeviceSession:
                 try:
                     packet = await self.driver.read_packet()
                 except ESPDriverConnectionClosedError:
-                    logger.error(f"Device {self.name} disconnected.")
+                    logger.warning(f"Device {self.name} disconnected.")
                     runtime.remove_device(self)
                     break
 
@@ -159,7 +159,7 @@ class ESPDeviceSession:
             logger.info(f"Stopped monitoring {self.name}")
             raise
         except Exception as e:
-            logger.error(f"Error receiving response from {self.name}: {e}")
+            logger.exception(f"Error receiving response from {self.name}: {e}")
             runtime.remove_device(self)
 
     async def heartbeat(self, runtime: ESPConnectionRuntime) -> None:

@@ -92,7 +92,7 @@ class ESPConnectionRuntime:
         try:
             packet = await driver.read_packet()
         except ESPDriverConnectionClosedError:
-            logger.error(f"Device {address} disconnected during config.")
+            logger.warning(f"Device {address} disconnected during config.")
             client_socket.close()
             return None
 
@@ -116,7 +116,7 @@ class ESPConnectionRuntime:
                 packet.sequence,
             )
         except Exception as e:
-            logger.error(f"Failed to register device from {address}: {e}. Closing connection.")
+            logger.exception(f"Failed to register device from {address}: {e}. Closing connection.")
             client_socket.close()
             return None
 
@@ -138,7 +138,7 @@ class ESPConnectionRuntime:
 
         old_session = self.devices.get(address)
         if old_session is not None:
-            logger.error(
+            logger.warning(
                 f"Device {address} attempted to connect and is already registered. Closing old connection.",
             )
             self._disconnect_registered_device(old_session, reason="duplicate_address")
@@ -178,17 +178,15 @@ class ESPConnectionRuntime:
         ]
 
         for session in matching_sessions:
-            logger.error(
+            logger.warning(
                 f"Device {session.name} reconnected from a new address. Closing old connection at {session.address}.",
             )
             self._disconnect_registered_device(session, reason="reconnected_name")
 
     def close_all(self) -> None:
         for session in list(self.devices.values()):
-            self._publish_state_event(self.system_state.mark_disconnected(session))
-            self.cleanup_device(session, reason="server_shutdown")
+            self._teardown_session(session, reason="server_shutdown")
             self.metrics.record_device_disconnection("server_shutdown", device=session.name)
-
         self.devices.clear()
         logger.info("Closed all device sockets and cleared registry.")
 
@@ -365,10 +363,7 @@ class ESPConnectionRuntime:
 
     def handle_status(self, session: ESPDeviceSession, packet: StatusPacket) -> None:
         for control_state in packet.control_states:
-            control = session.qlcp_config.controls_by_id.get(control_state.id)
-            if control is None:
-                continue
-
+            # update_control_state handles unknown control IDs by returning None.
             self._publish_state_event(
                 self.system_state.update_control_state(session, control_state.id, control_state.state),
             )
@@ -406,10 +401,12 @@ class ESPConnectionRuntime:
             self.command_tracker.fail_connection(session.connection_key, reason=reason),
         )
 
-    def remove_device(self, session: ESPDeviceSession) -> None:
-        self.cleanup_device(session)
+    def _teardown_session(self, session: ESPDeviceSession, *, reason: str) -> None:
+        self.cleanup_device(session, reason=reason)
         self._publish_state_event(self.system_state.mark_disconnected(session))
 
+    def remove_device(self, session: ESPDeviceSession) -> None:
+        self._teardown_session(session, reason="connection_cleanup")
         if self.is_current_connection(session):
             del self.devices[session.address]
             self.metrics.record_device_disconnection("connection_cleanup", device=session.name)
@@ -418,8 +415,7 @@ class ESPConnectionRuntime:
             logger.debug(f"Ignored stale removal for {session.name} at {session.address}")
 
     def _disconnect_registered_device(self, session: ESPDeviceSession, *, reason: str) -> None:
-        self.cleanup_device(session)
-        self._publish_state_event(self.system_state.mark_disconnected(session))
+        self._teardown_session(session, reason=reason)
         removed = self.devices.pop(session.address, None)
         if removed is not None:
             self.metrics.record_device_disconnection(reason, device=session.name)
@@ -434,7 +430,7 @@ class ESPConnectionRuntime:
                 logger.error(
                     f"Unexpected DATA packet received over TCP from {session.name}. This should be sent over UDP. Ignoring.",
                 )
-            case StatusPacket(control_states=control_states) if control_states:
+            case StatusPacket():
                 self.handle_status(session, packet)
             case AckPacket():
                 self.handle_ack(session, packet)
