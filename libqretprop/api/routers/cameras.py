@@ -81,8 +81,10 @@ async def start_camera_recording(
     logger.info(f"User sent camera recording start command to {ip}")
     try:
         await rt.camera_runtime.start_camera_recording(ip)
-    except Exception as e:
-        raise HTTPException(500, f"Failed to start recording for camera at {ip}") from e
+    except KeyError as e:
+        raise HTTPException(404, str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(500, str(e)) from e
     return CommandResponse(
         status="sent",
         message=f"User sent camera recording start command to {ip}",
@@ -97,8 +99,10 @@ async def stop_camera_recording(
     logger.info(f"User sent camera recording stop command to {ip}")
     try:
         await rt.camera_runtime.stop_camera_recording(ip)
-    except Exception as e:
-        raise HTTPException(500, f"Failed to stop recording for camera at {ip}") from e
+    except KeyError as e:
+        raise HTTPException(404, str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(500, str(e)) from e
     return CommandResponse(
         status="sent",
         message=f"User sent camera recording stop command to {ip}",

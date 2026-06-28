@@ -25,7 +25,7 @@ class AudioRuntime:
     def start(self) -> dict[str, str]:
         with self._lock:
             if self._mumble is not None or self._stopping:
-                return {"error": "already recording"}
+                raise RuntimeError("already recording")
 
             file_name = f"mumble_recording_{int(time.time())}"
             temp_recording_dir = Path(self._config["temp_recording_dir"]).resolve()
@@ -66,7 +66,7 @@ class AudioRuntime:
     def stop(self) -> dict[str, str | None]:
         with self._lock:
             if self._mumble is None or self._wav is None:
-                return {"error": "not recording"}
+                raise RuntimeError("not recording")
 
             mumble = self._mumble
             wav = self._wav
