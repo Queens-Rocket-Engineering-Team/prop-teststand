@@ -38,9 +38,40 @@ def test_metrics_snapshot_records_live_telemetry_totals() -> None:
     assert aggregate["udp_bytes_total"] == 300
     assert "udp_bytes_per_s" not in aggregate
     assert aggregate["data_packets_total"] == 2
+    assert aggregate["data_packets_per_s"] == 0.2
     assert "batches_total" not in aggregate
     assert aggregate["readings_total"] == 5
     assert by_device == aggregate
+
+
+def test_metrics_snapshot_records_data_packet_throughput_by_device() -> None:
+    clock = Clock()
+    metrics = Metrics(time_fn=clock)
+
+    metrics.record_telemetry_data_packet("PANDA")
+    metrics.record_telemetry_data_packet("PANDA")
+    metrics.record_telemetry_data_packet("GOOSE")
+    clock.advance(0.5)
+    metrics.record_telemetry_data_packet("PANDA")
+
+    snapshot = _snapshot(metrics)
+    ingest = snapshot["telemetry"]["ingest"]
+
+    assert ingest["aggregate"]["data_packets_total"] == 4
+    assert ingest["aggregate"]["data_packets_per_s"] == 0.4
+    assert ingest["by_device"]["PANDA"]["data_packets_total"] == 3
+    assert ingest["by_device"]["PANDA"]["data_packets_per_s"] == 0.3
+    assert ingest["by_device"]["GOOSE"]["data_packets_total"] == 1
+    assert ingest["by_device"]["GOOSE"]["data_packets_per_s"] == 0.1
+
+    clock.advance(9.9)
+    snapshot = _snapshot(metrics)
+    ingest = snapshot["telemetry"]["ingest"]
+
+    assert ingest["aggregate"]["data_packets_total"] == 4
+    assert ingest["aggregate"]["data_packets_per_s"] == 0.1
+    assert ingest["by_device"]["PANDA"]["data_packets_per_s"] == 0.1
+    assert ingest["by_device"]["GOOSE"]["data_packets_per_s"] == 0.0
 
 
 def test_metrics_snapshot_records_errors_streams_and_events() -> None:
