@@ -63,6 +63,8 @@ class _LatencySummary:
 class Metrics:
     """In-process launch metrics exposed as JSON diagnostics."""
 
+    DATA_PACKET_RATE_WINDOW_S = 10.0
+
     def __init__(
         self,
         *,
@@ -83,6 +85,8 @@ class Metrics:
 
         self._telemetry_aggregate: dict[str, _RollingCounter] = {}
         self._telemetry_by_device: dict[str, dict[str, _RollingCounter]] = {}
+        self._telemetry_data_packet_times: deque[float] = deque()
+        self._telemetry_data_packet_times_by_device: dict[str, deque[float]] = {}
         self._telemetry_decode_errors: dict[str, _RollingCounter] = {}
         self._telemetry_dropped_batches: dict[str, _RollingCounter] = {}
 
@@ -109,9 +113,17 @@ class Metrics:
             },
             "telemetry": {
                 "ingest": {
-                    "aggregate": self._telemetry_metric_snapshot(self._telemetry_aggregate),
+                    "aggregate": self._telemetry_metric_snapshot(
+                        self._telemetry_aggregate,
+                        data_packet_times=self._telemetry_data_packet_times,
+                        now_s=now_s,
+                    ),
                     "by_device": {
-                        device: self._telemetry_metric_snapshot(counters)
+                        device: self._telemetry_metric_snapshot(
+                            counters,
+                            data_packet_times=self._telemetry_data_packet_times_by_device.get(device),
+                            now_s=now_s,
+                        )
                         for device, counters in sorted(self._telemetry_by_device.items())
                     },
                 },
@@ -155,8 +167,11 @@ class Metrics:
     def record_telemetry_data_packet(self, device: str) -> None:
         if not self._enabled:
             return
+        now_s = self._now()
         self._counter(self._telemetry_aggregate, "data_packets").add(1)
         self._device_counter(device, "data_packets").add(1)
+        self._record_data_packet_sample(self._telemetry_data_packet_times, now_s)
+        self._record_data_packet_sample(self._device_data_packet_times(device), now_s)
 
     def record_telemetry_readings(self, device: str, count: int) -> None:
         if not self._enabled or count <= 0:
@@ -327,6 +342,22 @@ class Metrics:
             self._telemetry_by_device[device] = counters
         return self._counter(counters, metric)
 
+    def _device_data_packet_times(self, device: str) -> deque[float]:
+        samples = self._telemetry_data_packet_times_by_device.get(device)
+        if samples is None:
+            samples = deque()
+            self._telemetry_data_packet_times_by_device[device] = samples
+        return samples
+
+    def _record_data_packet_sample(self, samples: deque[float], now_s: float) -> None:
+        samples.append(now_s)
+        self._prune_data_packet_samples(samples, now_s)
+
+    def _prune_data_packet_samples(self, samples: deque[float], now_s: float) -> None:
+        cutoff_s = now_s - self.DATA_PACKET_RATE_WINDOW_S
+        while samples and samples[0] <= cutoff_s:
+            samples.popleft()
+
     @staticmethod
     def _latency(
         summaries: dict[Any, _LatencySummary],
@@ -362,10 +393,18 @@ class Metrics:
     def _telemetry_metric_snapshot(
         self,
         counters: dict[str, _RollingCounter],
+        *,
+        data_packet_times: deque[float] | None = None,
+        now_s: float | None = None,
     ) -> dict[str, object]:
         snapshot: dict[str, object] = {}
         for metric, counter in sorted(counters.items()):
             snapshot[f"{metric}_total"] = self._number(counter.total)
+        if data_packet_times is not None and "data_packets" in counters:
+            if now_s is None:
+                now_s = self._now()
+            self._prune_data_packet_samples(data_packet_times, now_s)
+            snapshot["data_packets_per_s"] = len(data_packet_times) / self.DATA_PACKET_RATE_WINDOW_S
         return snapshot
 
     @staticmethod
