@@ -11,13 +11,13 @@ from libqretprop.runtime.audio_runtime import AudioRuntime
 from libqretprop.runtime.camera_runtime import CameraRuntime
 from libqretprop.runtime.command_tracker import CommandTracker
 from libqretprop.runtime.discovery import DiscoveryService
-from libqretprop.runtime.esp_connection_runtime import ESPConnectionListener, ESPConnectionRuntime
+from libqretprop.runtime.esp_connection_runtime import ESPConnectionRuntime
 from libqretprop.runtime.kasa_runtime import KasaRuntime
 from libqretprop.runtime.log_stream import LogStream
 from libqretprop.runtime.metrics import Metrics
 from libqretprop.runtime.state_stream import StateStream
 from libqretprop.runtime.telemetry_display_stream import TelemetryDisplayStream
-from libqretprop.runtime.telemetry_ingest import TelemetryIngest, TelemetryUDPListener
+from libqretprop.runtime.telemetry_ingest import TelemetryRuntime
 from libqretprop.runtime.telemetry_stream import TelemetryStreamRuntime
 from libqretprop.state import SystemState
 
@@ -45,9 +45,7 @@ class RuntimeServices:
     telemetry_stream: TelemetryStreamRuntime
     telemetry_display_stream: TelemetryDisplayStream
     esp_runtime: ESPConnectionRuntime
-    esp_connection_listener: ESPConnectionListener
-    telemetry_ingest: TelemetryIngest
-    telemetry_udp_listener: TelemetryUDPListener
+    telemetry_runtime: TelemetryRuntime
     audio_runtime: AudioRuntime
     camera_runtime: CameraRuntime
     kasa_runtime: KasaRuntime
@@ -60,8 +58,8 @@ class RuntimeServices:
         async context or after ``asyncio.get_event_loop()`` is valid).
         """
         if include_device_daemons:
-            self._tasks["tcp_listener"] = loop.create_task(self.esp_connection_listener.run())
-            self._tasks["udp_listener"] = loop.create_task(self.telemetry_udp_listener.run())
+            self._tasks["tcp_listener"] = loop.create_task(self.esp_runtime.run_tcp_listener())
+            self._tasks["udp_listener"] = loop.create_task(self.telemetry_runtime.run_udp_listener())
             self._tasks["telemetry_display_flush"] = loop.create_task(self.telemetry_display_stream.run())
             self._tasks["auto_discovery"] = loop.create_task(self.discovery_service.run())
         # Camera/Kasa startup is independent of ESP discovery.
@@ -74,11 +72,7 @@ class RuntimeServices:
     async def stop(self) -> None:
         """Cancel and await all runtime daemon tasks, then close device connections."""
         log_task = self._tasks.get("log_stream")
-        runtime_tasks = {
-            name: task
-            for name, task in self._tasks.items()
-            if name != "log_stream"
-        }
+        runtime_tasks = {name: task for name, task in self._tasks.items() if name != "log_stream"}
 
         for name, task in runtime_tasks.items():
             if not task.done():
@@ -112,12 +106,11 @@ def build_runtime(config: ServerConfig) -> RuntimeServices:
         state_stream=state_stream,
         metrics=metrics,
     )
-    esp_connection_listener = ESPConnectionListener(esp_runtime)
-    telemetry_ingest = TelemetryIngest(esp_runtime, metrics=metrics)
-    telemetry_udp_listener = TelemetryUDPListener(
-        telemetry_ingest,
+    telemetry_runtime = TelemetryRuntime(
+        esp_runtime,
         telemetry_stream,
         telemetry_display_stream,
+        metrics=metrics,
     )
     mediamtx_config = config["services"]["mediamtx"]
     audio_runtime = AudioRuntime(config["services"]["mumble"])
@@ -139,9 +132,7 @@ def build_runtime(config: ServerConfig) -> RuntimeServices:
         telemetry_stream=telemetry_stream,
         telemetry_display_stream=telemetry_display_stream,
         esp_runtime=esp_runtime,
-        esp_connection_listener=esp_connection_listener,
-        telemetry_ingest=telemetry_ingest,
-        telemetry_udp_listener=telemetry_udp_listener,
+        telemetry_runtime=telemetry_runtime,
         audio_runtime=audio_runtime,
         camera_runtime=camera_runtime,
         kasa_runtime=kasa_runtime,

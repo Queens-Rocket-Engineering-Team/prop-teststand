@@ -131,15 +131,12 @@ TEST_CONFIG_SENSORS_ONLY = {
         "thermocouple": {
             "TC1": {
                 "sensor_index": "TC1",
-                "type": "K",
                 "unit": "C",
             },
         },
         "pressure_transducer": {
             "PT1": {
                 "sensor_index": "PT1",
-                "resistor_ohms": 350,
-                "max_pressure_PSI": 500,
                 "unit": "PSI",
             },
         },
@@ -170,6 +167,31 @@ def test_parse_config_sensors_only() -> None:
     assert len(result.controls_by_id) == 0
 
 
+def test_parse_config_known_sensor_types_only_require_common_fields() -> None:
+    config = {
+        "device_name": "TEST-DEVICE-MINIMAL",
+        "device_type": "Sensor Monitor",
+        "sensor_info": {
+            "thermocouple": {"TC1": {"unit": "C"}},
+            "pressure_transducer": {"PT1": {"unit": "PSI"}},
+            "load_cell": {"LC1": {"unit": "N"}},
+            "resistance_sensor": {"RS1": {"unit": "ohms"}},
+            "current_sensor": {"CS1": {"unit": "A"}},
+        },
+    }
+
+    result = parse_config(config)
+
+    assert [type(sensor) for sensor in result.sensors_by_id.values()] == [SensorConfig] * 5
+    assert [sensor.type for sensor in result.sensors_by_id.values()] == [
+        "thermocouple",
+        "pressure_transducer",
+        "load_cell",
+        "resistance_sensor",
+        "current_sensor",
+    ]
+
+
 TEST_CONFIG_CONTROLS_ONLY = {
     "device_name": "TEST-DEVICE-3",
     "device_type": "Sensor Monitor",
@@ -191,6 +213,7 @@ def test_parse_config_controls_only() -> None:
     assert result.controls_by_id[0].name == "VALVE1"
     assert result.controls_by_id[0].default == ControlState.OPEN
     assert result.controls_by_id[0].control_type == "solenoid"
+
 
 TETS_CONFIG_DUPLICATE_SENSOR_NAMES = {
     "device_name": "TEST-DEVICE-4",

@@ -5,9 +5,10 @@ import logging
 import socket
 import time
 from itertools import count
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from libqretprop.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
+from libqretprop.qlcp.config_parser import parse_config
 from libqretprop.qlcp.enums import ControlState, PacketType
 from libqretprop.qlcp.packets import (
     AckPacket,
@@ -19,15 +20,16 @@ from libqretprop.qlcp.packets import (
     StatusPacket,
     StreamStartPacket,
 )
-from libqretprop.runtime.esp_device_session import ESPDeviceSession
+from libqretprop.runtime.command_tracker import CommandRecord
 from libqretprop.runtime.metrics import NULL_METRICS, Metrics
 
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from libqretprop.qlcp.config_models import ControlConfig, SensorConfig
     from libqretprop.runtime.command_tracker import CommandTracker
-    from libqretprop.runtime.command_types import CommandRecord
+    from libqretprop.runtime.state_stream import StateStream
     from libqretprop.state import SystemState
 
 
@@ -36,8 +38,103 @@ TrackedCommandPacket = SimplePacket | ControlPacket | StreamStartPacket
 TCP_PORT = 50000
 
 
-class StatePublisher(Protocol):
-    def publish(self, event: dict[str, object] | None) -> None: ...
+class ESPDeviceSession:
+    """One active configured TCP connection for a QLCP/ESP device."""
+
+    RESYNC_INTERVAL_S: ClassVar[float] = 600.0
+    COMMAND_ACK_TIMEOUT_S: ClassVar[float] = 10.0
+    HEARTBEAT_INTERVAL_S: ClassVar[float] = 5.0
+    HEARTBEAT_ACK_MISS_LIMIT: ClassVar[int] = 3
+
+    def __init__(
+        self,
+        tcp_socket: socket.socket,
+        address: str,
+        config: dict[str, Any],
+        *,
+        connection_key: str,
+    ) -> None:
+        self.address = address
+        self.connection_key = connection_key
+        self.qlcp_config = parse_config(config)
+        self.driver = ESPDriver(tcp_socket, address)
+
+        self.last_sync_time: float | None = None
+        self._resync_pending = False
+        self._missed_heartbeat_acks = 0
+
+        self.monitor_task: asyncio.Task[Any] | None = None
+        self.heartbeat_task: asyncio.Task[Any] | None = None
+
+    @property
+    def is_connected(self) -> bool:
+        """True while the TCP socket is open."""
+        return self.driver.socket is not None
+
+    def close(self) -> None:
+        """Close the TCP socket. Idempotent; may raise OSError on the first call."""
+        sock = self.driver.socket
+        if sock is not None:
+            self.driver.socket = None
+            sock.close()
+
+    @property
+    def name(self) -> str:
+        return self.qlcp_config.name
+
+    @property
+    def type(self) -> str:
+        return self.qlcp_config.device_type
+
+    @property
+    def sensors(self) -> dict[str, SensorConfig]:
+        return {sensor.name: sensor for sensor in self.qlcp_config.sensors_by_id.values()}
+
+    @property
+    def controls(self) -> dict[str, ControlConfig]:
+        return {control.name.upper(): control for control in self.qlcp_config.controls_by_id.values()}
+
+    def needs_resync(self) -> bool:
+        """Return True when a TIMESYNC is due for this session."""
+        return not self._resync_pending and self.last_sync_time is not None and time.monotonic() - self.last_sync_time > self.RESYNC_INTERVAL_S
+
+    def mark_resync_sent(self) -> None:
+        self._resync_pending = True
+
+    def mark_synced(self) -> None:
+        self._resync_pending = False
+
+    def register_missed_heartbeat(self) -> bool:
+        self._missed_heartbeat_acks += 1
+        return self._missed_heartbeat_acks >= self.HEARTBEAT_ACK_MISS_LIMIT
+
+    @property
+    def missed_heartbeat_count(self) -> int:
+        return self._missed_heartbeat_acks
+
+    def reset_heartbeat_misses(self) -> None:
+        self._missed_heartbeat_acks = 0
+
+    def record_timesync_ack(self, command: CommandRecord | None) -> None:
+        if command is None:
+            return
+        self.last_sync_time = time.monotonic()
+        self.mark_synced()
+
+    def record_heartbeat_ack(self, command: CommandRecord | None) -> None:
+        if command is None:
+            return
+        self.reset_heartbeat_misses()
+
+    def control_name_for_id(self, control_id: int | None) -> str | None:
+        if control_id is None:
+            return None
+
+        control = self.qlcp_config.controls_by_id.get(control_id)
+        if control is None:
+            return None
+
+        return control.name
 
 
 class ESPConnectionRuntime:
@@ -52,7 +149,7 @@ class ESPConnectionRuntime:
     def __init__(
         self,
         *,
-        state_stream: StatePublisher,
+        state_stream: StateStream,
         command_tracker: CommandTracker,
         system_state: SystemState,
         metrics: Metrics | None = None,
@@ -72,10 +169,7 @@ class ESPConnectionRuntime:
 
     def is_current_connection(self, session: ESPDeviceSession) -> bool:
         registered_device = self.devices.get(session.address)
-        return (
-            registered_device is not None
-            and registered_device.connection_key == session.connection_key
-        )
+        return registered_device is not None and registered_device.connection_key == session.connection_key
 
     async def accept_connection(
         self,
@@ -147,7 +241,7 @@ class ESPConnectionRuntime:
         self.metrics.record_device_connection(device=new_session.name)
         self._publish_state_event(self.system_state.register_device(new_session))
 
-        new_session.start(self, loop=asyncio.get_running_loop())
+        self._start_session_tasks(new_session)
 
         logger.info(f"Device {new_session.name} registered from {address}")
 
@@ -167,12 +261,55 @@ class ESPConnectionRuntime:
 
         return new_session
 
+    def _start_session_tasks(self, session: ESPDeviceSession) -> None:
+        loop = asyncio.get_running_loop()
+        session.monitor_task = loop.create_task(self._monitor_session(session))
+        session.heartbeat_task = loop.create_task(self._heartbeat_session(session))
+
+    async def _monitor_session(self, session: ESPDeviceSession) -> None:
+        """Read TCP packets for one device connection."""
+        try:
+            while True:
+                if not session.is_connected:
+                    logger.error(f"Device {session.name} has no socket.")
+                    self.remove_device(session)
+                    break
+
+                try:
+                    packet = await session.driver.read_packet()
+                except ESPDriverConnectionClosedError:
+                    logger.warning(f"Device {session.name} disconnected.")
+                    self.remove_device(session)
+                    break
+
+                logger.debug(f"Decoded {type(packet).__name__} from {session.name}")
+                await self.handle_packet(session, packet)
+
+                if session.needs_resync():
+                    session.mark_resync_sent()
+                    await self.send_timesync(session)
+
+        except asyncio.CancelledError:
+            logger.info(f"Stopped monitoring {session.name}")
+            raise
+        except Exception as e:
+            logger.exception(f"Error receiving response from {session.name}: {e}")
+            self.remove_device(session)
+
+    async def _heartbeat_session(self, session: ESPDeviceSession) -> None:
+        """Run heartbeat checks for one device connection."""
+        while True:
+            if session.is_connected:
+                if self.expire_command_timeouts(session):
+                    break
+
+                if not await self.send_heartbeat(session):
+                    break
+
+            await asyncio.sleep(session.HEARTBEAT_INTERVAL_S)
+
     def disconnect_registered_devices_with_name(self, device_name: str) -> None:
-        matching_sessions = [
-            session
-            for session in self.devices.values()
-            if session.name == device_name
-        ]
+        matching_sessions = [session for session in self.devices.values() if session.name == device_name]
 
         for session in matching_sessions:
             logger.warning(
@@ -349,8 +486,7 @@ class ESPConnectionRuntime:
         )
         if command is None:
             logger.debug(
-                f"{session.name} unmatched NACK for {packet.nack_packet_type.name} "
-                f"seq={packet.nack_sequence} error={packet.error_code.name}",
+                f"{session.name} unmatched NACK for {packet.nack_packet_type.name} seq={packet.nack_sequence} error={packet.error_code.name}",
             )
         else:
             self._publish_state_event(self.system_state.record_command_nacked(command))
@@ -378,13 +514,18 @@ class ESPConnectionRuntime:
             except OSError as e:
                 logger.error(f"Error closing socket for {session.name}: {e}")
 
+        try:
+            current_task = asyncio.current_task()
+        except RuntimeError:
+            current_task = None
+
         monitor_task = session.monitor_task
-        if monitor_task is not None:
+        if monitor_task is not None and monitor_task is not current_task:
             monitor_task.cancel()
             logger.info(f"Cancelled monitor task for {session.name}")
 
         heartbeat_task = session.heartbeat_task
-        if heartbeat_task is not None:
+        if heartbeat_task is not None and heartbeat_task is not current_task:
             heartbeat_task.cancel()
             logger.info(f"Cancelled heartbeat task for {session.name}")
 
@@ -504,34 +645,15 @@ class ESPConnectionRuntime:
         for command in commands:
             self._publish_state_event(self.system_state.record_command_timed_out(command))
 
-
-class ESPConnectionListener:
-    """Owns the TCP server socket and accept loop.
-
-    Delegates each accepted connection's config handshake and registration to
-    ``ESPConnectionRuntime.accept_connection``; owns no per-device or protocol logic.
-    """
-
-    def __init__(
-        self,
-        runtime: ESPConnectionRuntime,
-        *,
-        port: int = TCP_PORT,
-        backlog: int = 5,
-    ) -> None:
-        self.runtime = runtime
-        self.port = port
-        self.backlog = backlog
-
-    async def run(self) -> None:
+    async def run_tcp_listener(self, *, port: int = TCP_PORT, backlog: int = 5) -> None:
         """Bind the TCP server socket and accept device connections until cancelled."""
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server_socket.bind(("0.0.0.0", self.port))  # noqa: S104
-        server_socket.listen(self.backlog)
+        server_socket.bind(("0.0.0.0", port))  # noqa: S104
+        server_socket.listen(backlog)
         server_socket.setblocking(False)
 
-        logger.info(f"TCP listener started on port {self.port}")
+        logger.info(f"TCP listener started on port {port}")
 
         loop = asyncio.get_event_loop()
 
@@ -541,7 +663,7 @@ class ESPConnectionListener:
                 client_socket.setblocking(False)
                 logger.info(f"Accepted TCP connection from {addr[0]}")
 
-                await self.runtime.accept_connection(client_socket, addr[0])
+                await self.accept_connection(client_socket, addr[0])
 
             except asyncio.CancelledError:
                 logger.info("TCP listener cancelled")

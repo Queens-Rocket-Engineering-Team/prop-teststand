@@ -8,7 +8,7 @@ import aioconsole
 
 
 if TYPE_CHECKING:
-    from libqretprop.runtime.esp_device_session import ESPDeviceSession
+    from libqretprop.runtime.esp_connection_runtime import ESPDeviceSession
     from libqretprop.runtime.services import RuntimeServices
 
 

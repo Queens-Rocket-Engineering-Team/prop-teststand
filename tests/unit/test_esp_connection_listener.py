@@ -4,7 +4,7 @@ import contextlib
 import socket
 from typing import cast
 
-from libqretprop.runtime.esp_connection_runtime import ESPConnectionListener, ESPConnectionRuntime
+from libqretprop.runtime.esp_connection_runtime import ESPConnectionRuntime
 
 
 class FakeRuntime:
@@ -29,8 +29,7 @@ def test_listener_delegates_accepted_connections_to_runtime() -> None:
     async def run() -> None:
         port = _free_tcp_port()
         runtime = FakeRuntime()
-        listener = ESPConnectionListener(cast(ESPConnectionRuntime, runtime), port=port)
-        task = asyncio.create_task(listener.run())
+        task = asyncio.create_task(ESPConnectionRuntime.run_tcp_listener(cast(ESPConnectionRuntime, runtime), port=port))
 
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:

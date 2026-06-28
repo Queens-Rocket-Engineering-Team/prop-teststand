@@ -2,12 +2,11 @@ from __future__ import annotations
 import asyncio
 import socket
 import time
-from typing import Any
+from typing import Any, cast
 
 from libqretprop.qlcp.enums import PacketType
 from libqretprop.runtime.command_tracker import CommandTracker
-from libqretprop.runtime.esp_connection_runtime import ESPConnectionRuntime
-from libqretprop.runtime.esp_device_session import ESPDeviceSession
+from libqretprop.runtime.esp_connection_runtime import ESPConnectionRuntime, ESPDeviceSession
 from libqretprop.state.system_state import SystemState
 
 
@@ -137,7 +136,7 @@ def test_heartbeat_loop_exits_when_send_heartbeat_fails() -> None:
 
         runtime = RuntimeStub()
         try:
-            await session.heartbeat(runtime)  # type: ignore[arg-type]
+            await ESPConnectionRuntime._heartbeat_session(cast(ESPConnectionRuntime, runtime), session)
 
             assert runtime.expire_calls == 1
             assert runtime.send_calls == 1

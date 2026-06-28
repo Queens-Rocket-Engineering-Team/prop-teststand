@@ -4,10 +4,17 @@ from typing import Any, Protocol
 
 from libqretprop.qlcp._bindings import ffi as _ffi
 from libqretprop.qlcp._bindings import lib as _lib
-from libqretprop.qlcp.constants import ENCODE_BUF_SIZE, MAX_CONFIG, MAX_CONTROLS, MAX_SENSORS
 from libqretprop.qlcp.enums import ControlState, DeviceStatus, ErrorCode, PacketType, Unit
-from libqretprop.qlcp.errors import QLCPError, check_qlcp_error
-from libqretprop.qlcp.sequence import get_timestamp_ms, next_sequence
+from libqretprop.qlcp.native import (
+    ENCODE_BUF_SIZE,
+    MAX_CONFIG,
+    MAX_CONTROLS,
+    MAX_SENSORS,
+    QLCPError,
+    check_qlcp_error,
+    get_timestamp_ms,
+    next_sequence,
+)
 
 
 class EncodablePacket(Protocol):

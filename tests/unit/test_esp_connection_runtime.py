@@ -15,8 +15,7 @@ from libqretprop.qlcp.packets import (
     StatusPacket,
 )
 from libqretprop.runtime.command_tracker import CommandLifecycle, CommandTracker
-from libqretprop.runtime.esp_connection_runtime import ESPConnectionRuntime
-from libqretprop.runtime.esp_device_session import ESPDeviceSession
+from libqretprop.runtime.esp_connection_runtime import ESPConnectionRuntime, ESPDeviceSession
 from libqretprop.state.system_state import SystemState
 
 
@@ -86,10 +85,7 @@ def _make_session(
         name=config.name,
         type=config.device_type,
         qlcp_config=config,
-        controls={
-            control.name.upper(): control
-            for control in config.controls_by_id.values()
-        },
+        controls={control.name.upper(): control for control in config.controls_by_id.values()},
         monitor_task=None,
         heartbeat_task=None,
         driver=FakeDriver(),
@@ -143,7 +139,7 @@ def test_runtime_registers_valid_device() -> None:
             assert session.monitor_task is not None
             assert session.heartbeat_task is not None
             assert runtime.devices["10.0.0.2"] is session
-            assert state.snapshot().devices[0].name == "TEST-DEVICE"
+            assert state.snapshot()["devices"][0]["name"] == "TEST-DEVICE"
             assert stream.events[0]["type"] == "device.registered"
         finally:
             runtime.close_all()
@@ -167,7 +163,7 @@ def test_accept_connection_registers_device_on_config() -> None:
 
             assert isinstance(session, ESPDeviceSession)
             assert runtime.devices["10.0.0.2"] is session
-            assert state.snapshot().devices[0].name == "TEST-DEVICE"
+            assert state.snapshot()["devices"][0]["name"] == "TEST-DEVICE"
             assert stream.events[0]["type"] == "device.registered"
         finally:
             runtime.close_all()
@@ -251,7 +247,7 @@ def test_runtime_removal_marks_device_disconnected() -> None:
     runtime.remove_device(device)
 
     assert device.address not in runtime.devices
-    assert state.snapshot().devices[0].connected is False
+    assert state.snapshot()["devices"][0]["connected"] is False
     assert stream.events[-1]["type"] == "device.disconnected"
 
 
@@ -283,7 +279,7 @@ def test_runtime_ack_routes_through_tracker_and_updates_control_state() -> None:
     )
 
     assert command.state == CommandLifecycle.ACKED
-    assert state.snapshot().devices[0].controls[0].reported_state == "OPEN"
+    assert state.snapshot()["devices"][0]["controls"][0]["reported_state"] == "OPEN"
     assert [event["type"] for event in stream.events[-2:]] == ["command.acked", "control.updated"]
 
 
@@ -316,7 +312,7 @@ def test_runtime_nack_routes_through_tracker_without_control_update() -> None:
     )
 
     assert command.state == CommandLifecycle.NACKED
-    assert state.snapshot().devices[0].controls[0].reported_state is None
+    assert state.snapshot()["devices"][0]["controls"][0]["reported_state"] is None
     assert stream.events[-1]["type"] == "command.nacked"
 
 
@@ -336,7 +332,7 @@ def test_runtime_status_updates_reported_control_state() -> None:
         ),
     )
 
-    assert state.snapshot().devices[0].controls[0].reported_state == "OPEN"
+    assert state.snapshot()["devices"][0]["controls"][0]["reported_state"] == "OPEN"
     assert stream.events[-1]["type"] == "control.updated"
 
 
@@ -405,9 +401,9 @@ def test_status_packet_with_no_controls_does_not_error(caplog: Any) -> None:
         asyncio.run(runtime.handle_packet(device, empty_status))
 
     # Must not log an "unexpected packet type" error.
-    assert not any(
-        "unexpected packet type" in record.message.lower() for record in caplog.records
-    ), f"Unexpected error log: {[r.message for r in caplog.records]}"
+    assert not any("unexpected packet type" in record.message.lower() for record in caplog.records), (
+        f"Unexpected error log: {[r.message for r in caplog.records]}"
+    )
 
 
 def test_remove_device_cleanup_before_mark_disconnected() -> None:
@@ -435,9 +431,7 @@ def test_remove_device_cleanup_before_mark_disconnected() -> None:
 
     runtime.remove_device(device)
 
-    assert close_called_at == ["cleanup", "mark_disconnected"], (
-        f"Wrong teardown order: {close_called_at}"
-    )
+    assert close_called_at == ["cleanup", "mark_disconnected"], f"Wrong teardown order: {close_called_at}"
 
 
 def test_close_all_cleanup_before_mark_disconnected() -> None:
@@ -464,9 +458,7 @@ def test_close_all_cleanup_before_mark_disconnected() -> None:
 
     runtime.close_all()
 
-    assert close_called_at == ["cleanup", "mark_disconnected"], (
-        f"Wrong teardown order in close_all: {close_called_at}"
-    )
+    assert close_called_at == ["cleanup", "mark_disconnected"], f"Wrong teardown order in close_all: {close_called_at}"
     assert runtime.devices == {}, "Devices registry was not cleared"
 
 
@@ -495,25 +487,15 @@ def test_disconnection_metric_recorded_on_remove_device() -> None:
     assert device_lifecycle["disconnections_total"] == {"connection_cleanup": 1}
 
 
-def test_session_monitor_routes_packets_to_runtime() -> None:
+def test_runtime_monitor_routes_packets_to_packet_handler() -> None:
     async def run() -> None:
         packet_seen = asyncio.Event()
         packets: list[object] = []
+        runtime, _tracker, _state, _stream = _make_runtime()
 
-        class RuntimeStub:
-            async def handle_packet(self, session: ESPDeviceSession, packet: object) -> None:
-                packets.append(packet)
-                packet_seen.set()
-
-            def remove_device(self, session: ESPDeviceSession) -> None:
-                packet_seen.set()
-
-            @staticmethod
-            def needs_resync(session: ESPDeviceSession) -> bool:
-                return False
-
-            async def send_timesync(self, session: ESPDeviceSession) -> None:
-                raise AssertionError("unexpected resync")
+        async def recording_handle_packet(session: ESPDeviceSession, packet: object) -> None:
+            packets.append(packet)
+            packet_seen.set()
 
         session_sock, peer_sock = socket.socketpair()
         session_sock.setblocking(False)
@@ -524,7 +506,8 @@ def test_session_monitor_routes_packets_to_runtime() -> None:
             _make_config(),
             connection_key="conn-a",
         )
-        task = asyncio.create_task(session.monitor(cast(ESPConnectionRuntime, RuntimeStub())))
+        runtime.handle_packet = recording_handle_packet  # type: ignore[method-assign]
+        task = asyncio.create_task(runtime._monitor_session(session))
 
         try:
             loop = asyncio.get_running_loop()
