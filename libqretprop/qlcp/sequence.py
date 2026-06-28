@@ -12,4 +12,4 @@ def next_sequence() -> int:
 
 
 def get_timestamp_ms() -> int:
-    return int(time.monotonic() * 1000)
+    return (int(time.monotonic() * 1000)) & 0xFFFFFFFF

@@ -44,7 +44,6 @@ class ESPDeviceSession:
 
         self.last_sync_time: float | None = None
         self._resync_pending = False
-        self.is_responsive = True
         self._missed_heartbeat_acks = 0
 
         self.monitor_task: asyncio.Task[Any] | None = None
@@ -123,14 +122,9 @@ class ESPDeviceSession:
         """Number of consecutive missed heartbeat ACKs since the last successful one."""
         return self._missed_heartbeat_acks
 
-    def mark_unresponsive(self) -> None:
-        """Mark this session as unresponsive after missing too many heartbeat ACKs."""
-        self.is_responsive = False
-
     def reset_heartbeat_misses(self) -> None:
         """Reset heartbeat miss state after a successful heartbeat ACK."""
         self._missed_heartbeat_acks = 0
-        self.is_responsive = True
 
     async def monitor(self, runtime: ESPConnectionRuntime) -> None:
         """Read TCP packets and delegate session side effects to the runtime."""

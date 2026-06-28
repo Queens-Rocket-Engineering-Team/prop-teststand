@@ -2,13 +2,13 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from tsdownsample import M4Downsampler
 
 from libqretprop.runtime.metrics import NULL_METRICS, Metrics
-from libqretprop.runtime.ws_fanout import BoundedWebSocketFanout, record_telemetry_drop
+from libqretprop.runtime.ws_fanout import BoundedWebSocketFanout
 
 
 if TYPE_CHECKING:
@@ -17,10 +17,6 @@ if TYPE_CHECKING:
 DISPLAY_TARGET_HZ = 30.0
 DISPLAY_POINTS_PER_BUCKET = 8  # M4 requires >= 8 (at least 2 windows x 4 points)
 STREAM_METRIC_LABEL = "telemetry_display"
-
-
-class Downsampler(Protocol):
-    def downsample(self, x: np.ndarray, y: np.ndarray, *, n_out: int) -> np.ndarray: ...
 
 
 @dataclass(slots=True)
@@ -36,7 +32,7 @@ class _SensorBuffer:
         self.timestamps.append(t)
         self.values.append(v)
 
-    def to_points(self, downsampler: Downsampler, n_out: int) -> list[dict[str, float]]:
+    def to_points(self, downsampler: M4Downsampler, n_out: int) -> list[dict[str, float]]:
         if not self.timestamps:
             return []
         ts = np.asarray(self.timestamps, dtype=np.float64)
@@ -57,9 +53,8 @@ class _DeviceBucket:
 class TelemetryDisplayStream(BoundedWebSocketFanout):
     """Downsampled telemetry stream for the operator GUI at /ws/telemetry/display.
 
-    Collects raw batches into fixed-width time buckets and emits downsampled
-    point sets when each bucket closes. The downsampler is injected at construction
-    so different algorithms can be swapped without changing the wire format.
+    Collects raw batches into fixed-width time buckets and emits M4-downsampled
+    point sets when each bucket closes.
 
     run() must be started as a daemon task; it flushes the trailing partial bucket
     when no boundary-crossing batch arrives within one bucket interval.
@@ -70,7 +65,6 @@ class TelemetryDisplayStream(BoundedWebSocketFanout):
         *,
         target_hz: float = DISPLAY_TARGET_HZ,
         points_per_bucket: int = DISPLAY_POINTS_PER_BUCKET,
-        downsampler: Downsampler | None = None,
         max_queue: int = 128,
         metrics: Metrics | None = None,
     ) -> None:
@@ -78,11 +72,10 @@ class TelemetryDisplayStream(BoundedWebSocketFanout):
             stream_metric_label=STREAM_METRIC_LABEL,
             max_queue=max_queue,
             metrics=metrics or NULL_METRICS,
-            drop_recorder=record_telemetry_drop,
         )
         self._bucket_interval_s = 1.0 / target_hz
         self._points_per_bucket = points_per_bucket
-        self._downsampler: Downsampler = M4Downsampler() if downsampler is None else downsampler
+        self._downsampler = M4Downsampler()
         self._buckets: dict[str, _DeviceBucket] = {}
 
     def publish_batch(self, batch: TelemetryBatch) -> None:

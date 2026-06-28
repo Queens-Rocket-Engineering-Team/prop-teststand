@@ -20,11 +20,6 @@ OPERATOR_VISIBLE_PACKET_TYPES = frozenset(
         PacketType.GET_SINGLE,
     },
 )
-MAINTENANCE_PACKET_TYPES = frozenset(
-    {
-        PacketType.HEARTBEAT,
-    },
-)
 ACK_EXPECTED_PACKET_TYPES = frozenset(
     {
         PacketType.CONTROL,
@@ -82,19 +77,3 @@ class CommandRecord:
             packet_type=self.packet_type,
             packet_sequence=self.packet_sequence,
         )
-
-
-@dataclass
-class CommandSummary:
-    """Compact lifecycle summary for maintenance/internal command types."""
-
-    connection_key: str
-    device_name: str
-    device_address: str
-    packet_type: PacketType
-    last_sent_at: float | None = None
-    last_acked_at: float | None = None
-    last_nacked_at: float | None = None
-    last_timed_out_at: float | None = None
-    last_error_code: ErrorCode | None = None
-    pending_count: int = 0

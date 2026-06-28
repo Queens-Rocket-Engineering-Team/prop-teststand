@@ -70,8 +70,8 @@ class AudioRuntime:
 
             mumble = self._mumble
             wav = self._wav
-            response_file = self._file_name
-            file_name = response_file if response_file else "recording-unknown"
+            file_name = self._file_name
+            assert file_name is not None
             self._stopping = True
 
         try:
@@ -85,7 +85,7 @@ class AudioRuntime:
                 self._clear_recording_state()
                 self._stopping = False
 
-        return {"status": "stopped", "file": response_file}
+        return {"status": "stopped", "file": file_name}
 
     def list_recordings(self) -> list[dict[str, str]]:
         recordings_dir = self._recordings_root()
@@ -139,7 +139,7 @@ class AudioRuntime:
                 return
             self._wav.writeframes(soundchunk.pcm)
 
-    def _transcode_to_opus(self, file_name: str) -> str:
+    def _transcode_to_opus(self, file_name: str) -> None:
         output_dir = self._recordings_root()
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -168,8 +168,6 @@ class AudioRuntime:
         finally:
             with contextlib.suppress(Exception):
                 os.remove(temp_path)
-
-        return output_path.name
 
     def _clear_recording_state(self) -> None:
         self._mumble = None

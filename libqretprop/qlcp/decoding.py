@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any
+from typing import Any, cast
 
 from libqretprop.qlcp._bindings import ffi as _ffi
 from libqretprop.qlcp._bindings import lib as _lib
@@ -99,9 +99,12 @@ def _server_payload_to_python(payload: Any) -> ServerReceivedPacket:
         return ConfigPacket(
             sequence=payload_data.config.header.sequence,
             timestamp=payload_data.config.header.timestamp,
-            config_json=_ffi.string(
-                payload_data.config.config_data,
-                payload_data.config.config_data_len,
+            config_json=cast(
+                "bytes",
+                _ffi.string(
+                    payload_data.config.config_data,
+                    payload_data.config.config_data_len,
+                ),
             ).decode(),
         )
     if payload_type == _lib.QLCP_PT_ACK:

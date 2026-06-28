@@ -1,6 +1,5 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -8,9 +7,7 @@ class SensorSnapshot:
     id: int
     name: str
     type: str
-    index: str
     unit: str
-    raw: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,22 +15,16 @@ class ControlSnapshot:
     id: int
     name: str
     type: str
-    index: str
     default_state: str
     reported_state: str | None = None
     reported_timestamp: float | None = None
     pending_command_id: int | None = None
-    raw: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class HeartbeatSnapshot:
     state: str
-    last_sent_time: float | None = None
-    last_ack_time: float | None = None
-    pending: bool = False
     consecutive_misses: int = 0
-    last_timeout_time: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

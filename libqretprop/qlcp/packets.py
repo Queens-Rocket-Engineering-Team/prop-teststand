@@ -179,7 +179,7 @@ class AckPacket:
     ack_sequence: int
 
     @classmethod
-    def create(cls, ack_packet_type: PacketType, ack_sequence: int = 0) -> AckPacket:
+    def create(cls, ack_packet_type: PacketType, ack_sequence: int) -> AckPacket:
         return cls(
             sequence=next_sequence(),
             timestamp=get_timestamp_ms(),
@@ -211,21 +211,6 @@ class NackPacket:
     nack_packet_type: PacketType
     nack_sequence: int
     error_code: ErrorCode
-
-    @classmethod
-    def create(
-        cls,
-        nack_packet_type: PacketType,
-        nack_sequence: int = 0,
-        error_code: ErrorCode = ErrorCode.UNKNOWN_TYPE,
-    ) -> NackPacket:
-        return cls(
-            sequence=next_sequence(),
-            timestamp=get_timestamp_ms(),
-            nack_packet_type=nack_packet_type,
-            nack_sequence=nack_sequence,
-            error_code=error_code,
-        )
 
     def encode(self) -> bytes:
         buf, buf_len = _encode_buf()

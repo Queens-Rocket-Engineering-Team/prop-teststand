@@ -14,7 +14,6 @@ class CameraConfig(TypedDict):
 class MediaMTXConfig(TypedDict):
     ip: str
     api_port: int
-    webrtc_port: int
     recordings_dir: str
 
 class MumbleConfig(TypedDict):

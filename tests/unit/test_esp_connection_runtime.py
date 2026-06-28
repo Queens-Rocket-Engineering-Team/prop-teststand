@@ -96,7 +96,6 @@ def _make_session(
         last_sync_time=None,
         missed_heartbeat_count=0,
         HEARTBEAT_ACK_MISS_LIMIT=3,
-        is_responsive=True,
         is_connected=True,
     )
 
@@ -109,14 +108,10 @@ def _make_session(
     def record_heartbeat_ack(command: object | None) -> None:
         if command is not None:
             session.missed_heartbeat_count = 0
-            session.is_responsive = True
 
     def register_missed_heartbeat() -> bool:
         session.missed_heartbeat_count += 1
         return session.missed_heartbeat_count >= session.HEARTBEAT_ACK_MISS_LIMIT
-
-    def mark_unresponsive() -> None:
-        session.is_responsive = False
 
     def close() -> None:
         session.is_connected = False
@@ -124,7 +119,6 @@ def _make_session(
     session.control_name_for_id = control_name_for_id
     session.record_heartbeat_ack = record_heartbeat_ack
     session.register_missed_heartbeat = register_missed_heartbeat
-    session.mark_unresponsive = mark_unresponsive
     session.close = close
     return cast(ESPDeviceSession, session)
 

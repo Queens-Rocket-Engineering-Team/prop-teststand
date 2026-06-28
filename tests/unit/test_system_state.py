@@ -258,9 +258,7 @@ def test_heartbeat_commands_are_summarized_not_listed_in_snapshot() -> None:
     assert snapshot.commands.pending == []
     assert snapshot.commands.recent == []
     assert snapshot.devices[0].heartbeat.state == "ok"
-    assert snapshot.devices[0].heartbeat.last_sent_time == 10.0
-    assert snapshot.devices[0].heartbeat.last_ack_time == 11.0
-    assert snapshot.devices[0].heartbeat.pending is False
+    assert snapshot.devices[0].heartbeat.consecutive_misses == 0
 
 
 def test_pending_heartbeat_is_summarized_not_listed_in_snapshot() -> None:
@@ -273,23 +271,18 @@ def test_pending_heartbeat_is_summarized_not_listed_in_snapshot() -> None:
     snapshot = state.snapshot()
 
     assert snapshot.commands.pending == []
-    assert snapshot.devices[0].heartbeat.pending is True
-    assert snapshot.devices[0].heartbeat.last_sent_time == 10.0
+    assert snapshot.devices[0].heartbeat.state == "ok"
 
 
 def test_missed_heartbeat_state_is_summarized() -> None:
-    state, tracker = _make_state()
+    state, _ = _make_state()
     device = _make_device(heartbeat_misses=2)
     state.register_device(device)
-
-    _mark_sent(tracker, device, packet_type=PacketType.HEARTBEAT, now=10.0)
-    tracker.expire_pending(now=21.0, timeout_s=10.0)
 
     snapshot = state.snapshot()
 
     assert snapshot.devices[0].heartbeat.state == "missed"
     assert snapshot.devices[0].heartbeat.consecutive_misses == 2
-    assert snapshot.devices[0].heartbeat.last_timeout_time == 21.0
 
 
 def test_disconnected_device_is_marked_disconnected() -> None:
@@ -396,11 +389,7 @@ def test_heartbeat_event_summarizes_heartbeat_state() -> None:
     assert event["device_name"] == "TEST-DEVICE"
     assert event["heartbeat"] == {
         "state": "ok",
-        "last_sent_time": 10.0,
-        "last_ack_time": None,
-        "pending": True,
         "consecutive_misses": 0,
-        "last_timeout_time": None,
     }
 
 

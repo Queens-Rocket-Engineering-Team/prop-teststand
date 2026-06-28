@@ -97,12 +97,7 @@ class RuntimeServices:
 
 
 def build_runtime(config: ServerConfig) -> RuntimeServices:
-    """Construct and wire the full runtime object graph.
-
-    This is the single composition root.  Call once at server startup and pass
-    the returned :class:`RuntimeServices` container to all consumers — do not
-    import it as a module-level global.
-    """
+    """Top-level composition root for the server's runtime object graph. Build once at startup and pass around the resulting object."""
     metrics = Metrics()
     command_tracker = CommandTracker(metrics=metrics)
     system_state = SystemState(command_tracker=command_tracker)

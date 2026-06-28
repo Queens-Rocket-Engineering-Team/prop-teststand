@@ -99,7 +99,6 @@ services:
   mediamtx:
     ip: localhost
     api_port: 9997
-    webrtc_port: 8889
 
 cameras:
   - ip: 192.168.1.5

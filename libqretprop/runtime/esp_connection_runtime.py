@@ -126,8 +126,6 @@ class ESPConnectionRuntime:
         address: str,
         config: dict[str, Any],
         config_sequence: int,
-        *,
-        loop: asyncio.AbstractEventLoop | None = None,
     ) -> ESPDeviceSession:
         new_session = ESPDeviceSession(
             tcp_socket,
@@ -149,8 +147,7 @@ class ESPConnectionRuntime:
         self.metrics.record_device_connection(device=new_session.name)
         self._publish_state_event(self.system_state.register_device(new_session))
 
-        listener_loop = asyncio.get_running_loop() if loop is None else loop
-        new_session.start(self, loop=listener_loop)
+        new_session.start(self, loop=asyncio.get_running_loop())
 
         logger.info(f"Device {new_session.name} registered from {address}")
 
@@ -383,19 +380,13 @@ class ESPConnectionRuntime:
 
         monitor_task = session.monitor_task
         if monitor_task is not None:
-            try:
-                monitor_task.cancel()
-                logger.info(f"Cancelled monitor task for {session.name}")
-            except Exception as e:
-                logger.error(f"Error cancelling monitor task for {session.name}: {e}")
+            monitor_task.cancel()
+            logger.info(f"Cancelled monitor task for {session.name}")
 
         heartbeat_task = session.heartbeat_task
         if heartbeat_task is not None:
-            try:
-                heartbeat_task.cancel()
-                logger.info(f"Cancelled heartbeat task for {session.name}")
-            except Exception as e:
-                logger.error(f"Error cancelling heartbeat task for {session.name}: {e}")
+            heartbeat_task.cancel()
+            logger.info(f"Cancelled heartbeat task for {session.name}")
 
         self._publish_failed_command_events(
             self.command_tracker.fail_connection(session.connection_key, reason=reason),
@@ -485,8 +476,7 @@ class ESPConnectionRuntime:
             )
             return False
 
-        session.mark_unresponsive()
-        logger.error(f"{session.name} marked unresponsive: missed {session.missed_heartbeat_count} HEARTBEAT ACKs")
+        logger.error(f"{session.name} unresponsive: missed {session.missed_heartbeat_count} HEARTBEAT ACKs")
         self.remove_device(session)
         return True
 

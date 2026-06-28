@@ -53,6 +53,7 @@ from libqretprop.qlcp.packets import (
     StatusPacket,
     StreamStartPacket,
 )
+from libqretprop.qlcp.sequence import next_sequence
 
 
 logger = logging.getLogger("MockDevice")
@@ -540,8 +541,13 @@ class MockSensorDevice:
             self.control_handled.set()
         else:
             logger.error(f"Invalid command_id: {command_id}")
-            nack = NackPacket.create(PacketType.CONTROL, packet.sequence, ErrorCode.INVALID_ID)
-            nack.timestamp = self._get_adjusted_ts()
+            nack = NackPacket(
+                sequence=next_sequence(),
+                timestamp=self._get_adjusted_ts(),
+                nack_packet_type=PacketType.CONTROL,
+                nack_sequence=packet.sequence,
+                error_code=ErrorCode.INVALID_ID,
+            )
             await loop.sock_sendall(self.sock, nack.encode())
 
     async def handle_stream_start(self, packet: StreamStartPacket) -> None:
