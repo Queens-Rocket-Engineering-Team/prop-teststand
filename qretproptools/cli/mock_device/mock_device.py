@@ -31,7 +31,6 @@ from typing import Any
 
 from libqretprop.qlcp.config_models import SensorConfig
 from libqretprop.qlcp.config_parser import parse_config
-from libqretprop.qlcp.constants import HEADER_SIZE
 from libqretprop.qlcp.decoding import decode_packet_client
 from libqretprop.qlcp.enums import (
     ControlState,
@@ -40,7 +39,7 @@ from libqretprop.qlcp.enums import (
     PacketType,
     Unit,
 )
-from libqretprop.qlcp.framing import get_packet_len
+from libqretprop.qlcp.native import HEADER_SIZE, get_packet_len, next_sequence
 from libqretprop.qlcp.packets import (
     AckPacket,
     ConfigPacket,
@@ -53,7 +52,6 @@ from libqretprop.qlcp.packets import (
     StatusPacket,
     StreamStartPacket,
 )
-from libqretprop.qlcp.sequence import next_sequence
 
 
 logger = logging.getLogger("MockDevice")
@@ -138,16 +136,10 @@ class MockSensorDevice:
         self._device_config = parse_config(self.config)
 
         # Per-sensor simulated state (keyed by sensor_id).
-        self._sensor_values: dict[int, float] = {
-            sid: self._initial_value(s)
-            for sid, s in self._device_config.sensors_by_id.items()
-        }
+        self._sensor_values: dict[int, float] = {sid: self._initial_value(s) for sid, s in self._device_config.sensors_by_id.items()}
 
         # Control states (keyed by control name), initialised from config defaults.
-        self.valve_states: dict[str, str] = {
-            c.name: c.default.name
-            for c in self._device_config.controls_by_id.values()
-        }
+        self.valve_states: dict[str, str] = {c.name: c.default.name for c in self._device_config.controls_by_id.values()}
 
         # Streaming state
         self.streaming = False
@@ -243,14 +235,8 @@ class MockSensorDevice:
             self.stream_task.cancel()
             self.stream_task = None
 
-        self._sensor_values = {
-            sid: self._initial_value(s)
-            for sid, s in self._device_config.sensors_by_id.items()
-        }
-        self.valve_states = {
-            c.name: c.default.name
-            for c in self._device_config.controls_by_id.values()
-        }
+        self._sensor_values = {sid: self._initial_value(s) for sid, s in self._device_config.sensors_by_id.items()}
+        self.valve_states = {c.name: c.default.name for c in self._device_config.controls_by_id.values()}
         self.timesync_offset = 0
 
         # Clear observability events so test code can re-await them after a reset.
@@ -419,12 +405,16 @@ class MockSensorDevice:
 
     async def send_config(self) -> None:
         """Send the device CONFIG packet to the server."""
+        sock = self.sock
+        if sock is None:
+            raise RuntimeError("Cannot send CONFIG before connecting to server")
+
         config_json = json.dumps(self.config)
         packet = ConfigPacket.create(config_json)
         encoded = packet.encode()
 
         loop = asyncio.get_event_loop()
-        await loop.sock_sendall(self.sock, encoded)
+        await loop.sock_sendall(sock, encoded)
 
         self.config_sent.set()
         logger.info(f"Sent CONFIG ({len(encoded)} bytes)")
@@ -435,6 +425,10 @@ class MockSensorDevice:
 
     async def handle_commands(self) -> None:
         """Listen for and handle commands from the server using length-based framing."""
+        sock = self.sock
+        if sock is None:
+            return
+
         loop = asyncio.get_event_loop()
         buffer = b""
 
@@ -442,7 +436,7 @@ class MockSensorDevice:
 
         try:
             while True:
-                data = await loop.sock_recv(self.sock, 4096)
+                data = await loop.sock_recv(sock, 4096)
                 if not data:
                     logger.warning("Server disconnected")
                     break
@@ -468,7 +462,7 @@ class MockSensorDevice:
 
                             ack = AckPacket.create(PacketType.TIMESYNC, packet.sequence)
                             ack.timestamp = self._get_adjusted_ts()
-                            await loop.sock_sendall(self.sock, ack.encode())
+                            await loop.sock_sendall(sock, ack.encode())
 
                             self.timesync_received.set()
 
@@ -495,7 +489,7 @@ class MockSensorDevice:
                         elif isinstance(packet, SimplePacket) and packet.packet_type == PacketType.HEARTBEAT:
                             ack = AckPacket.create(PacketType.HEARTBEAT, packet.sequence)
                             ack.timestamp = self._get_adjusted_ts()
-                            await loop.sock_sendall(self.sock, ack.encode())
+                            await loop.sock_sendall(sock, ack.encode())
 
                         buffer = buffer[packet_len:]
 
@@ -630,10 +624,7 @@ class MockSensorDevice:
         self.data_sent.clear()  # reset immediately so it acts as a pulse for next waiter
 
         if random.random() < 0.1:
-            summary = " ".join(
-                f"{s.name}={self._sensor_values[sid]:.1f}{s.unit.name}"
-                for sid, s in self._device_config.sensors_by_id.items()
-            )
+            summary = " ".join(f"{s.name}={self._sensor_values[sid]:.1f}{s.unit.name}" for sid, s in self._device_config.sensors_by_id.items())
             logger.debug(f"Data: {summary}")
 
     async def send_single_reading(self) -> None:
@@ -672,10 +663,7 @@ class MockSensorDevice:
         logger.info("Sent STATUS: ACTIVE")
         logger.info(
             "Control states: "
-            + ", ".join(
-                f"{c.name}={self.valve_states.get(c.name, 'UNKNOWN')}"
-                for c in self._device_config.controls_by_id.values()
-            )
+            + ", ".join(f"{c.name}={self.valve_states.get(c.name, 'UNKNOWN')}" for c in self._device_config.controls_by_id.values())
         )
 
     # ---------------------------------------------------------------------- #
@@ -690,16 +678,8 @@ class MockSensorDevice:
         """
         logger.info("=== Mock Sensor Device Started ===")
         logger.info(f"Device name: {self.device_name}")
-        logger.info(
-            "Sensors: "
-            + ", ".join(
-                f"{s.name} ({s.unit.name})"
-                for s in self._device_config.sensors_by_id.values()
-            )
-        )
-        logger.info(
-            "Controls: " + ", ".join(c.name for c in self._device_config.controls_by_id.values())
-        )
+        logger.info("Sensors: " + ", ".join(f"{s.name} ({s.unit.name})" for s in self._device_config.sensors_by_id.values()))
+        logger.info("Controls: " + ", ".join(c.name for c in self._device_config.controls_by_id.values()))
 
         if self.server_ip:
             logger.info(f"Connecting directly to {self.server_ip}")

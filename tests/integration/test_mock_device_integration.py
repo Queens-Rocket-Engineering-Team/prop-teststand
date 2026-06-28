@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 from libqretprop.qlcp.enums import PacketType
 from libqretprop.runtime.command_tracker import CommandLifecycle, CommandTracker
-from libqretprop.runtime.esp_connection_runtime import ESPConnectionListener, ESPConnectionRuntime
-from libqretprop.runtime.telemetry_ingest import TelemetryBatch, TelemetryIngest, TelemetryUDPListener
+from libqretprop.runtime.esp_connection_runtime import ESPConnectionRuntime
+from libqretprop.runtime.telemetry_ingest import TelemetryBatch, TelemetryRuntime
 from libqretprop.state.system_state import SystemState
 from qretproptools.cli.mock_device.mock_device import MockSensorDevice
 
@@ -89,13 +89,11 @@ async def _runtime_harness() -> AsyncGenerator[
     )
 
     publisher = _CollectingPublisher()
-    ingest = TelemetryIngest(runtime)
-    udp_listener = TelemetryUDPListener(ingest, publisher, port=udp_port)
-    tcp_listener = ESPConnectionListener(runtime, port=tcp_port)
+    telemetry_runtime = TelemetryRuntime(runtime, publisher)
 
     tasks = [
-        asyncio.create_task(tcp_listener.run()),
-        asyncio.create_task(udp_listener.run()),
+        asyncio.create_task(runtime.run_tcp_listener(port=tcp_port)),
+        asyncio.create_task(telemetry_runtime.run_udp_listener(port=udp_port)),
     ]
     # Yield once to let both listener tasks bind their sockets before the mock connects.
     await asyncio.sleep(0)
@@ -138,11 +136,14 @@ def test_device_registers_on_connect() -> None:
     """Mock device connects → CONFIG → device appears in runtime.devices after TIMESYNC."""
 
     async def run() -> None:
-        async with _runtime_harness() as (runtime, _tracker, _state, _publisher, tcp_port, udp_port), MockSensorDevice(
-            server_ip="127.0.0.1",
-            server_port=tcp_port,
-            server_udp_port=udp_port,
-        ) as dev:
+        async with (
+            _runtime_harness() as (runtime, _tracker, _state, _publisher, tcp_port, udp_port),
+            MockSensorDevice(
+                server_ip="127.0.0.1",
+                server_port=tcp_port,
+                server_udp_port=udp_port,
+            ) as dev,
+        ):
             # Await the TIMESYNC round-trip: the server sends TIMESYNC only after
             # registering the device, so once the mock sets this event, the device
             # is guaranteed to be in runtime.devices.
@@ -159,11 +160,14 @@ def test_control_command_acked_and_state_updated() -> None:
     """Server sends CONTROL → mock ACKs and updates valve_states; tracker records ACKED."""
 
     async def run() -> None:
-        async with _runtime_harness() as (runtime, tracker, _state, _publisher, tcp_port, udp_port), MockSensorDevice(
-            server_ip="127.0.0.1",
-            server_port=tcp_port,
-            server_udp_port=udp_port,
-        ) as dev:
+        async with (
+            _runtime_harness() as (runtime, tracker, _state, _publisher, tcp_port, udp_port),
+            MockSensorDevice(
+                server_ip="127.0.0.1",
+                server_port=tcp_port,
+                server_udp_port=udp_port,
+            ) as dev,
+        ):
             await asyncio.wait_for(dev.timesync_received.wait(), timeout=2.0)
             session = _session_for(runtime, dev.device_name)
 
@@ -181,10 +185,7 @@ def test_control_command_acked_and_state_updated() -> None:
             # Give the ACK a tick to propagate through the server's monitor loop.
             await asyncio.sleep(0.05)
 
-            control_records = [
-                r for r in tracker.recent_completed
-                if r.packet_type == from_name("CONTROL")
-            ]
+            control_records = [r for r in tracker.recent_completed if r.packet_type == from_name("CONTROL")]
             assert any(r.state == CommandLifecycle.ACKED for r in control_records), (
                 f"No ACKED CONTROL record found. recent_completed: {tracker.recent_completed}"
             )
@@ -196,11 +197,14 @@ def test_control_command_closed() -> None:
     """OPEN → CLOSE round-trip updates valve state correctly."""
 
     async def run() -> None:
-        async with _runtime_harness() as (runtime, _tracker, _state, _runtime_harnesspublisher, tcp_port, udp_port), MockSensorDevice(
-            server_ip="127.0.0.1",
-            server_port=tcp_port,
-            server_udp_port=udp_port,
-        ) as dev:
+        async with (
+            _runtime_harness() as (runtime, _tracker, _state, _runtime_harnesspublisher, tcp_port, udp_port),
+            MockSensorDevice(
+                server_ip="127.0.0.1",
+                server_port=tcp_port,
+                server_udp_port=udp_port,
+            ) as dev,
+        ):
             await asyncio.wait_for(dev.timesync_received.wait(), timeout=2.0)
             session = _session_for(runtime, dev.device_name)
 
@@ -221,11 +225,14 @@ def test_telemetry_stream_readings_match_config() -> None:
     """Streaming DATA packets carry readings that map sensor_id → name → unit per the device config."""
 
     async def run() -> None:
-        async with _runtime_harness() as (runtime, _tracker, _state, publisher, tcp_port, udp_port), MockSensorDevice(
-            server_ip="127.0.0.1",
-            server_port=tcp_port,
-            server_udp_port=udp_port,
-        ) as dev:
+        async with (
+            _runtime_harness() as (runtime, _tracker, _state, publisher, tcp_port, udp_port),
+            MockSensorDevice(
+                server_ip="127.0.0.1",
+                server_port=tcp_port,
+                server_udp_port=udp_port,
+            ) as dev,
+        ):
             await asyncio.wait_for(dev.timesync_received.wait(), timeout=2.0)
             session = _session_for(runtime, dev.device_name)
 
@@ -242,19 +249,13 @@ def test_telemetry_stream_readings_match_config() -> None:
             batch = publisher.batches[0]
             config_sensors = session.qlcp_config.sensors_by_id
 
-            assert len(batch.readings) == len(config_sensors), (
-                f"Expected {len(config_sensors)} readings, got {len(batch.readings)}"
-            )
+            assert len(batch.readings) == len(config_sensors), f"Expected {len(config_sensors)} readings, got {len(batch.readings)}"
 
             for reading in batch.readings:
                 sensor = config_sensors.get(reading.sensor_id)
                 assert sensor is not None, f"Unknown sensor_id {reading.sensor_id} in batch"
-                assert reading.sensor_name == sensor.name, (
-                    f"sensor_id {reading.sensor_id}: name {reading.sensor_name!r} != config {sensor.name!r}"
-                )
-                assert reading.unit_name == sensor.unit.name, (
-                    f"sensor {sensor.name}: unit {reading.unit_name!r} != config {sensor.unit.name!r}"
-                )
+                assert reading.sensor_name == sensor.name, f"sensor_id {reading.sensor_id}: name {reading.sensor_name!r} != config {sensor.name!r}"
+                assert reading.unit_name == sensor.unit.name, f"sensor {sensor.name}: unit {reading.unit_name!r} != config {sensor.unit.name!r}"
 
             # Stop streaming and confirm the mock acknowledges it.
             dev.stream_stopped.clear()
@@ -269,11 +270,14 @@ def test_get_single_delivers_data_over_udp() -> None:
     """GET_SINGLE causes mock to send one DATA packet over UDP; no ACK is sent over TCP."""
 
     async def run() -> None:
-        async with _runtime_harness() as (runtime, tracker, _state, publisher, tcp_port, udp_port), MockSensorDevice(
-            server_ip="127.0.0.1",
-            server_port=tcp_port,
-            server_udp_port=udp_port,
-        ) as dev:
+        async with (
+            _runtime_harness() as (runtime, tracker, _state, publisher, tcp_port, udp_port),
+            MockSensorDevice(
+                server_ip="127.0.0.1",
+                server_port=tcp_port,
+                server_udp_port=udp_port,
+            ) as dev,
+        ):
             await asyncio.wait_for(dev.timesync_received.wait(), timeout=2.0)
             session = _session_for(runtime, dev.device_name)
 
@@ -287,10 +291,7 @@ def test_get_single_delivers_data_over_udp() -> None:
             assert reached, "GET_SINGLE did not produce a telemetry batch"
 
             # GET_SINGLE is not ACK-expected: the record should be immediately completed.
-            get_single_records = [
-                r for r in tracker.recent_completed
-                if r.packet_type == from_name("GET_SINGLE")
-            ]
+            get_single_records = [r for r in tracker.recent_completed if r.packet_type == from_name("GET_SINGLE")]
             assert get_single_records, "GET_SINGLE not found in recent_completed"
             # ack_expected=False → state is SENT (immediately completed, not pending ACK)
             assert all(not r.ack_expected for r in get_single_records)
@@ -302,39 +303,42 @@ def test_estop_stops_streaming_and_resets_state() -> None:
     """ESTOP causes the mock to stop streaming and reset valve states to defaults."""
 
     async def run() -> None:
-        async with _runtime_harness() as (runtime, _tracker, _state, _publisher, tcp_port, udp_port), MockSensorDevice(
-            server_ip="127.0.0.1",
-            server_port=tcp_port,
-            server_udp_port=udp_port,
-        ) as dev:
-                await asyncio.wait_for(dev.timesync_received.wait(), timeout=2.0)
-                session = _session_for(runtime, dev.device_name)
+        async with (
+            _runtime_harness() as (runtime, _tracker, _state, _publisher, tcp_port, udp_port),
+            MockSensorDevice(
+                server_ip="127.0.0.1",
+                server_port=tcp_port,
+                server_udp_port=udp_port,
+            ) as dev,
+        ):
+            await asyncio.wait_for(dev.timesync_received.wait(), timeout=2.0)
+            session = _session_for(runtime, dev.device_name)
 
-                # Open a valve so we can verify reset.
-                dev.control_handled.clear()
-                await runtime.set_control(session, "AV101", "OPEN")
-                await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
-                assert dev.valve_states.get("AV101") == "OPEN"
+            # Open a valve so we can verify reset.
+            dev.control_handled.clear()
+            await runtime.set_control(session, "AV101", "OPEN")
+            await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
+            assert dev.valve_states.get("AV101") == "OPEN"
 
-                # Start streaming.
-                dev.stream_started.clear()
-                await runtime.start_streaming(session, frequency_hz=10)
-                await asyncio.wait_for(dev.stream_started.wait(), timeout=2.0)
-                assert dev.streaming
+            # Start streaming.
+            dev.stream_started.clear()
+            await runtime.start_streaming(session, frequency_hz=10)
+            await asyncio.wait_for(dev.stream_started.wait(), timeout=2.0)
+            assert dev.streaming
 
-                # Fire ESTOP.
-                await runtime.emergency_stop(session)
+            # Fire ESTOP.
+            await runtime.emergency_stop(session)
 
-                # Streaming should stop.
-                stopped = await _wait_for(lambda: not dev.streaming, timeout=2.0)
-                assert stopped, "Mock is still streaming after ESTOP"
+            # Streaming should stop.
+            stopped = await _wait_for(lambda: not dev.streaming, timeout=2.0)
+            assert stopped, "Mock is still streaming after ESTOP"
 
-                # Valve state should be reset to default (CLOSED).
-                reset_ok = await _wait_for(
-                    lambda: dev.valve_states.get("AV101") == "CLOSED",
-                    timeout=2.0,
-                )
-                assert reset_ok, f"Valve AV101 did not reset to CLOSED; got {dev.valve_states.get('AV101')!r}"
+            # Valve state should be reset to default (CLOSED).
+            reset_ok = await _wait_for(
+                lambda: dev.valve_states.get("AV101") == "CLOSED",
+                timeout=2.0,
+            )
+            assert reset_ok, f"Valve AV101 did not reset to CLOSED; got {dev.valve_states.get('AV101')!r}"
 
     asyncio.run(run())
 
@@ -366,12 +370,15 @@ def test_custom_config_sensor_ids_match_readings() -> None:
     }
 
     async def run() -> None:
-        async with _runtime_harness() as (runtime, _tracker, _state, publisher, tcp_port, udp_port), MockSensorDevice(
-            server_ip="127.0.0.1",
-            server_port=tcp_port,
-            server_udp_port=udp_port,
-            config=custom_config,
-        ) as dev:
+        async with (
+            _runtime_harness() as (runtime, _tracker, _state, publisher, tcp_port, udp_port),
+            MockSensorDevice(
+                server_ip="127.0.0.1",
+                server_port=tcp_port,
+                server_udp_port=udp_port,
+                config=custom_config,
+            ) as dev,
+        ):
             await asyncio.wait_for(dev.timesync_received.wait(), timeout=2.0)
             session = _session_for(runtime, "CustomDevice")
 

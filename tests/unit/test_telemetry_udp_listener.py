@@ -2,12 +2,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import socket
-from typing import cast
 
 from libqretprop.runtime.telemetry_ingest import (
     TelemetryBatch,
-    TelemetryIngest,
-    TelemetryUDPListener,
+    TelemetryRuntime,
 )
 
 
@@ -29,6 +27,10 @@ class FakePublisher:
         self.batches.append(batch)
 
 
+class FakeRuntime:
+    devices: dict[str, object] = {}
+
+
 def _free_udp_port() -> int:
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -48,9 +50,9 @@ def _make_batch() -> TelemetryBatch:
     )
 
 
-async def _drive(listener: TelemetryUDPListener, port: int, stop) -> None:
+async def _drive(listener: TelemetryRuntime, port: int, stop) -> None:
     """Run the listener while a sender pushes datagrams until ``stop()`` is true (or timeout)."""
-    task = asyncio.create_task(listener.run())
+    task = asyncio.create_task(listener.run_udp_listener(port=port))
     sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         for _ in range(200):  # up to ~4s; tolerates the socket not yet being bound
@@ -71,7 +73,8 @@ def test_listener_publishes_decoded_batches() -> None:
         batch = _make_batch()
         ingest = FakeIngest(batch)
         publisher = FakePublisher()
-        listener = TelemetryUDPListener(cast(TelemetryIngest, ingest), publisher, port=port)
+        listener = TelemetryRuntime(FakeRuntime(), publisher)  # type: ignore[arg-type]
+        listener.handle_datagram = ingest.handle_datagram  # type: ignore[method-assign]
 
         await _drive(listener, port, stop=lambda: bool(publisher.batches))
 
@@ -87,7 +90,8 @@ def test_listener_skips_publish_when_ingest_returns_none() -> None:
         port = _free_udp_port()
         ingest = FakeIngest(None)
         publisher = FakePublisher()
-        listener = TelemetryUDPListener(cast(TelemetryIngest, ingest), publisher, port=port)
+        listener = TelemetryRuntime(FakeRuntime(), publisher)  # type: ignore[arg-type]
+        listener.handle_datagram = ingest.handle_datagram  # type: ignore[method-assign]
 
         # Drive until at least one datagram is received, then confirm nothing was published.
         await _drive(listener, port, stop=lambda: bool(ingest.seen))

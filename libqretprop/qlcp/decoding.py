@@ -3,9 +3,8 @@ from typing import Any, cast
 
 from libqretprop.qlcp._bindings import ffi as _ffi
 from libqretprop.qlcp._bindings import lib as _lib
-from libqretprop.qlcp.constants import HEADER_SIZE, MAX_CONFIG, MAX_CONTROLS, MAX_SENSORS
 from libqretprop.qlcp.enums import ControlState, DeviceStatus, ErrorCode, PacketType, Unit
-from libqretprop.qlcp.errors import QLCPError, check_qlcp_error
+from libqretprop.qlcp.native import HEADER_SIZE, MAX_CONFIG, MAX_CONTROLS, MAX_SENSORS, QLCPError, check_qlcp_error
 from libqretprop.qlcp.packets import (
     AckPacket,
     ConfigPacket,

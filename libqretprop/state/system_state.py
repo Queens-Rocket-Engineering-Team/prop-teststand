@@ -1,38 +1,22 @@
 from __future__ import annotations
 import time
-from dataclasses import asdict, dataclass, field
-from typing import TYPE_CHECKING, Protocol
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 from libqretprop.qlcp.enums import ControlState, PacketType
-from libqretprop.runtime.command_types import (
+from libqretprop.runtime.command_tracker import (
     OPERATOR_VISIBLE_PACKET_TYPES,
     CommandRecord,
-)
-from libqretprop.state.models import (
-    CommandCollectionSnapshot,
-    CommandSnapshot,
-    ControlSnapshot,
-    DeviceSnapshot,
-    HeartbeatSnapshot,
-    SensorSnapshot,
-    SystemSnapshot,
+    CommandTracker,
 )
 
 
 if TYPE_CHECKING:
     from libqretprop.qlcp.config_models import ControlConfig, DeviceConfig, SensorConfig
-    from libqretprop.runtime.esp_device_session import ESPDeviceSession
+    from libqretprop.runtime.esp_connection_runtime import ESPDeviceSession
 
 
 StateEvent = dict[str, object]
-
-
-class CommandTrackerView(Protocol):
-    @property
-    def pending(self) -> tuple[CommandRecord, ...]: ...
-
-    @property
-    def recent_completed(self) -> tuple[CommandRecord, ...]: ...
 
 
 @dataclass(slots=True)
@@ -55,7 +39,7 @@ class _DeviceState:
 class SystemState:
     """Read-only projection keyed by operational device identity."""
 
-    def __init__(self, *, command_tracker: CommandTrackerView) -> None:
+    def __init__(self, *, command_tracker: CommandTracker) -> None:
         self._devices_by_name: dict[str, _DeviceState] = {}
         self._command_tracker = command_tracker
         self._state_version = 0
@@ -75,7 +59,7 @@ class SystemState:
         )
         return self._make_event(
             "device.registered",
-            device=asdict(self._snapshot_device(self._devices_by_name[device.name])),
+            device=self._snapshot_device(self._devices_by_name[device.name]),
         )
 
     def mark_disconnected(self, device: ESPDeviceSession) -> StateEvent | None:
@@ -122,10 +106,10 @@ class SystemState:
             "control.updated",
             device_name=device_state.device_name,
             control_id=control_id,
-            control_name=control_snapshot.name,
-            reported_state=control_snapshot.reported_state,
-            reported_timestamp=control_snapshot.reported_timestamp,
-            pending_command_id=control_snapshot.pending_command_id,
+            control_name=control_snapshot["name"],
+            reported_state=control_snapshot["reported_state"],
+            reported_timestamp=control_snapshot["reported_timestamp"],
+            pending_command_id=control_snapshot["pending_command_id"],
         )
 
     def record_command_sent(self, command: CommandRecord) -> StateEvent | None:
@@ -140,68 +124,61 @@ class SystemState:
     def record_command_timed_out(self, command: CommandRecord) -> StateEvent | None:
         return self._command_event("command.timed_out", command)
 
-    def snapshot(self) -> SystemSnapshot:
-        devices = [
-            self._snapshot_device(device_state)
-            for device_state in sorted(self._devices_by_name.values(), key=lambda item: item.device_name)
-        ]
+    def snapshot(self) -> dict[str, Any]:
+        devices = [self._snapshot_device(device_state) for device_state in sorted(self._devices_by_name.values(), key=lambda item: item.device_name)]
         commands = self._snapshot_commands()
 
-        return SystemSnapshot(
-            state_version=self._state_version,
-            devices=devices,
-            commands=commands,
-        )
+        return {
+            "state_version": self._state_version,
+            "devices": devices,
+            "commands": commands,
+        }
 
-    def to_dict(self) -> dict:
-        return asdict(self.snapshot())
+    def to_dict(self) -> dict[str, Any]:
+        return self.snapshot()
 
-    def _snapshot_device(self, device_state: _DeviceState) -> DeviceSnapshot:
+    def _snapshot_device(self, device_state: _DeviceState) -> dict[str, Any]:
         config = device_state.config
         device = device_state.device
 
-        return DeviceSnapshot(
-            name=config.name,
-            device_type=config.device_type,
-            connected=device_state.connected,
-            address=device_state.address,
-            sensors=[
-                self._snapshot_sensor(sensor)
-                for sensor in sorted(config.sensors_by_id.values(), key=lambda sensor: sensor.id)
+        return {
+            "name": config.name,
+            "device_type": config.device_type,
+            "connected": device_state.connected,
+            "address": device_state.address,
+            "sensors": [self._snapshot_sensor(sensor) for sensor in sorted(config.sensors_by_id.values(), key=lambda sensor: sensor.id)],
+            "controls": [
+                self._snapshot_control(device_state, control) for control in sorted(config.controls_by_id.values(), key=lambda control: control.id)
             ],
-            controls=[
-                self._snapshot_control(device_state, control)
-                for control in sorted(config.controls_by_id.values(), key=lambda control: control.id)
-            ],
-            last_sync_time=device.last_sync_time if device is not None else None,
-            heartbeat=self._snapshot_heartbeat(device_state),
-        )
+            "last_sync_time": device.last_sync_time if device is not None else None,
+            "heartbeat": self._snapshot_heartbeat(device_state),
+        }
 
     @staticmethod
-    def _snapshot_sensor(sensor: SensorConfig) -> SensorSnapshot:
-        return SensorSnapshot(
-            id=sensor.id,
-            name=sensor.name,
-            type=sensor.type,
-            unit=sensor.unit.name,
-        )
+    def _snapshot_sensor(sensor: SensorConfig) -> dict[str, Any]:
+        return {
+            "id": sensor.id,
+            "name": sensor.name,
+            "type": sensor.type,
+            "unit": sensor.unit.name,
+        }
 
     def _snapshot_control(
         self,
         device_state: _DeviceState,
         control: ControlConfig,
-    ) -> ControlSnapshot:
+    ) -> dict[str, Any]:
         reported_state = device_state.reported_controls.get(control.id)
 
-        return ControlSnapshot(
-            id=control.id,
-            name=control.name,
-            type=control.control_type,
-            default_state=control.default.name,
-            reported_state=reported_state.state if reported_state is not None else None,
-            reported_timestamp=reported_state.timestamp if reported_state is not None else None,
-            pending_command_id=self._pending_command_id(device_state, control.id),
-        )
+        return {
+            "id": control.id,
+            "name": control.name,
+            "type": control.control_type,
+            "default_state": control.default.name,
+            "reported_state": reported_state.state if reported_state is not None else None,
+            "reported_timestamp": reported_state.timestamp if reported_state is not None else None,
+            "pending_command_id": self._pending_command_id(device_state, control.id),
+        }
 
     def _pending_command_id(self, device_state: _DeviceState, control_id: int) -> int | None:
         device = device_state.device
@@ -211,18 +188,14 @@ class SystemState:
         pending_commands = [
             command
             for command in self._command_tracker.pending
-            if (
-                command.connection_key == device.connection_key
-                and command.packet_type == PacketType.CONTROL
-                and command.control_id == control_id
-            )
+            if (command.connection_key == device.connection_key and command.packet_type == PacketType.CONTROL and command.control_id == control_id)
         ]
         if not pending_commands:
             return None
 
         return max(command.command_id for command in pending_commands)
 
-    def _snapshot_heartbeat(self, device_state: _DeviceState) -> HeartbeatSnapshot:
+    def _snapshot_heartbeat(self, device_state: _DeviceState) -> dict[str, Any]:
         device = device_state.device
         consecutive_misses = device.missed_heartbeat_count if device is not None else 0
 
@@ -233,44 +206,43 @@ class SystemState:
         else:
             state = "ok"
 
-        return HeartbeatSnapshot(
-            state=state,
-            consecutive_misses=consecutive_misses,
-        )
+        return {
+            "state": state,
+            "consecutive_misses": consecutive_misses,
+        }
 
-    def _snapshot_commands(self) -> CommandCollectionSnapshot:
+    def _snapshot_commands(self) -> dict[str, Any]:
         pending = [
             self._snapshot_command(command)
             for command in sorted(self._command_tracker.pending, key=lambda command: command.command_id)
             if command.packet_type in OPERATOR_VISIBLE_PACKET_TYPES
         ]
         recent = [
-            self._snapshot_command(command)
-            for command in sorted(self._command_tracker.recent_completed, key=lambda command: command.command_id)
+            self._snapshot_command(command) for command in sorted(self._command_tracker.recent_completed, key=lambda command: command.command_id)
         ]
 
-        return CommandCollectionSnapshot(pending=pending, recent=recent)
+        return {"pending": pending, "recent": recent}
 
     @staticmethod
-    def _snapshot_command(command: CommandRecord) -> CommandSnapshot:
-        return CommandSnapshot(
-            command_id=command.command_id,
-            connection_key=command.connection_key,
-            device_address=command.device_address,
-            device_name=command.device_name,
-            packet_type=command.packet_type.name,
-            sequence=command.packet_sequence,
-            state=command.state.value,
-            sent_at=command.sent_at,
-            ack_expected=command.ack_expected,
-            acked_at=command.acked_at,
-            nacked_at=command.nacked_at,
-            timed_out_at=command.timed_out_at,
-            nack_error_code=command.nack_error_code.name if command.nack_error_code is not None else None,
-            control_id=command.control_id,
-            control_name=command.control_name,
-            requested_state=command.requested_state.name if command.requested_state is not None else None,
-        )
+    def _snapshot_command(command: CommandRecord) -> dict[str, Any]:
+        return {
+            "command_id": command.command_id,
+            "connection_key": command.connection_key,
+            "device_address": command.device_address,
+            "device_name": command.device_name,
+            "packet_type": command.packet_type.name,
+            "sequence": command.packet_sequence,
+            "state": command.state.value,
+            "sent_at": command.sent_at,
+            "ack_expected": command.ack_expected,
+            "acked_at": command.acked_at,
+            "nacked_at": command.nacked_at,
+            "timed_out_at": command.timed_out_at,
+            "nack_error_code": command.nack_error_code.name if command.nack_error_code is not None else None,
+            "control_id": command.control_id,
+            "control_name": command.control_name,
+            "requested_state": command.requested_state.name if command.requested_state is not None else None,
+        }
 
     @staticmethod
     def _control_state_name(state: ControlState | str) -> str:
@@ -286,7 +258,7 @@ class SystemState:
 
         return self._make_event(
             event_type,
-            command=asdict(self._snapshot_command(command)),
+            command=self._snapshot_command(command),
         )
 
     def _heartbeat_event(self, connection_key: str) -> StateEvent | None:
@@ -299,7 +271,7 @@ class SystemState:
             device_name=device_state.device_name,
             device_address=device_state.address,
             connection_key=device_state.connection_key,
-            heartbeat=asdict(self._snapshot_heartbeat(device_state)),
+            heartbeat=self._snapshot_heartbeat(device_state),
         )
 
     def _device_state_for_connection(self, connection_key: str) -> _DeviceState | None:

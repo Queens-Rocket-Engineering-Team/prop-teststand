@@ -2,13 +2,8 @@ from typing import Any
 
 from libqretprop.qlcp.config_models import (
     ControlConfig,
-    CurrentSensorConfig,
     DeviceConfig,
-    LoadCellConfig,
-    PressureTransducerConfig,
-    ResistanceSensorConfig,
     SensorConfig,
-    ThermocoupleConfig,
 )
 from libqretprop.qlcp.enums import ControlState, Unit
 
@@ -58,50 +53,12 @@ def parse_sensor_config(
     details: dict[str, Any],
 ) -> SensorConfig:
     context = f"{sensor_type} sensor {sensor_name!r}"
-    unit = cast_unit(require_string_field(details, "unit", context))
-    base: dict[str, Any] = {
-        "id": sensor_id,
-        "name": sensor_name,
-        "type": sensor_type,
-        "unit": unit,
-    }
-
-    if sensor_type == "thermocouple":
-        return ThermocoupleConfig(
-            **base,
-            thermo_type=require_string_field(details, "type", context),
-        )
-
-    if sensor_type == "pressure_transducer":
-        return PressureTransducerConfig(
-            **base,
-            resistor_ohms=require_field(details, "resistor_ohms", context),
-            max_pressure_psi=require_field(details, "max_pressure_PSI", context),
-        )
-
-    if sensor_type == "load_cell":
-        return LoadCellConfig(
-            **base,
-            load_rating_n=require_field(details, "load_rating_N", context),
-            excitation_v=require_field(details, "excitation_V", context),
-            sensitivity_vv=require_field(details, "sensitivity_vV", context),
-        )
-
-    if sensor_type == "resistance_sensor":
-        return ResistanceSensorConfig(
-            **base,
-            injected_current_ua=require_field(details, "injected_current_uA", context),
-            r_short=require_field(details, "r_short", context),
-        )
-
-    if sensor_type == "current_sensor":
-        return CurrentSensorConfig(
-            **base,
-            shunt_resistor_ohms=require_field(details, "shunt_resistor_ohms", context),
-            csa_gain=require_field(details, "csa_gain", context),
-        )
-
-    return SensorConfig(**base)
+    return SensorConfig(
+        id=sensor_id,
+        name=sensor_name,
+        type=sensor_type,
+        unit=cast_unit(require_string_field(details, "unit", context)),
+    )
 
 
 def parse_control_config(
@@ -123,10 +80,12 @@ def require_field(details: dict[str, Any], field: str, context: str) -> Any:
     try:
         value = details[field]
     except KeyError as err:
-        raise QLCPConfigError(f"{context} missing required field: {field}") from err
+        message = f"{context} missing required field: {field}"
+        raise QLCPConfigError(message) from err
 
     if value is None or value == "":
-        raise QLCPConfigError(f"{context} missing required field: {field}")
+        message = f"{context} missing required field: {field}"
+        raise QLCPConfigError(message)
 
     return value
 
@@ -135,7 +94,8 @@ def require_string_field(details: dict[str, Any], field: str, context: str) -> s
     value = require_field(details, field, context)
 
     if not isinstance(value, str):
-        raise QLCPConfigError(f"{context} field must be a string: {field}")
+        message = f"{context} field must be a string: {field}"
+        raise QLCPConfigError(message)
 
     return value
 

@@ -2,9 +2,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from libqretprop.qlcp.constants import HEADER_SIZE
 from libqretprop.qlcp.decoding import ServerReceivedPacket, decode_packet_server
-from libqretprop.qlcp.framing import get_packet_len
+from libqretprop.qlcp.native import HEADER_SIZE, get_packet_len
 
 
 if TYPE_CHECKING:
@@ -29,7 +28,7 @@ class ESPDriver:
         tcp_socket: socket.socket,
         address: str,
     ) -> None:
-        self.socket: socket.socket = tcp_socket
+        self.socket: socket.socket | None = tcp_socket
         self.address = address
 
     async def send_packet(self, packet: EncodablePacket) -> None:

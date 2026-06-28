@@ -90,19 +90,19 @@ def test_register_device_produces_expected_snapshot() -> None:
     assert event["type"] == "device.registered"
     assert event["state_version"] == 1
     assert state.state_version == 1
-    assert snapshot.state_version == 1
-    assert len(snapshot.devices) == 1
+    assert snapshot["state_version"] == 1
+    assert len(snapshot["devices"]) == 1
 
-    device_snapshot = snapshot.devices[0]
-    assert device_snapshot.name == "TEST-DEVICE"
-    assert device_snapshot.device_type == "Sensor Monitor"
-    assert device_snapshot.connected is True
-    assert device_snapshot.address == "10.0.0.2"
-    assert device_snapshot.sensors[0].name == "TC1"
-    assert device_snapshot.sensors[0].unit == "CELSIUS"
-    assert device_snapshot.controls[0].name == "VALVE1"
-    assert device_snapshot.controls[0].reported_state is None
-    assert device_snapshot.heartbeat.state == "ok"
+    device_snapshot = snapshot["devices"][0]
+    assert device_snapshot["name"] == "TEST-DEVICE"
+    assert device_snapshot["device_type"] == "Sensor Monitor"
+    assert device_snapshot["connected"] is True
+    assert device_snapshot["address"] == "10.0.0.2"
+    assert device_snapshot["sensors"][0]["name"] == "TC1"
+    assert device_snapshot["sensors"][0]["unit"] == "CELSIUS"
+    assert device_snapshot["controls"][0]["name"] == "VALVE1"
+    assert device_snapshot["controls"][0]["reported_state"] is None
+    assert device_snapshot["heartbeat"]["state"] == "ok"
 
 
 def test_replacing_device_with_same_name_updates_snapshot() -> None:
@@ -114,8 +114,8 @@ def test_replacing_device_with_same_name_updates_snapshot() -> None:
     state.register_device(new_device)
     snapshot = state.snapshot()
 
-    assert len(snapshot.devices) == 1
-    assert snapshot.devices[0].address == "10.0.0.3"
+    assert len(snapshot["devices"]) == 1
+    assert snapshot["devices"][0]["address"] == "10.0.0.3"
 
 
 def test_old_connection_disconnect_does_not_disconnect_replaced_device() -> None:
@@ -128,9 +128,9 @@ def test_old_connection_disconnect_does_not_disconnect_replaced_device() -> None
     state.mark_disconnected(old_device)
     snapshot = state.snapshot()
 
-    assert len(snapshot.devices) == 1
-    assert snapshot.devices[0].address == "10.0.0.3"
-    assert snapshot.devices[0].connected is True
+    assert len(snapshot["devices"]) == 1
+    assert snapshot["devices"][0]["address"] == "10.0.0.3"
+    assert snapshot["devices"][0]["connected"] is True
 
 
 def test_old_connection_with_same_address_does_not_disconnect_replaced_device() -> None:
@@ -143,9 +143,9 @@ def test_old_connection_with_same_address_does_not_disconnect_replaced_device() 
     state.mark_disconnected(old_device)
     snapshot = state.snapshot()
 
-    assert len(snapshot.devices) == 1
-    assert snapshot.devices[0].address == "10.0.0.2"
-    assert snapshot.devices[0].connected is True
+    assert len(snapshot["devices"]) == 1
+    assert snapshot["devices"][0]["address"] == "10.0.0.2"
+    assert snapshot["devices"][0]["connected"] is True
 
 
 def test_status_update_changes_reported_control_state() -> None:
@@ -163,9 +163,9 @@ def test_status_update_changes_reported_control_state() -> None:
     assert event["control_id"] == 0
     assert event["control_name"] == "VALVE1"
     assert event["reported_state"] == "OPEN"
-    control = snapshot.devices[0].controls[0]
-    assert control.reported_state == "OPEN"
-    assert control.reported_timestamp == 42.0
+    control = snapshot["devices"][0]["controls"][0]
+    assert control["reported_state"] == "OPEN"
+    assert control["reported_timestamp"] == 42.0
 
 
 def test_status_update_does_not_register_unconnected_device() -> None:
@@ -176,8 +176,8 @@ def test_status_update_does_not_register_unconnected_device() -> None:
     snapshot = state.snapshot()
 
     assert event is None
-    assert snapshot.state_version == 0
-    assert snapshot.devices == []
+    assert snapshot["state_version"] == 0
+    assert snapshot["devices"] == []
 
 
 def test_old_connection_status_does_not_update_replaced_device() -> None:
@@ -190,8 +190,8 @@ def test_old_connection_status_does_not_update_replaced_device() -> None:
     state.update_control_state(old_device, 0, ControlState.OPEN, now=42.0)
     snapshot = state.snapshot()
 
-    control = snapshot.devices[0].controls[0]
-    assert control.reported_state is None
+    control = snapshot["devices"][0]["controls"][0]
+    assert control["reported_state"] is None
 
 
 def test_pending_command_tracker_data_appears_in_snapshot() -> None:
@@ -209,16 +209,16 @@ def test_pending_command_tracker_data_appears_in_snapshot() -> None:
 
     snapshot = state.snapshot()
 
-    assert snapshot.commands.pending[0].command_id == command.command_id
-    assert snapshot.commands.pending[0].connection_key == "conn-a"
-    assert snapshot.commands.pending[0].device_name == "TEST-DEVICE"
-    assert snapshot.commands.pending[0].packet_type == "CONTROL"
-    assert snapshot.commands.pending[0].state == "sent"
-    assert snapshot.commands.pending[0].ack_expected is True
-    assert snapshot.commands.pending[0].control_name == "VALVE1"
-    assert snapshot.commands.pending[0].requested_state == "CLOSED"
-    assert snapshot.commands.recent == []
-    assert snapshot.devices[0].controls[0].pending_command_id == command.command_id
+    assert snapshot["commands"]["pending"][0]["command_id"] == command.command_id
+    assert snapshot["commands"]["pending"][0]["connection_key"] == "conn-a"
+    assert snapshot["commands"]["pending"][0]["device_name"] == "TEST-DEVICE"
+    assert snapshot["commands"]["pending"][0]["packet_type"] == "CONTROL"
+    assert snapshot["commands"]["pending"][0]["state"] == "sent"
+    assert snapshot["commands"]["pending"][0]["ack_expected"] is True
+    assert snapshot["commands"]["pending"][0]["control_name"] == "VALVE1"
+    assert snapshot["commands"]["pending"][0]["requested_state"] == "CLOSED"
+    assert snapshot["commands"]["recent"] == []
+    assert snapshot["devices"][0]["controls"][0]["pending_command_id"] == command.command_id
 
 
 def test_recent_completed_command_tracker_data_appears_in_snapshot() -> None:
@@ -237,12 +237,12 @@ def test_recent_completed_command_tracker_data_appears_in_snapshot() -> None:
 
     snapshot = state.snapshot()
 
-    assert snapshot.commands.pending == []
-    assert snapshot.commands.recent[0].command_id == command.command_id
-    assert snapshot.commands.recent[0].connection_key == "conn-a"
-    assert snapshot.commands.recent[0].ack_expected is True
-    assert snapshot.commands.recent[0].control_name == "VALVE1"
-    assert snapshot.commands.recent[0].state == "acked"
+    assert snapshot["commands"]["pending"] == []
+    assert snapshot["commands"]["recent"][0]["command_id"] == command.command_id
+    assert snapshot["commands"]["recent"][0]["connection_key"] == "conn-a"
+    assert snapshot["commands"]["recent"][0]["ack_expected"] is True
+    assert snapshot["commands"]["recent"][0]["control_name"] == "VALVE1"
+    assert snapshot["commands"]["recent"][0]["state"] == "acked"
 
 
 def test_heartbeat_commands_are_summarized_not_listed_in_snapshot() -> None:
@@ -255,10 +255,10 @@ def test_heartbeat_commands_are_summarized_not_listed_in_snapshot() -> None:
 
     snapshot = state.snapshot()
 
-    assert snapshot.commands.pending == []
-    assert snapshot.commands.recent == []
-    assert snapshot.devices[0].heartbeat.state == "ok"
-    assert snapshot.devices[0].heartbeat.consecutive_misses == 0
+    assert snapshot["commands"]["pending"] == []
+    assert snapshot["commands"]["recent"] == []
+    assert snapshot["devices"][0]["heartbeat"]["state"] == "ok"
+    assert snapshot["devices"][0]["heartbeat"]["consecutive_misses"] == 0
 
 
 def test_pending_heartbeat_is_summarized_not_listed_in_snapshot() -> None:
@@ -270,8 +270,8 @@ def test_pending_heartbeat_is_summarized_not_listed_in_snapshot() -> None:
 
     snapshot = state.snapshot()
 
-    assert snapshot.commands.pending == []
-    assert snapshot.devices[0].heartbeat.state == "ok"
+    assert snapshot["commands"]["pending"] == []
+    assert snapshot["devices"][0]["heartbeat"]["state"] == "ok"
 
 
 def test_missed_heartbeat_state_is_summarized() -> None:
@@ -281,8 +281,8 @@ def test_missed_heartbeat_state_is_summarized() -> None:
 
     snapshot = state.snapshot()
 
-    assert snapshot.devices[0].heartbeat.state == "missed"
-    assert snapshot.devices[0].heartbeat.consecutive_misses == 2
+    assert snapshot["devices"][0]["heartbeat"]["state"] == "missed"
+    assert snapshot["devices"][0]["heartbeat"]["consecutive_misses"] == 2
 
 
 def test_disconnected_device_is_marked_disconnected() -> None:
@@ -297,8 +297,8 @@ def test_disconnected_device_is_marked_disconnected() -> None:
     assert event["type"] == "device.disconnected"
     assert event["state_version"] == 2
     assert event["device_name"] == "TEST-DEVICE"
-    assert snapshot.devices[0].connected is False
-    assert snapshot.devices[0].heartbeat.state == "disconnected"
+    assert snapshot["devices"][0]["connected"] is False
+    assert snapshot["devices"][0]["heartbeat"]["state"] == "disconnected"
 
 
 def test_command_lifecycle_events_increment_state_version() -> None:
@@ -409,10 +409,10 @@ def test_estop_commands_are_operator_visible_without_pending_ack() -> None:
     payload = cast(dict[str, object], sent_event["command"])
     assert payload["packet_type"] == "ESTOP"
     assert payload["ack_expected"] is False
-    assert snapshot.commands.pending == []
-    assert snapshot.commands.recent[0].command_id == estop.command_id
-    assert snapshot.commands.recent[0].packet_type == "ESTOP"
-    assert snapshot.commands.recent[0].ack_expected is False
+    assert snapshot["commands"]["pending"] == []
+    assert snapshot["commands"]["recent"][0]["command_id"] == estop.command_id
+    assert snapshot["commands"]["recent"][0]["packet_type"] == "ESTOP"
+    assert snapshot["commands"]["recent"][0]["ack_expected"] is False
     assert expired == []
 
 
@@ -433,8 +433,8 @@ def test_status_request_commands_are_not_operator_visible() -> None:
     assert status_request.ack_expected is False
     assert state.state_version == 1
     assert tracker.pending == ()
-    assert pending_snapshot.commands.pending == []
-    assert completed_snapshot.commands.recent == []
+    assert pending_snapshot["commands"]["pending"] == []
+    assert completed_snapshot["commands"]["recent"] == []
 
 
 def test_snapshot_serializes_to_dict() -> None:
