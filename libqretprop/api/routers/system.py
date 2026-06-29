@@ -21,7 +21,7 @@ async def get_health() -> dict:
 
 @router.get("/v1/state", summary="Get a structured snapshot of server state")
 async def get_state(rt: Annotated[RuntimeServices, Depends(get_runtime)]) -> dict[str, Any]:
-    return rt.system_state.to_dict()
+    return rt.system_state.snapshot()
 
 
 @router.get("/v1/metrics", summary="Get live server metrics diagnostics")
