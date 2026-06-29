@@ -8,21 +8,11 @@ def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Start the QRET server.")
 
-    parser.add_argument(
-        "--no-discovery", "-nd",
-        action="store_true",
-        default=False,
-        help="Disable device discovery. Use this if you want to disable SSDP discovery.",
-    )
-
     return parser.parse_args()
 
 def main() -> None:
     """Start the QRET server."""
-    args = parse_args()
-    asyncio.run(server.main(
-        no_discovery=args.no_discovery,
-    ))
+    asyncio.run(server.main())
 
 if __name__ == "__main__":
 
