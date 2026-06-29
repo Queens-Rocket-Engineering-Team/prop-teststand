@@ -65,6 +65,8 @@ def test_serialize_batch_matches_wire_format() -> None:
         "device_address": "10.0.0.184",
         "connection_key": "esp-1",
         "timestamp_s": 98269.746,
+        "timestamp_source": "device_synced",
+        "timestamp_synced": True,
         "readings": [
             {
                 "sensor_id": 0,

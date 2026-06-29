@@ -138,7 +138,7 @@ def test_runtime_registers_valid_device() -> None:
             assert session.connection_key == "esp-1"
             assert session.monitor_task is not None
             assert session.heartbeat_task is not None
-            assert runtime.devices["10.0.0.2"] is session
+            assert runtime.devices.by_address("10.0.0.2") is session
             assert state.snapshot()["devices"][0]["name"] == "TEST-DEVICE"
             assert stream.events[0]["type"] == "device.registered"
         finally:
@@ -162,7 +162,7 @@ def test_accept_connection_registers_device_on_config() -> None:
             session = await runtime.accept_connection(server_sock, "10.0.0.2")
 
             assert isinstance(session, ESPDeviceSession)
-            assert runtime.devices["10.0.0.2"] is session
+            assert runtime.devices.by_address("10.0.0.2") is session
             assert state.snapshot()["devices"][0]["name"] == "TEST-DEVICE"
             assert stream.events[0]["type"] == "device.registered"
         finally:
@@ -184,7 +184,7 @@ def test_accept_connection_closes_socket_when_peer_disconnects_before_config() -
         result = await runtime.accept_connection(server_sock, "10.0.0.2")
 
         assert result is None
-        assert "10.0.0.2" not in runtime.devices
+        assert runtime.devices.by_address("10.0.0.2") is None
         assert server_sock.fileno() == -1  # accept_connection closed the socket
 
     asyncio.run(run())
@@ -204,7 +204,7 @@ def test_accept_connection_closes_socket_on_non_config_first_packet() -> None:
             result = await runtime.accept_connection(server_sock, "10.0.0.2")
 
             assert result is None
-            assert "10.0.0.2" not in runtime.devices
+            assert runtime.devices.by_address("10.0.0.2") is None
             assert server_sock.fileno() == -1
         finally:
             peer_sock.close()
@@ -217,8 +217,8 @@ def test_runtime_replaces_existing_device_and_fails_pending_commands() -> None:
     runtime, tracker, state, stream = _make_runtime()
     old_device = _make_session(runtime, address="10.0.0.2", connection_key="conn-old")
     other_device = _make_session(runtime, address="10.0.0.4", connection_key="conn-other", name="OTHER")
-    runtime.devices[old_device.address] = old_device
-    runtime.devices[other_device.address] = other_device
+    runtime.devices.register(old_device)
+    runtime.devices.register(other_device)
     state.register_device(old_device)
     pending = tracker.mark_sent(
         connection_key=old_device.connection_key,
@@ -231,8 +231,8 @@ def test_runtime_replaces_existing_device_and_fails_pending_commands() -> None:
 
     runtime.disconnect_registered_devices_with_name(old_device.name)
 
-    assert old_device.address not in runtime.devices
-    assert runtime.devices[other_device.address] is other_device
+    assert runtime.devices.by_address(old_device.address) is None
+    assert runtime.devices.by_address(other_device.address) is other_device
     assert pending.state == CommandLifecycle.TIMED_OUT
     assert tracker.pending == ()
     assert stream.events[-1]["type"] == "device.disconnected"
@@ -241,20 +241,20 @@ def test_runtime_replaces_existing_device_and_fails_pending_commands() -> None:
 def test_runtime_removal_marks_device_disconnected() -> None:
     runtime, _tracker, state, stream = _make_runtime()
     device = _make_session(runtime)
-    runtime.devices[device.address] = device
+    runtime.devices.register(device)
     state.register_device(device)
 
     runtime.remove_device(device)
 
-    assert device.address not in runtime.devices
+    assert runtime.devices.by_address(device.address) is None
     assert state.snapshot()["devices"][0]["connected"] is False
     assert stream.events[-1]["type"] == "device.disconnected"
 
 
-def test_runtime_ack_routes_through_tracker_and_updates_control_state() -> None:
+def test_runtime_ack_routes_through_tracker_and_records_accepted_control_state() -> None:
     runtime, tracker, state, stream = _make_runtime()
     device = _make_session(runtime)
-    runtime.devices[device.address] = device
+    runtime.devices.register(device)
     state.register_device(device)
     command = tracker.mark_sent(
         connection_key=device.connection_key,
@@ -279,14 +279,16 @@ def test_runtime_ack_routes_through_tracker_and_updates_control_state() -> None:
     )
 
     assert command.state == CommandLifecycle.ACKED
-    assert state.snapshot()["devices"][0]["controls"][0]["reported_state"] == "OPEN"
-    assert [event["type"] for event in stream.events[-2:]] == ["command.acked", "control.updated"]
+    control = state.snapshot()["devices"][0]["controls"][0]
+    assert control["accepted_state"] == "OPEN"
+    assert control["reported_state"] is None
+    assert [event["type"] for event in stream.events[-2:]] == ["command.acked", "control.accepted"]
 
 
 def test_runtime_nack_routes_through_tracker_without_control_update() -> None:
     runtime, tracker, state, stream = _make_runtime()
     device = _make_session(runtime)
-    runtime.devices[device.address] = device
+    runtime.devices.register(device)
     state.register_device(device)
     command = tracker.mark_sent(
         connection_key=device.connection_key,
@@ -319,7 +321,7 @@ def test_runtime_nack_routes_through_tracker_without_control_update() -> None:
 def test_runtime_status_updates_reported_control_state() -> None:
     runtime, _tracker, state, stream = _make_runtime()
     device = _make_session(runtime)
-    runtime.devices[device.address] = device
+    runtime.devices.register(device)
     state.register_device(device)
 
     runtime.handle_status(
@@ -387,7 +389,7 @@ def test_status_packet_with_no_controls_does_not_error(caplog: Any) -> None:
 
     runtime, _tracker, state, stream = _make_runtime()
     device = _make_session(runtime)
-    runtime.devices[device.address] = device
+    runtime.devices.register(device)
     state.register_device(device)
 
     empty_status = StatusPacket(
@@ -411,7 +413,7 @@ def test_remove_device_cleanup_before_mark_disconnected() -> None:
 
     runtime, _tracker, state, stream = _make_runtime()
     device = _make_session(runtime)
-    runtime.devices[device.address] = device
+    runtime.devices.register(device)
     state.register_device(device)
 
     # Patch cleanup_device and mark_disconnected to record call order.
@@ -439,7 +441,7 @@ def test_close_all_cleanup_before_mark_disconnected() -> None:
 
     runtime, _tracker, state, stream = _make_runtime()
     device = _make_session(runtime)
-    runtime.devices[device.address] = device
+    runtime.devices.register(device)
     state.register_device(device)
 
     original_cleanup = runtime.cleanup_device
@@ -459,7 +461,7 @@ def test_close_all_cleanup_before_mark_disconnected() -> None:
     runtime.close_all()
 
     assert close_called_at == ["cleanup", "mark_disconnected"], f"Wrong teardown order in close_all: {close_called_at}"
-    assert runtime.devices == {}, "Devices registry was not cleared"
+    assert runtime.devices.snapshot_by_address() == {}, "Devices registry was not cleared"
 
 
 def test_disconnection_metric_recorded_on_remove_device() -> None:
@@ -476,7 +478,7 @@ def test_disconnection_metric_recorded_on_remove_device() -> None:
         metrics=metrics,
     )
     device = _make_session(runtime)
-    runtime.devices[device.address] = device
+    runtime.devices.register(device)
     state.register_device(device)
 
     runtime.remove_device(device)

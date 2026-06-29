@@ -153,7 +153,7 @@ def test_status_update_changes_reported_control_state() -> None:
     device = _make_device()
 
     state.register_device(device)
-    event = state.update_control_state(device, 0, ControlState.OPEN, now=42.0)
+    event = state.record_reported_control_state(device, 0, ControlState.OPEN, now=42.0)
     snapshot = state.snapshot()
 
     assert event is not None
@@ -172,7 +172,7 @@ def test_status_update_does_not_register_unconnected_device() -> None:
     state, _ = _make_state()
     device = _make_device()
 
-    event = state.update_control_state(device, 0, ControlState.OPEN, now=42.0)
+    event = state.record_reported_control_state(device, 0, ControlState.OPEN, now=42.0)
     snapshot = state.snapshot()
 
     assert event is None
@@ -187,7 +187,7 @@ def test_old_connection_status_does_not_update_replaced_device() -> None:
 
     state.register_device(old_device)
     state.register_device(new_device)
-    state.update_control_state(old_device, 0, ControlState.OPEN, now=42.0)
+    state.record_reported_control_state(old_device, 0, ControlState.OPEN, now=42.0)
     snapshot = state.snapshot()
 
     control = snapshot["devices"][0]["controls"][0]
@@ -442,7 +442,7 @@ def test_snapshot_serializes_to_dict() -> None:
     device = _make_device()
 
     state.register_device(device)
-    snapshot_dict = state.to_dict()
+    snapshot_dict = state.snapshot()
 
     assert snapshot_dict["devices"][0]["name"] == "TEST-DEVICE"
     assert snapshot_dict["state_version"] == 1

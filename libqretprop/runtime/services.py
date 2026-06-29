@@ -107,7 +107,7 @@ def build_runtime(config: ServerConfig) -> RuntimeServices:
         metrics=metrics,
     )
     telemetry_runtime = TelemetryRuntime(
-        esp_runtime,
+        esp_runtime.get_device_by_udp_address,
         telemetry_stream,
         telemetry_display_stream,
         metrics=metrics,

@@ -76,14 +76,19 @@ def _make_batch(
     timestamp_s: float = 1.0,
     readings: tuple[TelemetryReading, ...] | None = None,
     device_name: str = "MockDevice",
+    connection_key: str = "esp-1",
 ) -> TelemetryBatch:
     return TelemetryBatch(
         device_name=device_name,
         device_address="10.0.0.1",
-        connection_key="esp-1",
+        connection_key=connection_key,
         timestamp_s=timestamp_s,
         readings=readings if readings is not None else (_make_reading(),),
     )
+
+
+def _bucket_key(device_name: str = "MockDevice", connection_key: str = "esp-1") -> tuple[str, str]:
+    return (device_name, connection_key)
 
 
 async def _connect(stream: TelemetryDisplayStream) -> FakeWebSocket:
@@ -161,7 +166,7 @@ def test_publish_batch_creates_bucket_for_device() -> None:
         stream = _make_stream()
         await _connect(stream)
         stream.publish_batch(_make_batch(timestamp_s=1.0))
-        assert "MockDevice" in stream._buckets
+        assert _bucket_key() in stream._buckets
 
     asyncio.run(run())
 
@@ -175,7 +180,7 @@ def test_publish_batch_accumulates_within_bucket() -> None:
         stream.publish_batch(_make_batch(timestamp_s=1.0, readings=(_make_reading(value=10.0),)))
         stream.publish_batch(_make_batch(timestamp_s=1.0 + interval * 0.5, readings=(_make_reading(value=20.0),)))
 
-        buf = stream._buckets["MockDevice"].sensors[0]
+        buf = stream._buckets[_bucket_key()].sensors[0]
         assert buf.values == [10.0, 20.0]
         assert stream._clients[_as_ws(ws)].qsize() == 0
 
@@ -248,7 +253,21 @@ def test_buckets_are_independent_per_device() -> None:
         queue = stream._clients[_as_ws(ws)]
         assert queue.qsize() == 1
         assert queue.get_nowait()["device_name"] == "DevA"
-        assert "DevB" in stream._buckets
+        assert _bucket_key("DevB") in stream._buckets
+
+    asyncio.run(run())
+
+
+def test_buckets_are_independent_per_connection_for_same_device_name() -> None:
+    async def run() -> None:
+        stream = _make_stream(target_hz=30.0)
+        await _connect(stream)
+
+        stream.publish_batch(_make_batch(timestamp_s=1.0, connection_key="old-conn"))
+        stream.publish_batch(_make_batch(timestamp_s=1.0, connection_key="new-conn"))
+
+        assert _bucket_key(connection_key="old-conn") in stream._buckets
+        assert _bucket_key(connection_key="new-conn") in stream._buckets
 
     asyncio.run(run())
 
@@ -271,6 +290,8 @@ def test_serialize_bucket_wire_format() -> None:
 
         assert msg["type"] == "telemetry.display_batch"
         assert msg["device_name"] == "MockDevice"
+        assert msg["device_address"] == "10.0.0.1"
+        assert msg["connection_key"] == "esp-1"
         assert msg["bucket_end_s"] > msg["bucket_start_s"]
 
         r = msg["readings"][0]
@@ -295,7 +316,7 @@ def test_run_flushes_trailing_bucket() -> None:
         ws = await _connect(stream)
 
         stream.publish_batch(_make_batch(timestamp_s=1.0))
-        stream._buckets["MockDevice"].last_updated_monotonic = time.monotonic() - (1.0 / 30.0 + 0.01)
+        stream._buckets[_bucket_key()].last_updated_monotonic = time.monotonic() - (1.0 / 30.0 + 0.01)
 
         task = asyncio.create_task(stream.run())
         await asyncio.sleep(1.0 / 30.0 + 0.05)
@@ -354,7 +375,7 @@ def test_disconnect_last_client_clears_buckets() -> None:
         ws = await _connect(stream)
 
         stream.publish_batch(_make_batch(timestamp_s=1.0))
-        assert "MockDevice" in stream._buckets
+        assert _bucket_key() in stream._buckets
 
         await stream.disconnect_client(_as_ws(ws))
 
@@ -374,7 +395,7 @@ def test_disconnect_non_last_client_preserves_buckets() -> None:
         await stream.disconnect_client(_as_ws(ws1))
 
         assert stream.client_count == 1
-        assert "MockDevice" in stream._buckets
+        assert _bucket_key() in stream._buckets
 
     asyncio.run(run())
 

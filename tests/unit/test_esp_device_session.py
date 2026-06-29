@@ -96,7 +96,7 @@ def test_heartbeat_ack_resets_missed_heartbeat_state() -> None:
 def test_runtime_marks_session_unresponsive_at_heartbeat_miss_limit() -> None:
     session, peer_sock = _make_session()
     runtime, tracker, _stream = _make_runtime()
-    runtime.devices[session.address] = session
+    runtime.devices.register(session)
     runtime.system_state.register_device(session)
     try:
         command = tracker.mark_sent(
@@ -112,7 +112,7 @@ def test_runtime_marks_session_unresponsive_at_heartbeat_miss_limit() -> None:
             assert runtime._handle_missed_heartbeat(session, command) is False
 
         assert runtime._handle_missed_heartbeat(session, command) is True
-        assert session.address not in runtime.devices
+        assert runtime.devices.by_address(session.address) is None
     finally:
         session.close()
         peer_sock.close()

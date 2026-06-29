@@ -5,7 +5,7 @@ import logging
 import socket
 import time
 from itertools import count
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
 from libqretprop.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
 from libqretprop.qlcp.config_parser import parse_config
@@ -21,7 +21,8 @@ from libqretprop.qlcp.packets import (
     StreamStartPacket,
 )
 from libqretprop.runtime.command_tracker import CommandRecord
-from libqretprop.runtime.metrics import NULL_METRICS, Metrics
+from libqretprop.runtime.device_registry import DeviceRegistry
+from libqretprop.runtime.metrics import Metrics
 
 
 logger = logging.getLogger(__name__)
@@ -29,13 +30,16 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from libqretprop.qlcp.config_models import ControlConfig, SensorConfig
     from libqretprop.runtime.command_tracker import CommandTracker
-    from libqretprop.runtime.state_stream import StateStream
     from libqretprop.state import SystemState
 
 
 TrackedCommandPacket = SimplePacket | ControlPacket | StreamStartPacket
 
 TCP_PORT = 50000
+
+
+class _StatePublisher(Protocol):
+    def publish(self, event: dict[str, object] | None) -> None: ...
 
 
 class ESPDeviceSession:
@@ -149,13 +153,13 @@ class ESPConnectionRuntime:
     def __init__(
         self,
         *,
-        state_stream: StateStream,
+        state_stream: _StatePublisher,
         command_tracker: CommandTracker,
         system_state: SystemState,
         metrics: Metrics | None = None,
     ) -> None:
-        self.devices: dict[str, ESPDeviceSession] = {}
-        self.metrics = metrics or NULL_METRICS
+        self.devices = DeviceRegistry()
+        self.metrics = metrics or Metrics()
         self.command_tracker = command_tracker
         self.system_state = system_state
         self.state_stream = state_stream
@@ -165,11 +169,16 @@ class ESPConnectionRuntime:
         return f"esp-{next(self._connection_counter)}"
 
     def get_registered_devices(self) -> dict[str, ESPDeviceSession]:
-        return self.devices.copy()
+        return self.devices.snapshot_by_address()
+
+    def _emit(self, event: dict[str, object] | None) -> None:
+        self.state_stream.publish(event)
 
     def is_current_connection(self, session: ESPDeviceSession) -> bool:
-        registered_device = self.devices.get(session.address)
-        return registered_device is not None and registered_device.connection_key == session.connection_key
+        return self.devices.is_current(session)
+
+    def get_device_by_udp_address(self, address: str) -> ESPDeviceSession | None:
+        return self.devices.by_address(address)
 
     async def accept_connection(
         self,
@@ -228,7 +237,7 @@ class ESPConnectionRuntime:
             connection_key=self.next_connection_key(),
         )
 
-        old_session = self.devices.get(address)
+        old_session = self.devices.by_address(address)
         if old_session is not None:
             logger.warning(
                 f"Device {address} attempted to connect and is already registered. Closing old connection.",
@@ -237,9 +246,9 @@ class ESPConnectionRuntime:
 
         self.disconnect_registered_devices_with_name(new_session.name)
 
-        self.devices[address] = new_session
+        self.devices.register(new_session)
         self.metrics.record_device_connection(device=new_session.name)
-        self._publish_state_event(self.system_state.register_device(new_session))
+        self._emit(self.system_state.register_device(new_session))
 
         self._start_session_tasks(new_session)
 
@@ -309,7 +318,7 @@ class ESPConnectionRuntime:
             await asyncio.sleep(session.HEARTBEAT_INTERVAL_S)
 
     def disconnect_registered_devices_with_name(self, device_name: str) -> None:
-        matching_sessions = [session for session in self.devices.values() if session.name == device_name]
+        matching_sessions = self.devices.sessions_named(device_name)
 
         for session in matching_sessions:
             logger.warning(
@@ -336,7 +345,7 @@ class ESPConnectionRuntime:
             self.command_tracker.discard(command.command_id)
             raise
 
-        self._publish_state_event(self.system_state.record_command_sent(command))
+        self._emit(self.system_state.record_command_sent(command))
         return command
 
     async def send_timesync(self, session: ESPDeviceSession, *, initial: bool = False) -> CommandRecord:
@@ -456,22 +465,22 @@ class ESPConnectionRuntime:
         if packet.ack_packet_type == PacketType.TIMESYNC:
             session.record_timesync_ack(command)
             if command is not None:
-                self._publish_state_event(self.system_state.record_command_acked(command))
+                self._emit(self.system_state.record_command_acked(command))
             logger.debug(f"{session.name} TIMESYNC ACK seq={packet.ack_sequence}")
         elif packet.ack_packet_type == PacketType.HEARTBEAT:
             session.record_heartbeat_ack(command)
             if command is not None:
-                self._publish_state_event(self.system_state.record_command_acked(command))
+                self._emit(self.system_state.record_command_acked(command))
             logger.debug(f"{session.name} HEARTBEAT ACK seq={packet.ack_sequence}")
         elif packet.ack_packet_type == PacketType.CONTROL:
             if command is not None:
-                self._publish_state_event(self.system_state.record_command_acked(command))
+                self._emit(self.system_state.record_command_acked(command))
                 self._update_control_from_ack(session, command)
             else:
                 logger.debug(f"{session.name} ACK for CONTROL seq={packet.ack_sequence}")
         else:
             if command is not None:
-                self._publish_state_event(self.system_state.record_command_acked(command))
+                self._emit(self.system_state.record_command_acked(command))
             logger.debug(f"{session.name} ACK for {packet.ack_packet_type.name} seq={packet.ack_sequence}")
 
         return command
@@ -489,17 +498,14 @@ class ESPConnectionRuntime:
                 f"{session.name} unmatched NACK for {packet.nack_packet_type.name} seq={packet.nack_sequence} error={packet.error_code.name}",
             )
         else:
-            self._publish_state_event(self.system_state.record_command_nacked(command))
+            self._emit(self.system_state.record_command_nacked(command))
 
         logger.debug(f"{session.name} NACK for {packet.nack_packet_type.name} error={packet.error_code.name}")
         return command
 
     def handle_status(self, session: ESPDeviceSession, packet: StatusPacket) -> None:
         for control_state in packet.control_states:
-            # update_control_state handles unknown control IDs by returning None.
-            self._publish_state_event(
-                self.system_state.update_control_state(session, control_state.id, control_state.state),
-            )
+            self._emit(self.system_state.record_reported_control_state(session, control_state.id, control_state.state))
 
     def cleanup_device(
         self,
@@ -535,12 +541,12 @@ class ESPConnectionRuntime:
 
     def _teardown_session(self, session: ESPDeviceSession, *, reason: str) -> None:
         self.cleanup_device(session, reason=reason)
-        self._publish_state_event(self.system_state.mark_disconnected(session))
+        self._emit(self.system_state.mark_disconnected(session))
 
     def remove_device(self, session: ESPDeviceSession) -> None:
         self._teardown_session(session, reason="connection_cleanup")
         if self.is_current_connection(session):
-            del self.devices[session.address]
+            self.devices.remove_current(session)
             self.metrics.record_device_disconnection("connection_cleanup", device=session.name)
             logger.info(f"{session.name} removed from registry.")
         else:
@@ -607,7 +613,7 @@ class ESPConnectionRuntime:
 
     def _handle_missed_heartbeat(self, session: ESPDeviceSession, command: CommandRecord) -> bool:
         self.metrics.record_heartbeat_miss(session.name)
-        self._publish_state_event(self.system_state.record_command_timed_out(command))
+        self._emit(self.system_state.record_command_timed_out(command))
 
         at_limit = session.register_missed_heartbeat()
         if not at_limit:
@@ -630,20 +636,15 @@ class ESPConnectionRuntime:
         if control_name is None:
             return
 
-        self._publish_state_event(
-            self.system_state.update_control_state(
-                session,
-                command.control_id,
-                command.requested_state,
-            ),
-        )
-
-    def _publish_state_event(self, event: dict[str, object] | None) -> None:
-        self.state_stream.publish(event)
+        self._emit(self.system_state.record_accepted_control_state(
+            session,
+            command.control_id,
+            command.requested_state,
+        ))
 
     def _publish_failed_command_events(self, commands: list[CommandRecord]) -> None:
         for command in commands:
-            self._publish_state_event(self.system_state.record_command_timed_out(command))
+            self._emit(self.system_state.record_command_timed_out(command))
 
     async def run_tcp_listener(self, *, port: int = TCP_PORT, backlog: int = 5) -> None:
         """Bind the TCP server socket and accept device connections until cancelled."""
