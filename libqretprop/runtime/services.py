@@ -51,23 +51,32 @@ class RuntimeServices:
     kasa_runtime: KasaRuntime
     _tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict, init=False, repr=False)
 
-    def start(self, loop: asyncio.AbstractEventLoop, *, include_device_daemons: bool = True) -> None:
+    def start(self, loop: asyncio.AbstractEventLoop) -> None:
         """Launch runtime daemon tasks onto *loop*.
 
         Must be called after the event loop is running (i.e. from inside an
         async context or after ``asyncio.get_event_loop()`` is valid).
         """
-        if include_device_daemons:
-            self._tasks["tcp_listener"] = loop.create_task(self.esp_runtime.run_tcp_listener())
-            self._tasks["udp_listener"] = loop.create_task(self.telemetry_runtime.run_udp_listener())
-            self._tasks["telemetry_display_flush"] = loop.create_task(self.telemetry_display_stream.run())
-            self._tasks["auto_discovery"] = loop.create_task(self.discovery_service.run())
-        # Camera/Kasa startup is independent of ESP discovery.
+
+        # QLCP/ESP runtime daemons
+        logger.info("Starting QLCP daemon tasks...")
+        self._tasks["tcp_listener"] = loop.create_task(self.esp_runtime.run_tcp_listener())
+        self._tasks["udp_listener"] = loop.create_task(self.telemetry_runtime.run_udp_listener())
+        self._tasks["telemetry_display_flush"] = loop.create_task(self.telemetry_display_stream.run())
+        self._tasks["auto_discovery"] = loop.create_task(self.discovery_service.run())
+
+        # Camera discovery daemons
+        logger.info("Starting camera discovery daemon...")
         self._tasks["camera_connector"] = loop.create_task(self.camera_runtime.connect_all_cameras())
+
+        # Kasa discovery daemon
+        logger.info("Starting Kasa discovery daemon...")
         self._tasks["kasa_discoverer"] = loop.create_task(self.kasa_runtime.discover_kasa_devices())
+
+        # Log stream daemon
+        logger.info("Starting log stream daemon...")
         self._tasks["log_stream"] = loop.create_task(self.log_stream.run())
-        logger.info("Started camera_connector daemon task.")
-        logger.info("Started kasa_discoverer daemon task.")
+
 
     async def stop(self) -> None:
         """Cancel and await all runtime daemon tasks, then close device connections."""
@@ -77,8 +86,10 @@ class RuntimeServices:
         for name, task in runtime_tasks.items():
             if not task.done():
                 task.cancel()
-                logger.info(f"Cancelled {name} daemon task.")
+                logger.info("Cancelled daemon task: %s", name)
         await asyncio.gather(*runtime_tasks.values(), return_exceptions=True)
+
+        # Close all non-daemon runtime resources (device connections, etc.)
         self.esp_runtime.close_all()
         self.audio_runtime.close()
         await self.camera_runtime.close()
