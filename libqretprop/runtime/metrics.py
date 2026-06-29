@@ -16,12 +16,17 @@ def _label(value: Any) -> str:
 
 @dataclass(slots=True)
 class _LatencySummary:
+    """A summary of latency observations for a specific request type.
+
+    Includes count, total, min, max, and last observed latency.
+    """
     count: int = 0
     total: float = 0.0
     min_value: float | None = None
     max_value: float | None = None
     last: float | None = None
 
+    """Record a new latency observation."""
     def observe(self, value: float) -> None:
         """Record a new latency observation."""
         value = max(0.0, value)
@@ -31,6 +36,7 @@ class _LatencySummary:
         self.max_value = value if self.max_value is None else max(self.max_value, value)
         self.last = value
 
+    """Return a dict summary of the latency observations."""
     def to_dict(self) -> dict[str, float | int]:
         """Return a dict summary of the latency observations."""
         if self.count == 0:
@@ -47,6 +53,7 @@ class _LatencySummary:
 class Metrics:
     """In-process launch metrics exposed as JSON diagnostics."""
 
+    # Window size for calculating DATA packet throughput
     DATA_PACKET_RATE_WINDOW_S = 10.0
 
     def __init__(
