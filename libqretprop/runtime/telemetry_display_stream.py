@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from tsdownsample import M4Downsampler
 
-from libqretprop.runtime.metrics import NULL_METRICS, Metrics
+from libqretprop.runtime.metrics import Metrics
 from libqretprop.runtime.ws_fanout import BoundedWebSocketFanout
 
 
@@ -43,6 +43,9 @@ class _SensorBuffer:
 
 @dataclass(slots=True)
 class _DeviceBucket:
+    device_name: str
+    device_address: str
+    connection_key: str
     bucket_index: int
     bucket_start_s: float
     bucket_end_s: float
@@ -71,36 +74,40 @@ class TelemetryDisplayStream(BoundedWebSocketFanout):
         super().__init__(
             stream_metric_label=STREAM_METRIC_LABEL,
             max_queue=max_queue,
-            metrics=metrics or NULL_METRICS,
+            metrics=metrics or Metrics(),
         )
         self._bucket_interval_s = 1.0 / target_hz
         self._points_per_bucket = points_per_bucket
         self._downsampler = M4Downsampler()
-        self._buckets: dict[str, _DeviceBucket] = {}
+        self._buckets: dict[tuple[str, str], _DeviceBucket] = {}
 
     def publish_batch(self, batch: TelemetryBatch) -> None:
         if not self._clients:
             return
 
         bucket_index = int(batch.timestamp_s / self._bucket_interval_s)
+        series_key = (batch.device_name, batch.connection_key)
         now = time.monotonic()
 
-        device_bucket = self._buckets.get(batch.device_name)
+        device_bucket = self._buckets.get(series_key)
         if device_bucket is not None:
             bucket_changed = bucket_index != device_bucket.bucket_index
 
             if bucket_changed:
-                self._emit_bucket(batch.device_name, device_bucket)
+                self._emit_bucket(device_bucket)
                 device_bucket = None
 
         if device_bucket is None:
             device_bucket = _DeviceBucket(
+                device_name=batch.device_name,
+                device_address=batch.device_address,
+                connection_key=batch.connection_key,
                 bucket_index=bucket_index,
                 bucket_start_s=bucket_index * self._bucket_interval_s,
                 bucket_end_s=(bucket_index + 1) * self._bucket_interval_s,
                 last_updated_monotonic=now,
             )
-            self._buckets[batch.device_name] = device_bucket
+            self._buckets[series_key] = device_bucket
 
         device_bucket.last_updated_monotonic = now
         for reading in batch.readings:
@@ -115,10 +122,12 @@ class TelemetryDisplayStream(BoundedWebSocketFanout):
                 device_bucket.sensors[reading.sensor_id] = buf
             buf.add(batch.timestamp_s, reading.value)
 
-    def serialize_bucket(self, device_name: str, bucket: _DeviceBucket) -> dict[str, Any]:
+    def serialize_bucket(self, bucket: _DeviceBucket) -> dict[str, Any]:
         return {
             "type": "telemetry.display_batch",
-            "device_name": device_name,
+            "device_name": bucket.device_name,
+            "device_address": bucket.device_address,
+            "connection_key": bucket.connection_key,
             "bucket_start_s": bucket.bucket_start_s,
             "bucket_end_s": bucket.bucket_end_s,
             "readings": [
@@ -133,10 +142,10 @@ class TelemetryDisplayStream(BoundedWebSocketFanout):
             ],
         }
 
-    def _emit_bucket(self, device_name: str, bucket: _DeviceBucket) -> None:
+    def _emit_bucket(self, bucket: _DeviceBucket) -> None:
         if not bucket.sensors:
             return
-        message = self.serialize_bucket(device_name, bucket)
+        message = self.serialize_bucket(bucket)
         self.publish_message(message)
 
     async def run(self) -> None:
@@ -146,11 +155,11 @@ class TelemetryDisplayStream(BoundedWebSocketFanout):
                 continue
             now = time.monotonic()
             stale = [
-                name for name, bucket in self._buckets.items()
+                key for key, bucket in self._buckets.items()
                 if now - bucket.last_updated_monotonic >= self._bucket_interval_s
             ]
-            for name in stale:
-                self._emit_bucket(name, self._buckets.pop(name))
+            for key in stale:
+                self._emit_bucket(self._buckets.pop(key))
 
     def _after_disconnect(self) -> None:
         if not self._clients:

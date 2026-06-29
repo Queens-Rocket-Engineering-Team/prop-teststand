@@ -18,11 +18,6 @@ def _metrics_snapshot(metrics: Metrics) -> dict[str, Any]:
     return cast("dict[str, Any]", metrics.to_dict())
 
 
-class FakeRuntime:
-    def __init__(self) -> None:
-        self.devices: dict[str, ESPDeviceSession] = {}
-
-
 def _make_config() -> dict[str, Any]:
     return {
         "device_name": "PANDA",
@@ -58,10 +53,9 @@ def _make_session(*, address: str = "10.0.0.2", last_sync_time: float | None = 1
 
 
 def test_data_packet_from_registered_session_produces_batch() -> None:
-    runtime = FakeRuntime()
     session = _make_session()
-    runtime.devices[session.address] = session
-    ingest = TelemetryRuntime(runtime)
+    devices: dict[str, ESPDeviceSession] = {session.address: session}
+    ingest = TelemetryRuntime(devices.get)
     packet = DataPacket(
         sequence=1,
         timestamp=12345,
@@ -78,6 +72,8 @@ def test_data_packet_from_registered_session_produces_batch() -> None:
     assert batch.device_address == session.address
     assert batch.connection_key == "conn-a"
     assert batch.timestamp_s == 12.345
+    assert batch.timestamp_source == "device_synced"
+    assert batch.timestamp_synced is True
     assert len(batch.readings) == 2
     assert batch.readings[0].value == pytest.approx(12.345)
     assert batch.readings[1].value == pytest.approx(67.891)
@@ -100,10 +96,9 @@ def test_data_packet_from_registered_session_produces_batch() -> None:
 
 
 def test_unsynced_session_uses_monotonic_timestamp(monkeypatch: pytest.MonkeyPatch) -> None:
-    runtime = FakeRuntime()
     session = _make_session(last_sync_time=None)
-    runtime.devices[session.address] = session
-    ingest = TelemetryRuntime(runtime)
+    devices: dict[str, ESPDeviceSession] = {session.address: session}
+    ingest = TelemetryRuntime(devices.get)
     monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.time.monotonic", lambda: 42.25)
     packet = DataPacket(
         sequence=1,
@@ -115,13 +110,14 @@ def test_unsynced_session_uses_monotonic_timestamp(monkeypatch: pytest.MonkeyPat
 
     assert batch is not None
     assert batch.timestamp_s == 42.25
+    assert batch.timestamp_source == "server_receive"
+    assert batch.timestamp_synced is False
 
 
 def test_unknown_device_address_is_logged_and_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
-    runtime = FakeRuntime()
     errors: list[str] = []
     monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", errors.append)
-    ingest = TelemetryRuntime(runtime)
+    ingest = TelemetryRuntime({}.get)  # type: ignore[arg-type]
 
     batch = ingest.handle_datagram(b"not decoded", "10.0.0.99")
 
@@ -130,12 +126,11 @@ def test_unknown_device_address_is_logged_and_ignored(monkeypatch: pytest.Monkey
 
 
 def test_decode_error_records_metric(monkeypatch: pytest.MonkeyPatch) -> None:
-    runtime = FakeRuntime()
     session = _make_session()
-    runtime.devices[session.address] = session
+    devices: dict[str, ESPDeviceSession] = {session.address: session}
     metrics = Metrics(time_fn=lambda: 100.0)
     monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", lambda *_args, **_kwargs: None)
-    ingest = TelemetryRuntime(runtime, metrics=metrics)
+    ingest = TelemetryRuntime(devices.get, metrics=metrics)
 
     batch = ingest.handle_datagram(b"not decoded", session.address)
 
@@ -146,11 +141,10 @@ def test_decode_error_records_metric(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_data_packets_record_throughput_without_packet_loss_estimate() -> None:
-    runtime = FakeRuntime()
     session = _make_session()
-    runtime.devices[session.address] = session
+    devices: dict[str, ESPDeviceSession] = {session.address: session}
     metrics = Metrics(time_fn=lambda: 100.0)
-    ingest = TelemetryRuntime(runtime, metrics=metrics)
+    ingest = TelemetryRuntime(devices.get, metrics=metrics)
     readings = [SensorReading(sensor_id=0, unit=Unit.CELSIUS, value=1.0)]
 
     ingest.handle_packet(DataPacket(sequence=254, timestamp=12345, readings=readings), session)
@@ -164,12 +158,11 @@ def test_data_packets_record_throughput_without_packet_loss_estimate() -> None:
 
 
 def test_non_data_packet_is_logged_and_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
-    runtime = FakeRuntime()
     session = _make_session()
-    runtime.devices[session.address] = session
+    devices: dict[str, ESPDeviceSession] = {session.address: session}
     errors: list[str] = []
     monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", errors.append)
-    ingest = TelemetryRuntime(runtime)
+    ingest = TelemetryRuntime(devices.get)
     packet = AckPacket.create(PacketType.HEARTBEAT, ack_sequence=4)
 
     batch = ingest.handle_datagram(packet.encode(), session.address)
@@ -179,12 +172,11 @@ def test_non_data_packet_is_logged_and_ignored(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_unknown_sensor_id_is_logged_and_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
-    runtime = FakeRuntime()
     session = _make_session()
-    runtime.devices[session.address] = session
+    devices: dict[str, ESPDeviceSession] = {session.address: session}
     errors: list[str] = []
     monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", errors.append)
-    ingest = TelemetryRuntime(runtime)
+    ingest = TelemetryRuntime(devices.get)
     packet = DataPacket(
         sequence=1,
         timestamp=12345,

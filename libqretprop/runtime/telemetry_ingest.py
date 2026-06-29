@@ -3,19 +3,20 @@ import asyncio
 import logging
 import socket
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from libqretprop.qlcp.decoding import decode_packet_server
 from libqretprop.qlcp.packets import DataPacket
-from libqretprop.runtime.metrics import NULL_METRICS, Metrics
+from libqretprop.runtime.metrics import Metrics
 
 
 logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
-    from libqretprop.runtime.esp_connection_runtime import ESPConnectionRuntime, ESPDeviceSession
+    from libqretprop.runtime.esp_connection_runtime import ESPDeviceSession
 
 
 UDP_PORT = 50001  # Distinct from the TCP port; a different number is useful for debugging.
@@ -39,6 +40,8 @@ class TelemetryBatch:
     connection_key: str
     timestamp_s: float
     readings: tuple[TelemetryReading, ...]
+    timestamp_source: Literal["device_synced", "server_receive"] = "device_synced"
+    timestamp_synced: bool = True
 
 
 class TelemetryRuntime:
@@ -46,16 +49,16 @@ class TelemetryRuntime:
 
     def __init__(
         self,
-        runtime: ESPConnectionRuntime,
+        device_for_address: Callable[[str], ESPDeviceSession | None],
         *publishers: Any,
         metrics: Metrics | None = None,
     ) -> None:
-        self.runtime = runtime
+        self._device_for_address = device_for_address
         self.publishers = publishers
-        self.metrics = metrics or NULL_METRICS
+        self.metrics = metrics or Metrics()
 
     def handle_datagram(self, data: bytes, address: str) -> TelemetryBatch | None:
-        session = self.runtime.devices.get(address)
+        session = self._session_for_udp_address(address)
         if session is None:
             self.metrics.record_telemetry_datagram(len(data))
             self.metrics.record_telemetry_decode_error("unknown_device")
@@ -80,7 +83,7 @@ class TelemetryRuntime:
 
     def handle_packet(self, packet: DataPacket, session: ESPDeviceSession) -> TelemetryBatch:
         self.metrics.record_telemetry_data_packet(session.name)
-        timestamp_s = packet.timestamp / 1000.0 if session.last_sync_time is not None else time.monotonic()
+        timestamp_s, timestamp_source, timestamp_synced = self._batch_timestamp(packet, session)
         readings: list[TelemetryReading] = []
 
         for reading in packet.readings:
@@ -107,10 +110,24 @@ class TelemetryRuntime:
             device_address=session.address,
             connection_key=session.connection_key,
             timestamp_s=timestamp_s,
+            timestamp_source=timestamp_source,
+            timestamp_synced=timestamp_synced,
             readings=tuple(readings),
         )
         self.metrics.record_telemetry_readings(session.name, len(batch.readings))
         return batch
+
+    def _session_for_udp_address(self, address: str) -> ESPDeviceSession | None:
+        return self._device_for_address(address)
+
+    @staticmethod
+    def _batch_timestamp(
+        packet: DataPacket,
+        session: ESPDeviceSession,
+    ) -> tuple[float, Literal["device_synced", "server_receive"], bool]:
+        if session.last_sync_time is None:
+            return time.monotonic(), "server_receive", False
+        return packet.timestamp / 1000.0, "device_synced", True
 
     async def run_udp_listener(
         self,

@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from libqretprop.qlcp.enums import PacketType
-from libqretprop.runtime.metrics import NULL_METRICS, Metrics
+from libqretprop.runtime.metrics import Metrics
 
 
 logger = logging.getLogger(__name__)
@@ -18,24 +18,31 @@ if TYPE_CHECKING:
 
 
 DEFAULT_RECENT_COMPLETED_LIMIT = 100
-OPERATOR_VISIBLE_PACKET_TYPES = frozenset(
-    {
-        PacketType.CONTROL,
-        PacketType.ESTOP,
-        PacketType.STREAM_START,
-        PacketType.STREAM_STOP,
-        PacketType.GET_SINGLE,
-    },
-)
-ACK_EXPECTED_PACKET_TYPES = frozenset(
-    {
-        PacketType.CONTROL,
-        PacketType.STREAM_START,
-        PacketType.STREAM_STOP,
-        PacketType.HEARTBEAT,
-        PacketType.TIMESYNC,
-    },
-)
+
+
+@dataclass(frozen=True, slots=True)
+class CommandPolicy:
+    ack_expected: bool
+    operator_visible: bool
+
+
+COMMAND_POLICIES: dict[PacketType, CommandPolicy] = {
+    PacketType.CONTROL: CommandPolicy(ack_expected=True, operator_visible=True),
+    PacketType.ESTOP: CommandPolicy(ack_expected=False, operator_visible=True),
+    PacketType.STREAM_START: CommandPolicy(ack_expected=True, operator_visible=True),
+    PacketType.STREAM_STOP: CommandPolicy(ack_expected=True, operator_visible=True),
+    PacketType.GET_SINGLE: CommandPolicy(ack_expected=False, operator_visible=True),
+    PacketType.STATUS_REQUEST: CommandPolicy(ack_expected=False, operator_visible=False),
+    PacketType.HEARTBEAT: CommandPolicy(ack_expected=True, operator_visible=False),
+    PacketType.TIMESYNC: CommandPolicy(ack_expected=True, operator_visible=False),
+}
+
+def command_policy(packet_type: PacketType) -> CommandPolicy:
+    return COMMAND_POLICIES.get(packet_type, CommandPolicy(ack_expected=False, operator_visible=False))
+
+
+def is_operator_visible(packet_type: PacketType) -> bool:
+    return command_policy(packet_type).operator_visible
 
 
 class CommandLifecycle(StrEnum):
@@ -95,7 +102,7 @@ class CommandTracker:
         recent_completed_limit: int = DEFAULT_RECENT_COMPLETED_LIMIT,
         metrics: Metrics | None = None,
     ) -> None:
-        self.metrics = metrics or NULL_METRICS
+        self.metrics = metrics or Metrics()
         self._next_command_id = 1
         self._pending_records: dict[int, CommandRecord] = {}
         self._pending: dict[CommandKey, int] = {}
@@ -131,7 +138,7 @@ class CommandTracker:
             packet_type=packet_type,
             packet_sequence=packet_sequence,
             sent_at=self._timestamp(now),
-            ack_expected=self._ack_expected(packet_type) if ack_expected is None else ack_expected,
+            ack_expected=command_policy(packet_type).ack_expected if ack_expected is None else ack_expected,
             control_id=control_id,
             control_name=control_name,
             requested_state=requested_state,
@@ -289,13 +296,9 @@ class CommandTracker:
         self._complete_record(existing_record)
 
     def _complete_record(self, record: CommandRecord) -> None:
-        if record.packet_type in OPERATOR_VISIBLE_PACKET_TYPES:
+        if is_operator_visible(record.packet_type):
             self._recent_completed.append(record)
 
     @staticmethod
     def _timestamp(now: float | None) -> float:
         return time.monotonic() if now is None else now
-
-    @staticmethod
-    def _ack_expected(packet_type: PacketType) -> bool:
-        return packet_type in ACK_EXPECTED_PACKET_TYPES

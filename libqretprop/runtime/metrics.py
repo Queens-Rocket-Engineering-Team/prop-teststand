@@ -346,6 +346,3 @@ class Metrics:
     def _number(value: float) -> int | float:
         """Return an int if the value is an integer, otherwise return the float."""
         return int(value) if value.is_integer() else value
-
-
-NULL_METRICS = Metrics()

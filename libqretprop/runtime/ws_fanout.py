@@ -4,7 +4,7 @@ import contextlib
 import logging
 from typing import TYPE_CHECKING, Any
 
-from libqretprop.runtime.metrics import NULL_METRICS, Metrics
+from libqretprop.runtime.metrics import Metrics
 
 
 if TYPE_CHECKING:
@@ -32,7 +32,7 @@ class BoundedWebSocketFanout:
         max_queue: int,
         metrics: Metrics | None = None,
     ) -> None:
-        self.metrics = metrics or NULL_METRICS
+        self.metrics = metrics or Metrics()
         self._stream_metric_label = stream_metric_label
         self._max_queue = max_queue
         self._clients: dict[WebSocket, asyncio.Queue[JsonMessage]] = {}

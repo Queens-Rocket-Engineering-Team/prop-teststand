@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
-from libqretprop.runtime.metrics import NULL_METRICS, Metrics
+from libqretprop.runtime.metrics import Metrics
 from libqretprop.runtime.ws_fanout import BoundedWebSocketFanout
 
 
@@ -24,7 +24,7 @@ class TelemetryStreamRuntime(BoundedWebSocketFanout):
         super().__init__(
             stream_metric_label=STREAM_METRIC_LABEL,
             max_queue=max_queue,
-            metrics=metrics or NULL_METRICS,
+            metrics=metrics or Metrics(),
         )
 
     def serialize_batch(self, batch: TelemetryBatch) -> dict[str, Any]:
@@ -34,6 +34,8 @@ class TelemetryStreamRuntime(BoundedWebSocketFanout):
             "device_address": batch.device_address,
             "connection_key": batch.connection_key,
             "timestamp_s": batch.timestamp_s,
+            "timestamp_source": batch.timestamp_source,
+            "timestamp_synced": batch.timestamp_synced,
             "readings": [
                 {
                     "sensor_id": reading.sensor_id,

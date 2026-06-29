@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING, Any
 
 from libqretprop.qlcp.enums import ControlState, PacketType
 from libqretprop.runtime.command_tracker import (
-    OPERATOR_VISIBLE_PACKET_TYPES,
     CommandRecord,
     CommandTracker,
+    is_operator_visible,
 )
 
 
@@ -26,6 +26,12 @@ class _ReportedControlState:
 
 
 @dataclass(slots=True)
+class _AcceptedControlState:
+    state: str
+    timestamp: float
+
+
+@dataclass(slots=True)
 class _DeviceState:
     device_name: str
     address: str
@@ -34,6 +40,7 @@ class _DeviceState:
     connected: bool
     device: ESPDeviceSession | None = None
     reported_controls: dict[int, _ReportedControlState] = field(default_factory=dict)
+    accepted_controls: dict[int, _AcceptedControlState] = field(default_factory=dict)
 
 
 class SystemState:
@@ -76,7 +83,7 @@ class SystemState:
             connection_key=device_state.connection_key,
         )
 
-    def update_control_state(
+    def record_reported_control_state(
         self,
         device: ESPDeviceSession,
         control_id: int,
@@ -112,6 +119,44 @@ class SystemState:
             pending_command_id=control_snapshot["pending_command_id"],
         )
 
+    def record_accepted_control_state(
+        self,
+        device: ESPDeviceSession,
+        control_id: int,
+        state: ControlState | str,
+        *,
+        now: float | None = None,
+    ) -> StateEvent | None:
+        device_state = self._devices_by_name.get(device.name)
+        if device_state is None:
+            return None
+        if device_state.connection_key != device.connection_key:
+            return None
+
+        control = device_state.config.controls_by_id.get(control_id)
+        if control is None:
+            return None
+
+        device_state.accepted_controls[control_id] = _AcceptedControlState(
+            state=self._control_state_name(state),
+            timestamp=time.monotonic() if now is None else now,
+        )
+        control_snapshot = self._snapshot_control(
+            device_state,
+            control,
+        )
+        return self._make_event(
+            "control.accepted",
+            device_name=device_state.device_name,
+            control_id=control_id,
+            control_name=control_snapshot["name"],
+            accepted_state=control_snapshot["accepted_state"],
+            accepted_timestamp=control_snapshot["accepted_timestamp"],
+            reported_state=control_snapshot["reported_state"],
+            reported_timestamp=control_snapshot["reported_timestamp"],
+            pending_command_id=control_snapshot["pending_command_id"],
+        )
+
     def record_command_sent(self, command: CommandRecord) -> StateEvent | None:
         return self._command_event("command.sent", command)
 
@@ -133,9 +178,6 @@ class SystemState:
             "devices": devices,
             "commands": commands,
         }
-
-    def to_dict(self) -> dict[str, Any]:
-        return self.snapshot()
 
     def _snapshot_device(self, device_state: _DeviceState) -> dict[str, Any]:
         config = device_state.config
@@ -169,6 +211,7 @@ class SystemState:
         control: ControlConfig,
     ) -> dict[str, Any]:
         reported_state = device_state.reported_controls.get(control.id)
+        accepted_state = device_state.accepted_controls.get(control.id)
 
         return {
             "id": control.id,
@@ -177,6 +220,8 @@ class SystemState:
             "default_state": control.default.name,
             "reported_state": reported_state.state if reported_state is not None else None,
             "reported_timestamp": reported_state.timestamp if reported_state is not None else None,
+            "accepted_state": accepted_state.state if accepted_state is not None else None,
+            "accepted_timestamp": accepted_state.timestamp if accepted_state is not None else None,
             "pending_command_id": self._pending_command_id(device_state, control.id),
         }
 
@@ -215,7 +260,7 @@ class SystemState:
         pending = [
             self._snapshot_command(command)
             for command in sorted(self._command_tracker.pending, key=lambda command: command.command_id)
-            if command.packet_type in OPERATOR_VISIBLE_PACKET_TYPES
+            if is_operator_visible(command.packet_type)
         ]
         recent = [
             self._snapshot_command(command) for command in sorted(self._command_tracker.recent_completed, key=lambda command: command.command_id)
@@ -253,7 +298,7 @@ class SystemState:
     def _command_event(self, event_type: str, command: CommandRecord) -> StateEvent | None:
         if command.packet_type == PacketType.HEARTBEAT:
             return self._heartbeat_event(command.connection_key)
-        if command.packet_type not in OPERATOR_VISIBLE_PACKET_TYPES:
+        if not is_operator_visible(command.packet_type):
             return None
 
         return self._make_event(

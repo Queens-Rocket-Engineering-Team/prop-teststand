@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import WebSocket
 
-from libqretprop.runtime.metrics import NULL_METRICS, Metrics
+from libqretprop.runtime.metrics import Metrics
 
 
 if TYPE_CHECKING:
@@ -33,7 +33,7 @@ class StateStream:
     """
 
     def __init__(self, state: SystemState, *, metrics: Metrics | None = None) -> None:
-        self.metrics = metrics or NULL_METRICS
+        self.metrics = metrics or Metrics()
         self._state = state
         self._clients: dict[WebSocket, asyncio.Queue[Any]] = {}
 
@@ -45,7 +45,7 @@ class StateStream:
         return {
             "type": "state.snapshot",
             "state_version": self._state.state_version,
-            "state": self._state.to_dict(),
+            "state": self._state.snapshot(),
         }
 
     async def connect_client(self, websocket: WebSocket) -> None:
