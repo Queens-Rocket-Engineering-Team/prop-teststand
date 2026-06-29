@@ -89,7 +89,7 @@ async def _runtime_harness() -> AsyncGenerator[
     )
 
     publisher = _CollectingPublisher()
-    telemetry_runtime = TelemetryRuntime(runtime, publisher)
+    telemetry_runtime = TelemetryRuntime(runtime.get_device_by_udp_address, publisher)
 
     tasks = [
         asyncio.create_task(runtime.run_tcp_listener(port=tcp_port)),
@@ -124,7 +124,7 @@ def _session_for(runtime: ESPConnectionRuntime, device_name: str):  # type: igno
     for session in runtime.devices.values():
         if session.name == device_name:
             return session
-    raise AssertionError(f"No session found for device {device_name!r}; registered: {list(runtime.devices)}")
+    raise AssertionError(f"No session found for device {device_name!r}; registered: {list(runtime.devices.snapshot_by_address())}")
 
 
 # --------------------------------------------------------------------------- #
@@ -150,7 +150,7 @@ def test_device_registers_on_connect() -> None:
             await asyncio.wait_for(dev.timesync_received.wait(), timeout=2.0)
 
             assert dev.device_name in {s.name for s in runtime.devices.values()}, (
-                f"Device {dev.device_name!r} not found in runtime.devices: {list(runtime.devices)}"
+                f"Device {dev.device_name!r} not found in runtime.devices: {list(runtime.devices.snapshot_by_address())}"
             )
 
     asyncio.run(run())

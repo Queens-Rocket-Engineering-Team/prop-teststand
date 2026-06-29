@@ -27,10 +27,6 @@ class FakePublisher:
         self.batches.append(batch)
 
 
-class FakeRuntime:
-    devices: dict[str, object] = {}
-
-
 def _free_udp_port() -> int:
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -73,7 +69,7 @@ def test_listener_publishes_decoded_batches() -> None:
         batch = _make_batch()
         ingest = FakeIngest(batch)
         publisher = FakePublisher()
-        listener = TelemetryRuntime(FakeRuntime(), publisher)  # type: ignore[arg-type]
+        listener = TelemetryRuntime(lambda _address: None, publisher)
         listener.handle_datagram = ingest.handle_datagram  # type: ignore[method-assign]
 
         await _drive(listener, port, stop=lambda: bool(publisher.batches))
@@ -90,7 +86,7 @@ def test_listener_skips_publish_when_ingest_returns_none() -> None:
         port = _free_udp_port()
         ingest = FakeIngest(None)
         publisher = FakePublisher()
-        listener = TelemetryRuntime(FakeRuntime(), publisher)  # type: ignore[arg-type]
+        listener = TelemetryRuntime(lambda _address: None, publisher)
         listener.handle_datagram = ingest.handle_datagram  # type: ignore[method-assign]
 
         # Drive until at least one datagram is received, then confirm nothing was published.
