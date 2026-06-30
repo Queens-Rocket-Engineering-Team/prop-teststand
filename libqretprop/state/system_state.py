@@ -20,6 +20,16 @@ StateEvent = dict[str, object]
 
 
 @dataclass(slots=True)
+class _KasaState:
+    """State projection for a single Kasa device."""
+    host: str
+    alias: str
+    model: str
+    active: bool
+    connected: bool
+
+
+@dataclass(slots=True)
 class _ControlStateRecord:
     """A record of a control's commanded state (reported or accepted) at a specific point in time."""
     state: str
@@ -44,6 +54,7 @@ class SystemState:
 
     def __init__(self, *, command_tracker: CommandTracker) -> None:
         self._devices_by_name: dict[str, _DeviceState] = {}
+        self._kasa_by_host: dict[str, _KasaState] = {}
         self._command_tracker = command_tracker
         self._state_version = 0
 
@@ -159,6 +170,43 @@ class SystemState:
             pending_command_id=control_snapshot["pending_command_id"],
         )
 
+    def register_kasa_device(self, host: str, alias: str, model: str, active: bool) -> StateEvent:
+        """Register or update a Kasa device and return a state event."""
+        self._kasa_by_host[host] = _KasaState(
+            host=host,
+            alias=alias,
+            model=model,
+            active=active,
+            connected=True,
+        )
+        return self._make_event(
+            "kasa.registered",
+            kasa=self._snapshot_kasa(self._kasa_by_host[host]),
+        )
+
+    def record_kasa_state(self, host: str, active: bool) -> StateEvent | None:
+        """Update a Kasa device's power state and return a state event, or None if not registered."""
+        kasa_state = self._kasa_by_host.get(host)
+        if kasa_state is None:
+            return None
+        kasa_state.active = active
+        kasa_state.connected = True
+        return self._make_event(
+            "kasa.updated",
+            kasa=self._snapshot_kasa(kasa_state),
+        )
+
+    def mark_kasa_unavailable(self, host: str) -> StateEvent | None:
+        """Mark a Kasa device as unavailable and return a state event, or None if not registered."""
+        kasa_state = self._kasa_by_host.get(host)
+        if kasa_state is None:
+            return None
+        kasa_state.connected = False
+        return self._make_event(
+            "kasa.disconnected",
+            kasa=self._snapshot_kasa(kasa_state),
+        )
+
     def record_command_sent(self, command: CommandRecord) -> StateEvent | None:
         return self._command_event("command.sent", command)
 
@@ -173,12 +221,24 @@ class SystemState:
 
     def snapshot(self) -> dict[str, Any]:
         devices = [self._snapshot_device(device_state) for device_state in sorted(self._devices_by_name.values(), key=lambda item: item.device_name)]
+        kasa = [self._snapshot_kasa(kasa_state) for kasa_state in sorted(self._kasa_by_host.values(), key=lambda item: item.host)]
         commands = self._snapshot_commands()
 
         return {
             "state_version": self._state_version,
             "devices": devices,
+            "kasa": kasa,
             "commands": commands,
+        }
+
+    @staticmethod
+    def _snapshot_kasa(kasa_state: _KasaState) -> dict[str, Any]:
+        return {
+            "host": kasa_state.host,
+            "alias": kasa_state.alias,
+            "model": kasa_state.model,
+            "active": kasa_state.active,
+            "connected": kasa_state.connected,
         }
 
     def _snapshot_device(self, device_state: _DeviceState) -> dict[str, Any]:

@@ -116,7 +116,7 @@ def test_unsynced_session_uses_monotonic_timestamp(monkeypatch: pytest.MonkeyPat
 
 def test_unknown_device_address_is_logged_and_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
     errors: list[str] = []
-    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", errors.append)
+    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
     ingest = TelemetryRuntime({}.get)  # type: ignore[arg-type]
 
     batch = ingest.handle_datagram(b"not decoded", "10.0.0.99")
@@ -161,7 +161,7 @@ def test_non_data_packet_is_logged_and_ignored(monkeypatch: pytest.MonkeyPatch) 
     session = _make_session()
     devices: dict[str, ESPDeviceSession] = {session.address: session}
     errors: list[str] = []
-    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", errors.append)
+    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
     ingest = TelemetryRuntime(devices.get)
     packet = AckPacket.create(PacketType.HEARTBEAT, ack_sequence=4)
 
@@ -175,7 +175,7 @@ def test_unknown_sensor_id_is_logged_and_dropped(monkeypatch: pytest.MonkeyPatch
     session = _make_session()
     devices: dict[str, ESPDeviceSession] = {session.address: session}
     errors: list[str] = []
-    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", errors.append)
+    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
     ingest = TelemetryRuntime(devices.get)
     packet = DataPacket(
         sequence=1,

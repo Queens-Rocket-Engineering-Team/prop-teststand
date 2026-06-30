@@ -9,7 +9,17 @@ import pytest
 from libqretprop.config import MediaMTXConfig, MumbleConfig
 from libqretprop.runtime.audio_runtime import AudioRuntime
 from libqretprop.runtime.camera_runtime import CameraRuntime
+from libqretprop.runtime.command_tracker import CommandTracker
 from libqretprop.runtime.kasa_runtime import KasaRuntime
+from libqretprop.runtime.state_stream import StateStream
+from libqretprop.state.system_state import SystemState
+
+
+def _make_kasa_runtime() -> KasaRuntime:
+    tracker = CommandTracker()
+    system_state = SystemState(command_tracker=tracker)
+    state_stream = StateStream(system_state)
+    return KasaRuntime(system_state=system_state, state_stream=state_stream)
 
 
 # ---------------------------------------------------------------------------
@@ -147,20 +157,20 @@ def test_camera_get_recording_file_path_raises_file_not_found() -> None:
 
 
 def test_kasa_get_device_returns_none_for_unknown_host() -> None:
-    runtime = KasaRuntime()
+    runtime = _make_kasa_runtime()
     assert runtime.get_device("192.168.1.99") is None
 
 
 def test_kasa_require_device_raises_key_error() -> None:
-    runtime = KasaRuntime()
-    with pytest.raises(KeyError, match="192.168.1.99"):
+    runtime = _make_kasa_runtime()
+    with pytest.raises(KeyError, match="No Kasa device found"):
         runtime._require_device("192.168.1.99")  # type: ignore[attr-defined]
 
 
 def test_kasa_set_device_state_raises_key_error_for_unknown_host() -> None:
 
     async def run() -> None:
-        runtime = KasaRuntime()
+        runtime = _make_kasa_runtime()
         with pytest.raises(KeyError):
             await runtime.set_state("192.168.1.99", True)
 
