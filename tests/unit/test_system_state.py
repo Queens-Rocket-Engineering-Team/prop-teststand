@@ -447,3 +447,113 @@ def test_snapshot_serializes_to_dict() -> None:
     assert snapshot_dict["devices"][0]["name"] == "TEST-DEVICE"
     assert snapshot_dict["state_version"] == 1
     assert snapshot_dict["commands"] == {"pending": [], "recent": []}
+
+
+# ---------------------------------------------------------------------------
+# Kasa device state
+# ---------------------------------------------------------------------------
+
+
+def test_register_kasa_device_appears_in_snapshot() -> None:
+    state, _ = _make_state()
+
+    event = state.register_kasa_device("192.168.1.1", "My Plug", "HS110", True)
+    snapshot = state.snapshot()
+
+    assert event["type"] == "kasa.registered"
+    assert event["state_version"] == 1
+    assert len(snapshot["kasa"]) == 1
+    kasa = snapshot["kasa"][0]
+    assert kasa["host"] == "192.168.1.1"
+    assert kasa["alias"] == "My Plug"
+    assert kasa["model"] == "HS110"
+    assert kasa["active"] is True
+    assert kasa["connected"] is True
+
+
+def test_register_kasa_device_upserts_existing_host() -> None:
+    state, _ = _make_state()
+
+    state.register_kasa_device("192.168.1.1", "Old Alias", "HS110", False)
+    state.register_kasa_device("192.168.1.1", "New Alias", "HS110", True)
+    snapshot = state.snapshot()
+
+    assert len(snapshot["kasa"]) == 1
+    assert snapshot["kasa"][0]["alias"] == "New Alias"
+    assert snapshot["kasa"][0]["active"] is True
+
+
+def test_record_kasa_state_updates_active_flag() -> None:
+    state, _ = _make_state()
+
+    state.register_kasa_device("192.168.1.1", "My Plug", "HS110", False)
+    event = state.record_kasa_state("192.168.1.1", True)
+    snapshot = state.snapshot()
+
+    assert event is not None
+    assert event["type"] == "kasa.updated"
+    assert event["state_version"] == 2
+    assert snapshot["kasa"][0]["active"] is True
+    assert snapshot["kasa"][0]["connected"] is True
+
+
+def test_record_kasa_state_returns_none_for_unknown_host() -> None:
+    state, _ = _make_state()
+
+    event = state.record_kasa_state("192.168.1.99", True)
+
+    assert event is None
+    assert state.state_version == 0
+
+
+def test_mark_kasa_unavailable_sets_connected_false() -> None:
+    state, _ = _make_state()
+
+    state.register_kasa_device("192.168.1.1", "My Plug", "HS110", True)
+    event = state.mark_kasa_unavailable("192.168.1.1")
+    snapshot = state.snapshot()
+
+    assert event is not None
+    assert event["type"] == "kasa.disconnected"
+    assert event["state_version"] == 2
+    assert snapshot["kasa"][0]["connected"] is False
+    assert snapshot["kasa"][0]["active"] is True  # active state is preserved
+
+
+def test_mark_kasa_unavailable_returns_none_for_unknown_host() -> None:
+    state, _ = _make_state()
+
+    event = state.mark_kasa_unavailable("192.168.1.99")
+
+    assert event is None
+    assert state.state_version == 0
+
+
+def test_snapshot_kasa_sorted_by_host() -> None:
+    state, _ = _make_state()
+
+    state.register_kasa_device("192.168.1.2", "B", "HS110", True)
+    state.register_kasa_device("192.168.1.1", "A", "HS110", True)
+    snapshot = state.snapshot()
+
+    hosts = [k["host"] for k in snapshot["kasa"]]
+    assert hosts == ["192.168.1.1", "192.168.1.2"]
+
+
+def test_snapshot_includes_kasa_key_even_when_empty() -> None:
+    state, _ = _make_state()
+
+    snapshot = state.snapshot()
+
+    assert "kasa" in snapshot
+    assert snapshot["kasa"] == []
+
+
+def test_kasa_events_increment_state_version() -> None:
+    state, _ = _make_state()
+
+    state.register_kasa_device("192.168.1.1", "My Plug", "HS110", True)
+    state.record_kasa_state("192.168.1.1", False)
+    state.mark_kasa_unavailable("192.168.1.1")
+
+    assert state.state_version == 3

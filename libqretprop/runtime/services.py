@@ -132,7 +132,7 @@ def build_runtime(config: ServerConfig) -> RuntimeServices:
         camera_account=config["accounts"]["camera"],
         mediamtx_config=mediamtx_config,
     )
-    kasa_runtime = KasaRuntime()
+    kasa_runtime = KasaRuntime(system_state=system_state, state_stream=state_stream)
     return RuntimeServices(
         command_tracker=command_tracker,
         metrics=metrics,
