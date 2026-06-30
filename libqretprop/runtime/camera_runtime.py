@@ -133,19 +133,19 @@ class CameraRuntime:
         # Reset camera in registry if exists
         self._registry.pop(ip, None)
 
-        logger.info(f"Attempting to connect to camera at {ip}")
+        logger.info("Attempting to connect to camera at %s", ip)
 
         try:
             # Create camera object and connect to it
             camera_object = Camera(ip, port)
             await camera_object.connect(*self._camera_credentials())
 
-            logger.info(f"Connected to camera {camera_object.hostname} ({ip})")
+            logger.info("Connected to camera %s (%s)", camera_object.hostname, ip)
 
             self._registry[ip] = camera_object
             return camera_object
-        except Exception as e:
-            logger.error(f"Failed to connect to camera at {ip}: {e}")
+        except Exception:
+            logger.exception("Failed to connect to camera at %s", ip)
             return None
 
     async def move_camera(self, ip: str, x: float, y: float) -> None:
@@ -153,8 +153,8 @@ class CameraRuntime:
         try:
             cam = self._require_camera(ip)
             await cam.move_relative(x, y)
-        except Exception as e:
-            logger.error(f"Failed to move camera at {ip}: {e}")
+        except Exception:
+            logger.exception("Failed to move camera at %s", ip)
 
     async def start_camera_recording(self, ip: str) -> None:
         await self._set_camera_recording(ip, recording=True)
@@ -171,7 +171,8 @@ class CameraRuntime:
     def _require_camera(self, ip: str) -> Camera:
         camera = self._registry.get(ip)
         if camera is None:
-            raise KeyError(f"Camera {ip} does not exist")
+            msg = f"Camera {ip} does not exist"
+            raise KeyError(msg)
         return camera
 
     def _record_path_for(self, camera: Camera) -> str:
@@ -187,15 +188,15 @@ class CameraRuntime:
         password: str,
     ) -> None:
         try:
-            logger.info(f"Configuring media server for camera {camera.hostname} ({camera.address})")
+            logger.info("Configuring media server for camera %s (%s)", camera.hostname, camera.address)
             await self._mediamtx.add_path(
                 http_client,
                 camera.address,
                 source=camera.rtsp_stream_source(username, password),
                 record_path=self._record_path_for(camera),
             )
-        except asyncio.TimeoutError:
-            logger.error(f"Media server configuration timed out for {camera.hostname} ({camera.address})")
+        except TimeoutError:
+            logger.exception("Media server configuration timed out for %s (%s)", camera.hostname, camera.address)
 
         await self._refresh_media_recording_state(http_client, camera)
 
@@ -203,7 +204,7 @@ class CameraRuntime:
         record_state = await self._mediamtx.get_path_record_state(http_client, camera.address)
         if record_state is None:
             camera.set_recording(False)
-            logger.error(f"Could not determine recording state from MediaMTX path {camera.address}; defaulting to False")
+            logger.error("Could not determine recording state from MediaMTX path %s; defaulting to False", camera.address)
         else:
             camera.set_recording(record_state)
 
@@ -214,24 +215,27 @@ class CameraRuntime:
         try:
             camera = self._require_camera(ip)
         except KeyError:
-            logger.error(f"Failed to {action} recording for camera at {ip}: camera not registered")
+            logger.exception("Failed to %s recording for camera at %s: camera not registered", action, ip)
             raise
 
         # PATCH media server /v3/config/paths/patch/{ip} with {"record": true|false}
         http_client = self._get_http_session()
         try:
-            logger.info(f"{action_title} recording for camera at {ip} via media server API")
+            logger.info("%s recording for camera at %s via media server API", action_title, ip)
             response = await self._mediamtx.set_recording(http_client, ip, record=recording)
 
             if response.status != 200:
-                raise RuntimeError(f"Media server API returned status {response.status}")
+                msg = f"Media server API returned status {response.status}"
+                raise RuntimeError(msg)
 
             camera.set_recording(recording)
-        except asyncio.TimeoutError:
-            logger.error(f"Media server API request to {action} recording timed out for camera at {ip}")
-            raise RuntimeError("Media server API request timed out")
+        except asyncio.TimeoutError as err:
+            logger.exception("Media server API request to %s recording timed out for camera at %s", action, ip)
+            raise RuntimeError("Media server API request timed out") from err
         except RuntimeError:
             raise
         except Exception as e:
-            logger.error(f"Failed to {action} recording for camera at {ip}: {e}")
-            raise RuntimeError(f"Failed to {action} recording for camera at {ip}: {e}") from e
+            logger.exception("Failed to %s recording for camera at %s", action, ip)
+
+            msg = f"Failed to {action} recording for camera at {ip}: {e}"
+            raise RuntimeError(msg) from e

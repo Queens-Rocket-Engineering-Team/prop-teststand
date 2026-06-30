@@ -162,6 +162,6 @@ def test_kasa_set_device_state_raises_key_error_for_unknown_host() -> None:
     async def run() -> None:
         runtime = KasaRuntime()
         with pytest.raises(KeyError):
-            await runtime.set_kasa_device_state("192.168.1.99", True)
+            await runtime.set_state("192.168.1.99", True)
 
     asyncio.run(run())

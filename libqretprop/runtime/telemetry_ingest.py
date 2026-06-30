@@ -62,21 +62,21 @@ class TelemetryRuntime:
         if session is None:
             self.metrics.record_telemetry_datagram(len(data))
             self.metrics.record_telemetry_decode_error("unknown_device")
-            logger.error(f"Received UDP packet from unknown device {address}")
+            logger.error("Received UDP packet from unknown device %s", address)
             return None
 
         self.metrics.record_telemetry_datagram(len(data), device=session.name)
 
         try:
             packet = decode_packet_server(data)
-        except Exception as e:
+        except Exception:
             self.metrics.record_telemetry_decode_error("decode")
-            logger.error(f"Error decoding UDP packet from {address}: {e}")
+            logger.exception("Error decoding UDP packet from %s", address)
             return None
 
         if not isinstance(packet, DataPacket):
             self.metrics.record_telemetry_decode_error("non_data")
-            logger.error(f"Received non-DATA packet over UDP from {session.name}. Ignoring.")
+            logger.error("Received non-DATA packet over UDP from %s. Ignoring.", session.name)
             return None
 
         return self.handle_packet(packet, session)
@@ -91,7 +91,9 @@ class TelemetryRuntime:
             if sensor is None:
                 self.metrics.record_telemetry_decode_error("unknown_sensor")
                 logger.error(
-                    f"Received DATA reading for unknown sensor id {reading.sensor_id} from {session.name}. Ignoring.",
+                    "Received DATA reading for unknown sensor id %s from %s. Ignoring.",
+                    reading.sensor_id,
+                    session.name,
                 )
                 continue
 
@@ -144,7 +146,7 @@ class TelemetryRuntime:
         udp_socket.bind(("0.0.0.0", port))  # noqa: S104
         udp_socket.setblocking(False)
 
-        logger.info(f"UDP listener started on port {port}")
+        logger.info("UDP listener started on port %s", port)
 
         while True:
             try:
@@ -174,6 +176,6 @@ class TelemetryRuntime:
                 logger.info("UDP listener cancelled")
                 udp_socket.close()
                 raise
-            except Exception as e:
-                logger.error(f"Error in UDP listener: {e}")
+            except Exception:
+                logger.exception("Error in UDP listener: %s")
                 await asyncio.sleep(0.1)
