@@ -89,7 +89,7 @@ async def _runtime_harness() -> AsyncGenerator[
     )
 
     publisher = _CollectingPublisher()
-    telemetry_runtime = TelemetryRuntime(runtime.get_device_by_udp_address, publisher)
+    telemetry_runtime = TelemetryRuntime(runtime.get_device_by_address, publisher)
 
     tasks = [
         asyncio.create_task(runtime.run_tcp_listener(port=tcp_port)),

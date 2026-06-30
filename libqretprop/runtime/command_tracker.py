@@ -22,6 +22,7 @@ DEFAULT_RECENT_COMPLETED_LIMIT = 100
 
 @dataclass(frozen=True, slots=True)
 class CommandPolicy:
+    """Policy for a command packet type, indicating whether an ACK is expected and whether the command should be visible to the operator."""
     ack_expected: bool
     operator_visible: bool
 
@@ -38,10 +39,12 @@ COMMAND_POLICIES: dict[PacketType, CommandPolicy] = {
 }
 
 def command_policy(packet_type: PacketType) -> CommandPolicy:
+    """Return the CommandPolicy for *packet_type*, or a default policy if not explicitly defined."""
     return COMMAND_POLICIES.get(packet_type, CommandPolicy(ack_expected=False, operator_visible=False))
 
 
 def is_operator_visible(packet_type: PacketType) -> bool:
+    """Return True if *packet_type* is considered operator-visible, False otherwise."""
     return command_policy(packet_type).operator_visible
 
 
@@ -289,8 +292,10 @@ class CommandTracker:
         existing_record.state = CommandLifecycle.TIMED_OUT
         existing_record.timed_out_at = record.sent_at
         logger.debug(
-            f"Replaced duplicate pending command: {existing_record.packet_type.name} "
-            f"seq={existing_record.packet_sequence} for {existing_record.device_name} (duplicate_command_key)",
+            "Replaced duplicate pending command: %s, sequence=%s for %s (duplicate_command_key)",
+            existing_record.packet_type.name,
+            existing_record.packet_sequence,
+            existing_record.device_name,
         )
         self.metrics.record_command_timed_out(existing_record.packet_type, device=existing_record.device_name)
         self._complete_record(existing_record)

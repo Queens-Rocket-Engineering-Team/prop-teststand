@@ -14,11 +14,7 @@ _DISABLED_POLL_INTERVAL_S = 0.5
 
 
 class DiscoveryService:
-    """Owns device discovery: a periodic discovery loop and one-shot discovery requests.
-
-    The transport (currently SSDP over UDP multicast) is an internal detail; callers use the
-    protocol-agnostic ``discover()`` / ``run()`` surface and the ``periodic_*`` config.
-    """
+    """Owns device discovery: a periodic discovery loop and discovery requests."""
 
     def __init__(
         self,

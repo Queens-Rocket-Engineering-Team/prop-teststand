@@ -71,7 +71,7 @@ class RuntimeServices:
 
         # Kasa discovery daemon
         logger.info("Starting Kasa discovery daemon...")
-        self._tasks["kasa_discoverer"] = loop.create_task(self.kasa_runtime.discover_kasa_devices())
+        self._tasks["kasa_discoverer"] = loop.create_task(self.kasa_runtime.discover())
 
         # Log stream daemon
         logger.info("Starting log stream daemon...")
@@ -118,7 +118,7 @@ def build_runtime(config: ServerConfig) -> RuntimeServices:
         metrics=metrics,
     )
     telemetry_runtime = TelemetryRuntime(
-        esp_runtime.get_device_by_udp_address,
+        esp_runtime.get_device_by_address,
         telemetry_stream,
         telemetry_display_stream,
         metrics=metrics,

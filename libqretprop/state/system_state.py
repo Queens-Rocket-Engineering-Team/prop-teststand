@@ -20,27 +20,23 @@ StateEvent = dict[str, object]
 
 
 @dataclass(slots=True)
-class _ReportedControlState:
-    state: str
-    timestamp: float
-
-
-@dataclass(slots=True)
-class _AcceptedControlState:
+class _ControlStateRecord:
+    """A record of a control's commanded state (reported or accepted) at a specific point in time."""
     state: str
     timestamp: float
 
 
 @dataclass(slots=True)
 class _DeviceState:
+    """State projection for a single device."""
     device_name: str
     address: str
     connection_key: str
     config: DeviceConfig
     connected: bool
     device: ESPDeviceSession | None = None
-    reported_controls: dict[int, _ReportedControlState] = field(default_factory=dict)
-    accepted_controls: dict[int, _AcceptedControlState] = field(default_factory=dict)
+    reported_controls: dict[int, _ControlStateRecord] = field(default_factory=dict)
+    accepted_controls: dict[int, _ControlStateRecord] = field(default_factory=dict)
 
 
 class SystemState:
@@ -56,6 +52,7 @@ class SystemState:
         return self._state_version
 
     def register_device(self, device: ESPDeviceSession) -> StateEvent:
+        """Manage the registration of a new device."""
         self._devices_by_name[device.name] = _DeviceState(
             device_name=device.name,
             address=device.address,
@@ -70,6 +67,7 @@ class SystemState:
         )
 
     def mark_disconnected(self, device: ESPDeviceSession) -> StateEvent | None:
+        """Mark a device as disconnected and return a state event if it was previously registered."""
         device_state = self._devices_by_name.get(device.name)
         if device_state is None or device_state.connection_key != device.connection_key:
             return None
@@ -91,6 +89,8 @@ class SystemState:
         *,
         now: float | None = None,
     ) -> StateEvent | None:
+        """Record a control's reported state and return a state event if the device/control is known."""
+
         device_state = self._devices_by_name.get(device.name)
         if device_state is None:
             return None
@@ -101,7 +101,7 @@ class SystemState:
         if control is None:
             return None
 
-        device_state.reported_controls[control_id] = _ReportedControlState(
+        device_state.reported_controls[control_id] = _ControlStateRecord(
             state=self._control_state_name(state),
             timestamp=time.monotonic() if now is None else now,
         )
@@ -127,6 +127,8 @@ class SystemState:
         *,
         now: float | None = None,
     ) -> StateEvent | None:
+        """Record a control's accepted state and return a state event if the device/control is known."""
+
         device_state = self._devices_by_name.get(device.name)
         if device_state is None:
             return None
@@ -137,7 +139,7 @@ class SystemState:
         if control is None:
             return None
 
-        device_state.accepted_controls[control_id] = _AcceptedControlState(
+        device_state.accepted_controls[control_id] = _ControlStateRecord(
             state=self._control_state_name(state),
             timestamp=time.monotonic() if now is None else now,
         )

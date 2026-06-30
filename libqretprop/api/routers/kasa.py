@@ -39,7 +39,7 @@ async def get_kasa_devices(rt: Annotated[RuntimeServices, Depends(get_runtime)])
 @router.get("/v1/kasa/discover", summary="Discover Kasa devices on the network")
 async def discover_kasa_devices(rt: Annotated[RuntimeServices, Depends(get_runtime)]) -> list[KasaDeviceInfo]:
     logger.info("User sent Kasa discover command")
-    await rt.kasa_runtime.discover_kasa_devices()
+    await rt.kasa_runtime.discover()
 
     try:
         return [
@@ -70,7 +70,7 @@ async def control_kasa_device(
         raise HTTPException(404, f"No Kasa device found at {host}")
 
     try:
-        dev = await kasa_runtime.set_kasa_device_state(host, active)
+        dev = await kasa_runtime.set_state(host, active)
         alias = dev.alias if dev.alias is not None else ""
         return KasaDeviceInfo(alias=alias, host=dev.host, model=dev.model, active=dev.is_on)
     except Exception as e:
