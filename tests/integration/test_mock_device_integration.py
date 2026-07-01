@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from libqretprop.qlcp.enums import PacketType
 from libqretprop.runtime.command_tracker import CommandLifecycle, CommandTracker
-from libqretprop.runtime.esp_connection_runtime import ESPConnectionRuntime
+from libqretprop.runtime.esp_connection_runtime import ESPConnectionRuntime, ESPDeviceSession
 from libqretprop.runtime.telemetry_ingest import TelemetryBatch, TelemetryRuntime
 from libqretprop.state.system_state import SystemState
 from qretproptools.cli.mock_device.mock_device import MockSensorDevice
@@ -109,9 +109,9 @@ async def _runtime_harness() -> AsyncGenerator[
                 await task
 
 
-async def _wait_for(condition: Any, *, timeout: float = 2.0, tick: float = 0.02) -> bool:
+async def _wait_for(condition: Any, *, timeout_s: float = 2.0, tick: float = 0.02) -> bool:
     """Poll ``condition()`` every tick seconds; return True when it becomes truthy or False on timeout."""
-    deadline = asyncio.get_event_loop().time() + timeout
+    deadline = asyncio.get_event_loop().time() + timeout_s
     while asyncio.get_event_loop().time() < deadline:
         if condition():
             return True
@@ -119,12 +119,13 @@ async def _wait_for(condition: Any, *, timeout: float = 2.0, tick: float = 0.02)
     return False
 
 
-def _session_for(runtime: ESPConnectionRuntime, device_name: str):  # type: ignore[return]
+def _session_for(runtime: ESPConnectionRuntime, device_name: str) -> ESPDeviceSession:
     """Return the registered session for device_name, or raise AssertionError."""
     for session in runtime.devices.values():
         if session.name == device_name:
             return session
-    raise AssertionError(f"No session found for device {device_name!r}; registered: {list(runtime.devices.snapshot_by_address())}")
+    message = f"No session found for device {device_name!r}; registered: {list(runtime.devices.snapshot_by_address())}"
+    raise AssertionError(message)
 
 
 # --------------------------------------------------------------------------- #
@@ -152,6 +153,12 @@ def test_device_registers_on_connect() -> None:
             assert dev.device_name in {s.name for s in runtime.devices.values()}, (
                 f"Device {dev.device_name!r} not found in runtime.devices: {list(runtime.devices.snapshot_by_address())}"
             )
+            session = _session_for(runtime, dev.device_name)
+            relays = {name: session.controls[name] for name in ("SAFE24", "IGNPRIME", "IGNRUN")}
+
+            assert set(relays) == {"SAFE24", "IGNPRIME", "IGNRUN"}
+            assert all(control.control_type == "relay" for control in relays.values())
+            assert all(control.default.name == "OPEN" for control in relays.values())
 
     asyncio.run(run())
 
@@ -173,6 +180,7 @@ def test_control_command_acked_and_state_updated() -> None:
 
             # AV101 starts CLOSED (from config default).
             assert dev.valve_states.get("AV101") == "CLOSED"
+            assert dev.valve_states.get("SAFE24") == "OPEN"
 
             # Clear the event before sending so we can reliably await it.
             dev.control_handled.clear()
@@ -181,6 +189,13 @@ def test_control_command_acked_and_state_updated() -> None:
             await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
 
             assert dev.valve_states.get("AV101") == "OPEN"
+
+            dev.control_handled.clear()
+            await runtime.set_control(session, "SAFE24", "CLOSE")
+
+            await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
+
+            assert dev.valve_states.get("SAFE24") == "CLOSED"
 
             # Give the ACK a tick to propagate through the server's monitor loop.
             await asyncio.sleep(0.05)
@@ -242,7 +257,7 @@ def test_telemetry_stream_readings_match_config() -> None:
             await asyncio.wait_for(dev.stream_started.wait(), timeout=2.0)
 
             # Wait for at least 3 batches.
-            reached = await _wait_for(lambda: len(publisher.batches) >= 3, timeout=2.0)
+            reached = await _wait_for(lambda: len(publisher.batches) >= 3, timeout_s=2.0)
             assert reached, f"Expected ≥3 batches, got {len(publisher.batches)}"
 
             # Verify sensor-id / name / unit consistency against the device config.
@@ -286,7 +301,7 @@ def test_get_single_delivers_data_over_udp() -> None:
 
             reached = await _wait_for(
                 lambda: len(publisher.batches) > initial_count,
-                timeout=2.0,
+                timeout_s=2.0,
             )
             assert reached, "GET_SINGLE did not produce a telemetry batch"
 
@@ -300,7 +315,7 @@ def test_get_single_delivers_data_over_udp() -> None:
 
 
 def test_estop_stops_streaming_and_resets_state() -> None:
-    """ESTOP causes the mock to stop streaming and reset valve states to defaults."""
+    """ESTOP causes the mock to stop streaming and reset control states to defaults."""
 
     async def run() -> None:
         async with (
@@ -320,6 +335,12 @@ def test_estop_stops_streaming_and_resets_state() -> None:
             await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
             assert dev.valve_states.get("AV101") == "OPEN"
 
+            # Close a relay so we can verify ESTOP resets it back to its OPEN default.
+            dev.control_handled.clear()
+            await runtime.set_control(session, "SAFE24", "CLOSE")
+            await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
+            assert dev.valve_states.get("SAFE24") == "CLOSED"
+
             # Start streaming.
             dev.stream_started.clear()
             await runtime.start_streaming(session, frequency_hz=10)
@@ -330,15 +351,22 @@ def test_estop_stops_streaming_and_resets_state() -> None:
             await runtime.emergency_stop(session)
 
             # Streaming should stop.
-            stopped = await _wait_for(lambda: not dev.streaming, timeout=2.0)
+            stopped = await _wait_for(lambda: not dev.streaming, timeout_s=2.0)
             assert stopped, "Mock is still streaming after ESTOP"
 
             # Valve state should be reset to default (CLOSED).
             reset_ok = await _wait_for(
                 lambda: dev.valve_states.get("AV101") == "CLOSED",
-                timeout=2.0,
+                timeout_s=2.0,
             )
             assert reset_ok, f"Valve AV101 did not reset to CLOSED; got {dev.valve_states.get('AV101')!r}"
+
+            # Relay state should be reset to default (OPEN).
+            relay_reset_ok = await _wait_for(
+                lambda: dev.valve_states.get("SAFE24") == "OPEN",
+                timeout_s=2.0,
+            )
+            assert relay_reset_ok, f"Relay SAFE24 did not reset to OPEN; got {dev.valve_states.get('SAFE24')!r}"
 
     asyncio.run(run())
 
@@ -383,7 +411,7 @@ def test_custom_config_sensor_ids_match_readings() -> None:
             session = _session_for(runtime, "CustomDevice")
 
             await runtime.get_single(session)
-            reached = await _wait_for(lambda: len(publisher.batches) > 0, timeout=2.0)
+            reached = await _wait_for(lambda: len(publisher.batches) > 0, timeout_s=2.0)
             assert reached
 
             batch = publisher.batches[0]
@@ -400,6 +428,6 @@ def test_custom_config_sensor_ids_match_readings() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def from_name(name: str):
+def from_name(name: str) -> Any:
     """Resolve a PacketType by name (avoids a direct enum import in assertions)."""
     return PacketType[name]
