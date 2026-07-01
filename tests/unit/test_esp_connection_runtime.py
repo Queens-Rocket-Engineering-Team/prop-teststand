@@ -1,8 +1,9 @@
 import asyncio
-import json
 import socket
 from types import SimpleNamespace
 from typing import Any, cast
+
+import orjson
 
 from libqretprop.qlcp.config_parser import parse_config
 from libqretprop.qlcp.enums import ControlState, DeviceStatus, ErrorCode, PacketType
@@ -157,7 +158,7 @@ def test_accept_connection_registers_device_on_config() -> None:
         peer_sock.setblocking(False)
 
         try:
-            peer_sock.sendall(ConfigPacket.create(json.dumps(_make_config())).encode())
+            peer_sock.sendall(ConfigPacket.create(orjson.dumps(_make_config()).decode("utf-8")).encode())
 
             session = await runtime.accept_connection(server_sock, "10.0.0.2")
 
