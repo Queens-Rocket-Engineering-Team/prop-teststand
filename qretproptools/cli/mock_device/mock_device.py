@@ -23,7 +23,7 @@ import asyncio
 import contextlib
 import json
 import logging
-import random
+import math
 import socket
 import struct
 import time
@@ -55,6 +55,37 @@ from libqretprop.qlcp.packets import (
 
 
 logger = logging.getLogger("MockDevice")
+
+MOCK_SIGNAL_FREQUENCY_HZ = 0.25
+MOCK_SIGNAL_AMPLITUDE = 20.0
+MOCK_SIGNAL_PHASE_STEP_RAD = math.pi / 4.0
+
+_SIGNAL_CENTER_BY_UNIT: dict[Unit, float] = {
+    Unit.CELSIUS: 25.0,
+    Unit.FAHRENHEIT: 77.0,
+    Unit.KELVIN: 298.0,
+    Unit.PSI: 15.0,
+    Unit.BAR: 1.0,
+    Unit.PASCAL: 100000.0,
+    Unit.VOLTS: 3.3,
+    Unit.AMPS: 0.25,
+    Unit.OHMS: 100.0,
+}
+
+_POSITIVE_SIGNAL_UNITS = frozenset((Unit.KILOGRAMS, Unit.GRAMS, Unit.POUNDS, Unit.NEWTONS))
+
+
+def sensor_signal_center_amplitude(sensor: SensorConfig) -> tuple[float, float]:
+    """Return the unit-specific center and fixed test sine amplitude."""
+    if sensor.unit in _POSITIVE_SIGNAL_UNITS:
+        return MOCK_SIGNAL_AMPLITUDE, MOCK_SIGNAL_AMPLITUDE
+    return _SIGNAL_CENTER_BY_UNIT.get(sensor.unit, 0.0), MOCK_SIGNAL_AMPLITUDE
+
+
+def sensor_signal_value(sensor: SensorConfig, elapsed_s: float, sensor_id: int) -> float:
+    center, amplitude = sensor_signal_center_amplitude(sensor)
+    phase = sensor_id * MOCK_SIGNAL_PHASE_STEP_RAD
+    return center + amplitude * math.sin((2.0 * math.pi * MOCK_SIGNAL_FREQUENCY_HZ * elapsed_s) + phase)
 
 # Default device config: 2 thermocouples (ids 0-1, CELSIUS) + 2 pressure transducers (ids 2-3, PSI).
 # Sensor ordering in sensor_info determines the ids assigned by parse_config.
@@ -100,6 +131,21 @@ _DEFAULT_CONFIG: dict[str, Any] = {
             "type": "valve",
             "default_state": "CLOSED",
         },
+        "SAFE24": {
+            "control_index": "SAFE_24V_CTL",
+            "type": "relay",
+            "default_state": "OPEN",
+        },
+        "IGNPRIME": {
+            "control_index": "IGNITOR_PRIME_CTL",
+            "type": "relay",
+            "default_state": "OPEN",
+        },
+        "IGNRUN": {
+            "control_index": "IGNITOR_RUN_CTL",
+            "type": "relay",
+            "default_state": "OPEN",
+        },
     },
 }
 
@@ -137,6 +183,7 @@ class MockSensorDevice:
 
         # Per-sensor simulated state (keyed by sensor_id).
         self._sensor_values: dict[int, float] = {sid: self._initial_value(s) for sid, s in self._device_config.sensors_by_id.items()}
+        self._signal_start_monotonic = time.monotonic()
 
         # Control states (keyed by control name), initialised from config defaults.
         self.valve_states: dict[str, str] = {c.name: c.default.name for c in self._device_config.controls_by_id.values()}
@@ -184,45 +231,9 @@ class MockSensorDevice:
 
     @staticmethod
     def _initial_value(sensor: SensorConfig) -> float:
-        """Return a sensible initial simulated value for a sensor unit."""
-        baselines: dict[Unit, float] = {
-            Unit.CELSIUS: 23.0,
-            Unit.FAHRENHEIT: 73.0,
-            Unit.KELVIN: 296.0,
-            Unit.PSI: 14.7,
-            Unit.BAR: 1.0,
-            Unit.PASCAL: 101325.0,
-            Unit.VOLTS: 3.3,
-            Unit.AMPS: 0.1,
-            Unit.OHMS: 100.0,
-        }
-        return baselines.get(sensor.unit, 0.0)
-
-    @staticmethod
-    def _step_value(sensor: SensorConfig, current: float) -> float:
-        """Randomly evolve a simulated sensor value within a plausible range."""
-        unit = sensor.unit
-        if unit == Unit.CELSIUS:
-            return max(20.0, min(30.0, current + random.uniform(-0.5, 0.5)))
-        if unit == Unit.FAHRENHEIT:
-            return max(68.0, min(86.0, current + random.uniform(-0.9, 0.9)))
-        if unit == Unit.KELVIN:
-            return max(293.0, min(303.0, current + random.uniform(-0.5, 0.5)))
-        if unit == Unit.PSI:
-            return max(10.0, min(20.0, current + random.uniform(-0.2, 0.2)))
-        if unit == Unit.BAR:
-            return max(0.5, min(1.5, current + random.uniform(-0.01, 0.01)))
-        if unit == Unit.PASCAL:
-            return max(90000.0, min(110000.0, current + random.uniform(-10, 10)))
-        if unit in (Unit.KILOGRAMS, Unit.GRAMS, Unit.POUNDS, Unit.NEWTONS):
-            return max(0.0, current + random.uniform(-0.1, 0.1))
-        if unit == Unit.VOLTS:
-            return max(3.0, min(3.6, current + random.uniform(-0.01, 0.01)))
-        if unit == Unit.AMPS:
-            return max(0.0, min(0.5, current + random.uniform(-0.005, 0.005)))
-        if unit == Unit.OHMS:
-            return max(0.0, current + random.uniform(-1, 1))
-        return current + random.uniform(-0.1, 0.1)
+        """Return the center point for a simulated sensor unit."""
+        center, _amplitude = sensor_signal_center_amplitude(sensor)
+        return center
 
     # ---------------------------------------------------------------------- #
     # Lifecycle                                                                #
@@ -236,6 +247,7 @@ class MockSensorDevice:
             self.stream_task = None
 
         self._sensor_values = {sid: self._initial_value(s) for sid, s in self._device_config.sensors_by_id.items()}
+        self._signal_start_monotonic = time.monotonic()
         self.valve_states = {c.name: c.default.name for c in self._device_config.controls_by_id.values()}
         self.timesync_offset = 0
 
@@ -604,14 +616,15 @@ class MockSensorDevice:
     async def send_sensor_data(self) -> None:
         """Build and send a DATA packet over UDP with one reading per configured sensor."""
         readings: list[SensorReading] = []
+        elapsed_s = time.monotonic() - self._signal_start_monotonic
         for sensor_id, sensor in self._device_config.sensors_by_id.items():
-            self._sensor_values[sensor_id] = self._step_value(sensor, self._sensor_values[sensor_id])
+            self._sensor_values[sensor_id] = sensor_signal_value(sensor, elapsed_s, sensor_id)
             readings.append(
                 SensorReading(
                     sensor_id=sensor_id,
                     unit=sensor.unit,
                     value=self._sensor_values[sensor_id],
-                )
+                ),
             )
 
         packet = DataPacket.create(readings)
@@ -623,9 +636,12 @@ class MockSensorDevice:
         self.data_sent.set()
         self.data_sent.clear()  # reset immediately so it acts as a pulse for next waiter
 
-        if random.random() < 0.1:
-            summary = " ".join(f"{s.name}={self._sensor_values[sid]:.1f}{s.unit.name}" for sid, s in self._device_config.sensors_by_id.items())
-            logger.debug(f"Data: {summary}")
+        if logger.isEnabledFor(logging.DEBUG):
+            summary = " ".join(
+                f"{s.name}={self._sensor_values[sid]:.1f}{s.unit.name}"
+                for sid, s in self._device_config.sensors_by_id.items()
+            )
+            logger.debug("Data: %s", summary)
 
     async def send_single_reading(self) -> None:
         """Send one DATA packet over UDP in response to GET_SINGLE. No ACK is sent."""
