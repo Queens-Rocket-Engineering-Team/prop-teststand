@@ -5,6 +5,7 @@ import time
 from typing import Any, cast
 
 import numpy as np
+import orjson
 import pytest
 from fastapi import WebSocket
 from tsdownsample import M4Downsampler
@@ -47,6 +48,12 @@ class FakeWebSocket:
             raise RuntimeError("websocket send failed")
         self._send_count += 1
         self.sent.append(message)
+
+    async def send_text(self, data: str) -> None:
+        if self._fail_after is not None and self._send_count >= self._fail_after:
+            raise RuntimeError("websocket send failed")
+        self._send_count += 1
+        self.sent.append(orjson.loads(data))
 
     async def close(self) -> None:
         self.closed = True
