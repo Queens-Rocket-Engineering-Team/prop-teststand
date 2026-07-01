@@ -5,7 +5,7 @@ import socket
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from libqretprop.qlcp.decoding import decode_packet_server
 from libqretprop.qlcp.packets import DataPacket
@@ -40,8 +40,14 @@ class TelemetryBatch:
     connection_key: str
     timestamp_s: float
     readings: tuple[TelemetryReading, ...]
-    timestamp_source: Literal["device_synced", "server_receive"] = "device_synced"
-    timestamp_synced: bool = True
+    timestamp_source: Literal["device_synced", "server_receive"]
+    timestamp_synced: bool
+
+
+class TelemetryPublisher(Protocol):
+    """A telemetry fan-out target that accepts decoded batches synchronously."""
+
+    def publish_batch(self, batch: TelemetryBatch) -> None: ...
 
 
 class TelemetryRuntime:
@@ -50,7 +56,7 @@ class TelemetryRuntime:
     def __init__(
         self,
         device_for_address: Callable[[str], ESPDeviceSession | None],
-        *publishers: Any,
+        *publishers: TelemetryPublisher,
         metrics: Metrics | None = None,
     ) -> None:
         self._device_for_address = device_for_address
@@ -61,7 +67,7 @@ class TelemetryRuntime:
         session = self._session_for_udp_address(address)
         if session is None:
             self.metrics.record_telemetry_datagram(len(data))
-            self.metrics.record_telemetry_decode_error("unknown_device")
+            self.metrics.record_telemetry_unknown_source("unregistered_address")
             logger.error("Received UDP packet from unknown device %s", address)
             return None
 
@@ -127,6 +133,7 @@ class TelemetryRuntime:
         packet: DataPacket,
         session: ESPDeviceSession,
     ) -> tuple[float, Literal["device_synced", "server_receive"], bool]:
+        # TIMESYNC seeds the device clock from get_timestamp_ms(), so both share one axis; wraps at ~49.7 days.
         if session.last_sync_time is None:
             return time.monotonic(), "server_receive", False
         return packet.timestamp / 1000.0, "device_synced", True

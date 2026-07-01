@@ -18,6 +18,7 @@ class TelemetryStreamRuntime(BoundedWebSocketFanout):
     Each client gets a bounded queue and an independent send loop. ``publish_batch``
     is synchronous and non-blocking so it is safe to call directly from the UDP ingest
     loop: a slow or stalled client never blocks ingest, its batches are dropped instead.
+    Lossy under backpressure; dropped batches are not signaled in-band to the client.
     """
 
     def __init__(self, *, max_queue: int = 256, metrics: Metrics | None = None) -> None:

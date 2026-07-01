@@ -40,7 +40,13 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
             client_port = str(client.port)
 
         logger.info(
-            f'{client_host}:{client_port} - "{request.method} {request.url.path} HTTP/1.1" {response.status_code} ({duration_ms:.0f}ms)',
+            '%s:%s - "%s %s HTTP/1.1" %s (%.0fms)',
+            client_host,
+            client_port,
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
         )
         return response
 

@@ -32,7 +32,7 @@ async def get_kasa_devices(rt: Annotated[RuntimeServices, Depends(get_runtime)])
             for dev in await rt.kasa_runtime.get_devices()
         ]
     except Exception as e:
-        logger.error(f"Failed to get Kasa device info: {e}")
+        logger.error("Failed to get Kasa device info: %s", e)
         raise HTTPException(500, "Failed to get Kasa device info")
 
 
@@ -52,7 +52,7 @@ async def discover_kasa_devices(rt: Annotated[RuntimeServices, Depends(get_runti
             for dev in await rt.kasa_runtime.get_devices()
         ]
     except Exception as e:
-        logger.error(f"Failed to get Kasa device info: {e}")
+        logger.error("Failed to get Kasa device info: %s", e)
         raise HTTPException(500, "Failed to get Kasa device info")
 
 
@@ -62,7 +62,7 @@ async def control_kasa_device(
     host: str,
     active: bool,
 ) -> KasaDeviceInfo:
-    logger.info(f"User sent Kasa control command to {host}: active={active}")
+    logger.info("User sent Kasa control command to %s: active=%s", host, active)
 
     kasa_runtime = rt.kasa_runtime
 
@@ -74,5 +74,5 @@ async def control_kasa_device(
         alias = dev.alias if dev.alias is not None else ""
         return KasaDeviceInfo(alias=alias, host=dev.host, model=dev.model, active=dev.is_on)
     except Exception as e:
-        logger.error(f"Error while controlling Kasa device at {host} (active={active}): {repr(e)}")
+        logger.error("Error while controlling Kasa device at %s (active=%s): %r", host, active, e)
         raise HTTPException(500, f"Failed to control Kasa device at {host}")

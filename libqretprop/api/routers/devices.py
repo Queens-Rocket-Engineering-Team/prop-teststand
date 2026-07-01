@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from libqretprop.api.deps import get_runtime
 from libqretprop.api.models import CommandResponse
+from libqretprop.runtime.esp_connection_runtime import normalize_control_name
 from libqretprop.runtime.services import RuntimeServices
 
 
@@ -53,34 +54,48 @@ async def send_device_command(
     cmd: CommandRequest,
     rt: Annotated[RuntimeServices, Depends(get_runtime)],
 ) -> CommandResponse:
-    logger.info(f"Command sent: {cmd.command!r}")
+    logger.info("Command sent: %r", cmd.command)
 
     devices = rt.esp_runtime.get_registered_devices()
-    any_commands_sent = False
+    targeted: list[str] = []
+    sent: list[str] = []
 
     for device in devices.values():
         match cmd:
             case GetSingleCommand():
-                any_commands_sent = True
-                await rt.esp_runtime.get_single(device)
+                targeted.append(device.name)
+                if await rt.esp_runtime.get_single(device):
+                    sent.append(device.name)
             case StopCommand():
-                any_commands_sent = True
-                await rt.esp_runtime.stop_streaming(device)
+                targeted.append(device.name)
+                if await rt.esp_runtime.stop_streaming(device):
+                    sent.append(device.name)
             case StreamCommand(frequency_hz=freq):
-                any_commands_sent = True
-                await rt.esp_runtime.start_streaming(device, freq)
+                targeted.append(device.name)
+                if await rt.esp_runtime.start_streaming(device, freq):
+                    sent.append(device.name)
             case ControlCommand(control_name=control_name, control_state=control_state):
-                if control_name.upper() not in device.controls:
+                if normalize_control_name(control_name) not in device.controls:
                     continue
-                any_commands_sent = True
-                await rt.esp_runtime.set_control(device, control_name.upper(), control_state)
+                targeted.append(device.name)
+                if await rt.esp_runtime.set_control(device, control_name, control_state):
+                    sent.append(device.name)
 
-    if not any_commands_sent:
+    if not targeted:
         raise HTTPException(400, "No valid target devices for the command")
+    if not sent:
+        raise HTTPException(502, f"Command {cmd.command!r} failed to send to all target devices: {', '.join(targeted)}.")
+
+    if len(sent) < len(targeted):
+        failed = [name for name in targeted if name not in sent]
+        return CommandResponse(
+            status="partial",
+            message=f"Command {cmd.command!r} sent to {', '.join(sent)}; failed for {', '.join(failed)}.",
+        )
 
     return CommandResponse(
         status="sent",
-        message=f"Command {cmd.command!r} sent to {', '.join(d.name for d in devices.values())}.",
+        message=f"Command {cmd.command!r} sent to {', '.join(sent)}.",
     )
 
 
@@ -110,7 +125,7 @@ async def update_autodiscovery_settings(
     if interval_seconds is not None:
         ds.periodic_interval_s = interval_seconds
 
-    logger.info(f"User updated autodiscovery: enabled={ds.periodic_enabled}, intervalSeconds={ds.periodic_interval_s}s")
+    logger.info("User updated autodiscovery: enabled=%s, intervalSeconds=%ss", ds.periodic_enabled, ds.periodic_interval_s)
 
     return AutoDiscoveryConfig(
         enabled=ds.periodic_enabled,
@@ -131,5 +146,30 @@ async def discover_devices(rt: Annotated[RuntimeServices, Depends(get_runtime)])
 @router.post("/v1/estop", summary="Emergency stop - stops all streaming and control commands immediately")
 async def emergency_stop(rt: Annotated[RuntimeServices, Depends(get_runtime)]) -> None:
     devices = rt.esp_runtime.get_registered_devices()
-    for device in devices.values():
-        await rt.esp_runtime.emergency_stop(device)
+    failed = [device.name for device in devices.values() if not await rt.esp_runtime.emergency_stop(device)]
+    if failed:
+        logger.error("ESTOP failed to send to: %s", ", ".join(failed))
+
+
+@router.post(
+    "/v1/status-request",
+    summary="Request each device report its current control states via a STATUS packet",
+)
+async def request_status(rt: Annotated[RuntimeServices, Depends(get_runtime)]) -> CommandResponse:
+    devices = rt.esp_runtime.get_registered_devices()
+    targeted = [device.name for device in devices.values()]
+    if not targeted:
+        raise HTTPException(400, "No valid target devices for the command")
+
+    sent = [device.name for device in devices.values() if await rt.esp_runtime.get_status(device)]
+    if not sent:
+        raise HTTPException(502, f"STATUS_REQUEST failed to send to all target devices: {', '.join(targeted)}.")
+
+    if len(sent) < len(targeted):
+        failed = [name for name in targeted if name not in sent]
+        return CommandResponse(
+            status="partial",
+            message=f"STATUS_REQUEST sent to {', '.join(sent)}; failed for {', '.join(failed)}.",
+        )
+
+    return CommandResponse(status="sent", message=f"STATUS_REQUEST sent to {', '.join(sent)}.")

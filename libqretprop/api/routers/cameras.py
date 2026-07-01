@@ -65,7 +65,7 @@ async def control_camera(
     y_movement: float,
     bg_tasks: BackgroundTasks,
 ) -> CommandResponse:
-    logger.info(f"User sent camera move command to {ip}: <{x_movement}, {y_movement}>")
+    logger.info("User sent camera move command to %s: <%s, %s>", ip, x_movement, y_movement)
     bg_tasks.add_task(rt.camera_runtime.move_camera, ip, x_movement, y_movement)
     return CommandResponse(
         status="sent",
@@ -78,7 +78,7 @@ async def start_camera_recording(
     rt: Annotated[RuntimeServices, Depends(get_runtime)],
     ip: str,
 ) -> CommandResponse:
-    logger.info(f"User sent camera recording start command to {ip}")
+    logger.info("User sent camera recording start command to %s", ip)
     try:
         await rt.camera_runtime.start_camera_recording(ip)
     except KeyError as e:
@@ -96,7 +96,7 @@ async def stop_camera_recording(
     rt: Annotated[RuntimeServices, Depends(get_runtime)],
     ip: str,
 ) -> CommandResponse:
-    logger.info(f"User sent camera recording stop command to {ip}")
+    logger.info("User sent camera recording stop command to %s", ip)
     try:
         await rt.camera_runtime.stop_camera_recording(ip)
     except KeyError as e:
@@ -117,7 +117,7 @@ def list_camera_recordings(
     try:
         camera_recording_files = rt.camera_runtime.list_recording_files(ip)
     except Exception as e:
-        logger.error(f"Failed to list camera recordings: {e}")
+        logger.error("Failed to list camera recordings: %s", e)
         raise HTTPException(500, "Failed to list camera recordings") from e
 
     return CameraRecordingList(recordings=[
@@ -145,7 +145,7 @@ async def download_camera_recording(
     except FileNotFoundError as e:
         raise HTTPException(404, str(e)) from e
     except Exception as e:
-        logger.error(f"Failed to load recording file '{filename}': {e}")
+        logger.error("Failed to load recording file '%s': %s", filename, e)
         raise HTTPException(500, "Failed to open recording file") from e
     return FileResponse(path=file_path, media_type="video/mp4", filename=file_path.name)
 

@@ -4,6 +4,7 @@ import contextlib
 import logging
 from typing import TYPE_CHECKING, Any
 
+import orjson
 from fastapi import WebSocket
 
 from libqretprop.runtime.metrics import Metrics
@@ -80,7 +81,7 @@ class StateStream:
                     message = await queue.get()
                     if message is _DRAIN_SHUTDOWN:
                         break
-                    await websocket.send_json(message)
+                    await websocket.send_text(orjson.dumps(message).decode())
             except Exception as exc:
                 logger.debug(f"State WebSocket send error, removing client: {exc!r}")
 

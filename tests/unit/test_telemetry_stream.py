@@ -3,8 +3,8 @@ import asyncio
 import contextlib
 from typing import Any, cast
 
-from fastapi import WebSocket
 import orjson
+from fastapi import WebSocket
 
 from libqretprop.runtime.metrics import Metrics
 from libqretprop.runtime.telemetry_ingest import TelemetryBatch, TelemetryReading
@@ -58,6 +58,8 @@ def _make_batch() -> TelemetryBatch:
                 sensor_type="pressure_transducer",
             ),
         ),
+        timestamp_source="device_synced",
+        timestamp_synced=True,
     )
 
 

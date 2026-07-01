@@ -84,5 +84,5 @@ class KasaRuntime:
         return device
 
     def _remove_device(self, host: str) -> None:
-        self._registry.pop(host, None)  # Remove from registry if it becomes unresponsive
+        self._registry.pop(host, None)  # deregisters fully; recoverable only via re-discovery
         self._emit(self._system_state.mark_kasa_unavailable(host))

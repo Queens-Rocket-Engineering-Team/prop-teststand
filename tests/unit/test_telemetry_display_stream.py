@@ -91,6 +91,8 @@ def _make_batch(
         connection_key=connection_key,
         timestamp_s=timestamp_s,
         readings=readings if readings is not None else (_make_reading(),),
+        timestamp_source="device_synced",
+        timestamp_synced=True,
     )
 
 

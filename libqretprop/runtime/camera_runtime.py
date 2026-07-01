@@ -149,7 +149,7 @@ class CameraRuntime:
             return None
 
     async def move_camera(self, ip: str, x: float, y: float) -> None:
-        """Move a camera by relative pan/tilt amounts."""
+        """Move a camera by relative pan/tilt amounts. Errors are logged, not raised (runs as a fire-and-forget BackgroundTask)."""
         try:
             cam = self._require_camera(ip)
             await cam.move_relative(x, y)

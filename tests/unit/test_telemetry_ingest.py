@@ -117,12 +117,16 @@ def test_unsynced_session_uses_monotonic_timestamp(monkeypatch: pytest.MonkeyPat
 def test_unknown_device_address_is_logged_and_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
     errors: list[str] = []
     monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
-    ingest = TelemetryRuntime({}.get)  # type: ignore[arg-type]
+    metrics = Metrics(time_fn=lambda: 100.0)
+    ingest = TelemetryRuntime({}.get, metrics=metrics)  # type: ignore[arg-type]
 
     batch = ingest.handle_datagram(b"not decoded", "10.0.0.99")
 
     assert batch is None
     assert errors == ["Received UDP packet from unknown device 10.0.0.99"]
+    snapshot = _metrics_snapshot(metrics)
+    assert snapshot["telemetry"]["unknown_source"]["total"]["unregistered_address"] == 1
+    assert snapshot["telemetry"]["decode_errors"]["total"] == {}
 
 
 def test_decode_error_records_metric(monkeypatch: pytest.MonkeyPatch) -> None:
