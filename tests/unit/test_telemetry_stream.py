@@ -4,6 +4,7 @@ import contextlib
 from typing import Any, cast
 
 from fastapi import WebSocket
+import orjson
 
 from libqretprop.runtime.metrics import Metrics
 from libqretprop.runtime.telemetry_ingest import TelemetryBatch, TelemetryReading
@@ -27,6 +28,12 @@ class FakeWebSocket:
 
         self._send_count += 1
         self.sent.append(message)
+
+    async def send_text(self, data: str) -> None:
+        if self._fail_after is not None and self._send_count >= self._fail_after:
+            raise RuntimeError("websocket send failed")
+        self._send_count += 1
+        self.sent.append(orjson.loads(data))
 
     async def close(self) -> None:
         self.closed = True
