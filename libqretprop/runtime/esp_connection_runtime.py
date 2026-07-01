@@ -1,11 +1,12 @@
 from __future__ import annotations
 import asyncio
-import json
 import logging
 import socket
 import time
 from itertools import count
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol
+
+import orjson
 
 from libqretprop.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
 from libqretprop.qlcp.config_parser import parse_config
@@ -217,7 +218,7 @@ class ESPConnectionRuntime:
             return None
 
         try:
-            config_dict = json.loads(packet.config_json)
+            config_dict = orjson.loads(packet.config_json)
         except Exception as e:
             logger.error(f"Invalid CONFIG JSON from {address}: {e}. Closing connection.")
             client_socket.close()

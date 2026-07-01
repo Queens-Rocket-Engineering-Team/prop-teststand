@@ -20,6 +20,7 @@ dependencies = [
     "opuslib>=3.0.1",
     "pymumble",
     "tsdownsample>=0.1.5.1",
+    "orjson>=3.11.9",
 ]
 
 [dependency-groups]

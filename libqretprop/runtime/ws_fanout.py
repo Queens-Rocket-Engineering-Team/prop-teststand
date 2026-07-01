@@ -4,6 +4,8 @@ import contextlib
 import logging
 from typing import TYPE_CHECKING, Any
 
+import orjson
+
 from libqretprop.runtime.metrics import Metrics
 
 
@@ -67,7 +69,7 @@ class BoundedWebSocketFanout:
         try:
             while True:
                 message = await queue.get()
-                await websocket.send_json(message)
+                await websocket.send_text(orjson.dumps(message).decode())
         except Exception as e:
             logger.debug(f"WebSocket send error on {self._stream_metric_label}: {e!r}")
         finally:

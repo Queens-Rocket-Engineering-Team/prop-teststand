@@ -21,13 +21,14 @@ Library usage (for tests):
 import argparse
 import asyncio
 import contextlib
-import json
 import logging
 import math
 import socket
 import struct
 import time
 from typing import Any
+
+import orjson
 
 from libqretprop.qlcp.config_models import SensorConfig
 from libqretprop.qlcp.config_parser import parse_config
@@ -421,8 +422,8 @@ class MockSensorDevice:
         if sock is None:
             raise RuntimeError("Cannot send CONFIG before connecting to server")
 
-        config_json = json.dumps(self.config)
-        packet = ConfigPacket.create(config_json)
+        config_json = orjson.dumps(self.config)
+        packet = ConfigPacket.create(config_json.decode("utf-8"))
         encoded = packet.encode()
 
         loop = asyncio.get_event_loop()
