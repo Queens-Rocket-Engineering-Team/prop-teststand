@@ -43,6 +43,8 @@ def _make_batch() -> TelemetryBatch:
         connection_key="esp-1",
         timestamp_s=1.0,
         readings=(),
+        timestamp_source="device_synced",
+        timestamp_synced=True,
     )
 
 

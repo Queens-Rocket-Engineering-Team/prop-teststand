@@ -38,6 +38,11 @@ TrackedCommandPacket = SimplePacket | ControlPacket | StreamStartPacket
 TCP_PORT = 50000
 
 
+def normalize_control_name(control_name: str) -> str:
+    """Normalize a control name to the key format used by ESPDeviceSession.controls."""
+    return control_name.upper()
+
+
 class _StatePublisher(Protocol):
     def publish(self, event: dict[str, object] | None) -> None: ...
 
@@ -96,6 +101,7 @@ class ESPDeviceSession:
 
     @property
     def controls(self) -> dict[str, ControlConfig]:
+        """Controls keyed by uppercased name; look up with normalize_control_name()."""
         return {control.name.upper(): control for control in self.qlcp_config.controls_by_id.values()}
 
     def needs_resync(self) -> bool:
@@ -315,6 +321,7 @@ class ESPConnectionRuntime:
                 logger.debug("Decoded %s from %s", type(packet).__name__, session.name)
                 await self.handle_packet(session, packet)
 
+                # Runs at least every HEARTBEAT_INTERVAL_S: HEARTBEAT ACKs guarantee inbound traffic.
                 if session.needs_resync():
                     session.mark_resync_sent()
                     await self.send_timesync(session)
@@ -330,7 +337,7 @@ class ESPConnectionRuntime:
         """Run heartbeat checks for one device connection."""
         while True:
             if session.is_connected:
-                if self.expire_command_timeouts(session):
+                if await self.expire_command_timeouts(session):
                     break
 
                 if not await self.send_heartbeat(session):
@@ -393,78 +400,80 @@ class ESPConnectionRuntime:
     # Device command operations                                            #
     # ------------------------------------------------------------------ #
 
-    async def get_single(self, session: ESPDeviceSession) -> None:
-        """Request a single data sample from the device."""
-        await self._send_or_remove(session, SimplePacket.create(PacketType.GET_SINGLE), "GET_SINGLE command")
+    async def get_single(self, session: ESPDeviceSession) -> bool:
+        """Request a single data sample from the device. Returns True if the command was sent."""
+        return await self._send_or_remove(session, SimplePacket.create(PacketType.GET_SINGLE), "GET_SINGLE command")
 
-    async def start_streaming(self, session: ESPDeviceSession, frequency_hz: int) -> None:
-        """Request the device to start streaming data at the given frequency."""
+    async def start_streaming(self, session: ESPDeviceSession, frequency_hz: int) -> bool:
+        """Request the device to start streaming data at the given frequency. Returns True if sent."""
         if not frequency_hz or frequency_hz < 1 or frequency_hz > 65535:
             logger.error("Invalid frequency: %d. Must be between 1-65535 Hz.", frequency_hz)
-            return
-        await self._send_or_remove(
+            return False
+        return await self._send_or_remove(
             session,
             StreamStartPacket.create(frequency_hz=frequency_hz),
             f"STREAM_START ({frequency_hz} Hz)",
         )
 
-    async def stop_streaming(self, session: ESPDeviceSession) -> None:
-        """Request the device to stop streaming data."""
-        await self._send_or_remove(session, SimplePacket.create(PacketType.STREAM_STOP), "STREAM_STOP command")
+    async def stop_streaming(self, session: ESPDeviceSession) -> bool:
+        """Request the device to stop streaming data. Returns True if sent."""
+        return await self._send_or_remove(session, SimplePacket.create(PacketType.STREAM_STOP), "STREAM_STOP command")
 
     async def set_control(
         self,
         session: ESPDeviceSession,
         control_name: str,
         control_state: str,
-    ) -> None:
-        """Request the device to set a control to a given state (OPEN or CLOSE)."""
-        control_name = control_name.upper()
+    ) -> bool:
+        """Request the device to set a control to a given state (OPEN or CLOSE). Returns True if sent."""
+        control_name = normalize_control_name(control_name)
         control_state = control_state.upper()
 
         if control_name not in session.controls:
             logger.error("Invalid control name '%s'. Valid: %s", control_name, list(session.controls.keys()))
-            return
+            return False
         if control_state not in ["OPEN", "CLOSE"]:
             logger.error("Invalid state '%s'. Valid: OPEN, CLOSE", control_state)
-            return
+            return False
 
         command_id = session.controls[control_name].id
         state = ControlState.OPEN if control_state == "OPEN" else ControlState.CLOSED
-        await self._send_or_remove(
+        return await self._send_or_remove(
             session,
             ControlPacket.create(command_id=command_id, command_state=state),
             f"CONTROL command (id={command_id}, {control_name} {control_state})",
         )
 
-    async def get_status(self, session: ESPDeviceSession) -> None:
-        """Request the device to report its current control states."""
-        await self._send_or_remove(session, SimplePacket.create(PacketType.STATUS_REQUEST), "STATUS_REQUEST command")
+    async def get_status(self, session: ESPDeviceSession) -> bool:
+        """Request the device to report its current control states. Returns True if sent."""
+        return await self._send_or_remove(session, SimplePacket.create(PacketType.STATUS_REQUEST), "STATUS_REQUEST command")
 
-    async def emergency_stop(self, session: ESPDeviceSession) -> None:
-        """Request the device to perform an emergency stop."""
-        await self._send_or_remove(session, SimplePacket.create(PacketType.ESTOP), "EMERGENCY STOP command")
+    async def emergency_stop(self, session: ESPDeviceSession) -> bool:
+        """Request the device to perform an emergency stop. Returns True if sent."""
+        return await self._send_or_remove(session, SimplePacket.create(PacketType.ESTOP), "EMERGENCY STOP command")
 
     async def _send_or_remove(
         self,
         session: ESPDeviceSession,
         packet: TrackedCommandPacket,
         label: str,
-    ) -> None:
-        """Send a command packet to a device session, or remove the session if it is not connected."""
+    ) -> bool:
+        """Send a command packet to a device session, or remove the session if it is not connected. Returns True if sent."""
         if not session.is_connected:
             logger.error("No socket available for %s to send %s.", session.name, label)
             self.remove_device(session)
-            return
+            return False
         try:
             await self.send_tracked_command(session, packet)
             logger.info("Sent %s to %s", label, session.name)
+            return True
         except Exception:
             logger.exception("Error sending %s to %s", label, session.name)
             self.remove_device(session)
+            return False
 
-    def expire_command_timeouts(self, session: ESPDeviceSession) -> bool:
-        """Expire any pending commands for a session that have exceeded the ACK timeout."""
+    async def expire_command_timeouts(self, session: ESPDeviceSession) -> bool:
+        """Expire any pending commands for a session past the ACK timeout. Returns True if the session was removed."""
         expired_commands = self.command_tracker.expire_pending(
             now=time.monotonic(),
             timeout_s=session.COMMAND_ACK_TIMEOUT_S,
@@ -475,15 +484,27 @@ class ESPConnectionRuntime:
             if expired.packet_type == PacketType.HEARTBEAT:
                 if self._handle_missed_heartbeat(session, expired):
                     return True
-            else:
-                logger.debug(
-                    "%s command timeout: %s seq=%d",
-                    session.name,
-                    expired.packet_type.name,
-                    expired.packet_sequence,
-                )
+                continue
+
+            logger.debug(
+                "%s command timeout: %s seq=%d",
+                session.name,
+                expired.packet_type.name,
+                expired.packet_sequence,
+            )
+            self._emit(self.system_state.record_command_timed_out(expired))
+
+            if expired.packet_type == PacketType.TIMESYNC:
+                await self._retry_timesync_after_timeout(session)
 
         return False
+
+    async def _retry_timesync_after_timeout(self, session: ESPDeviceSession) -> None:
+        """Clear resync-pending and resend TIMESYNC after a timeout (also covers a lost initial sync)."""
+        session.mark_synced()
+        if session.is_connected:
+            await self.send_timesync(session)
+            session.mark_resync_sent()
 
     def handle_ack(self, session: ESPDeviceSession, packet: AckPacket) -> CommandRecord | None:
         """Handle an ACK packet from a device session, marking the corresponding command as acknowledged and updating the system state."""
@@ -603,7 +624,7 @@ class ESPConnectionRuntime:
     def _disconnect_registered_device(self, session: ESPDeviceSession, *, reason: str) -> None:
         """Disconnect a registered device session, cleaning it up and removing it from the registry."""
         self._teardown_session(session, reason=reason)
-        removed = self.devices.pop(session.address, None)
+        removed = self.devices.remove_current(session)
         if removed is not None:
             self.metrics.record_device_disconnection(reason, device=session.name)
 

@@ -31,14 +31,14 @@ class _KasaState:
 
 @dataclass(slots=True)
 class _ControlStateRecord:
-    """A record of a control's commanded state (reported or accepted) at a specific point in time."""
+    """Timestamped control state value: either device-reported or server-accepted."""
     state: str
     timestamp: float
 
 
 @dataclass(slots=True)
 class _DeviceState:
-    """State projection for a single device."""
+    """State projection for a single device. Control flows requested -> accepted (CONTROL ACK) -> reported (STATUS)."""
     device_name: str
     address: str
     connection_key: str
@@ -50,7 +50,7 @@ class _DeviceState:
 
 
 class SystemState:
-    """Read-only projection keyed by operational device identity."""
+    """Read-only projection keyed by operational device identity. Heartbeat/sync/pending-command fields are sampled live and not covered by state_version."""
 
     def __init__(self, *, command_tracker: CommandTracker) -> None:
         self._devices_by_name: dict[str, _DeviceState] = {}
@@ -116,18 +116,10 @@ class SystemState:
             state=self._control_state_name(state),
             timestamp=time.monotonic() if now is None else now,
         )
-        control_snapshot = self._snapshot_control(
-            device_state,
-            control,
-        )
         return self._make_event(
             "control.updated",
             device_name=device_state.device_name,
-            control_id=control_id,
-            control_name=control_snapshot["name"],
-            reported_state=control_snapshot["reported_state"],
-            reported_timestamp=control_snapshot["reported_timestamp"],
-            pending_command_id=control_snapshot["pending_command_id"],
+            control=self._snapshot_control(device_state, control),
         )
 
     def record_accepted_control_state(
@@ -154,20 +146,10 @@ class SystemState:
             state=self._control_state_name(state),
             timestamp=time.monotonic() if now is None else now,
         )
-        control_snapshot = self._snapshot_control(
-            device_state,
-            control,
-        )
         return self._make_event(
             "control.accepted",
             device_name=device_state.device_name,
-            control_id=control_id,
-            control_name=control_snapshot["name"],
-            accepted_state=control_snapshot["accepted_state"],
-            accepted_timestamp=control_snapshot["accepted_timestamp"],
-            reported_state=control_snapshot["reported_state"],
-            reported_timestamp=control_snapshot["reported_timestamp"],
-            pending_command_id=control_snapshot["pending_command_id"],
+            control=self._snapshot_control(device_state, control),
         )
 
     def register_kasa_device(self, host: str, alias: str, model: str, active: bool) -> StateEvent:

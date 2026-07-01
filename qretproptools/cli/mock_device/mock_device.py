@@ -119,16 +119,48 @@ _DEFAULT_CONFIG: dict[str, Any] = {
                 "max_pressure_PSI": 500,
                 "unit": "PSI",
             },
+            "PT202": {
+                "sensor_index": "PT3",
+                "resistor_ohms": 350,
+                "max_pressure_PSI": 500,
+                "unit": "PSI",
+            },
+            "PT204": {
+                "sensor_index": "PT4",
+                "resistor_ohms": 350,
+                "max_pressure_PSI": 500,
+                "unit": "PSI",
+            },
         },
     },
     "controls": {
         "AV101": {
-            "control_index": "AV_DUMP",
+            "control_index": "AV4",
             "type": "valve",
-            "default_state": "CLOSED",
+            "default_state": "OPEN",
         },
         "AV201": {
             "control_index": "AV_FILL",
+            "type": "valve",
+            "default_state": "CLOSED",
+        },
+        "AV202": {
+            "control_index": "AV1",
+            "type": "valve",
+            "default_state": "OPEN",
+        },
+        "AV203": {
+            "control_index": "AV2",
+            "type": "valve",
+            "default_state": "OPEN",
+        },
+        "AV204": {
+            "control_index": "AV3",
+            "type": "valve",
+            "default_state": "OPEN",
+        },
+        "AV205": {
+            "control_index": "AV_RUN",
             "type": "valve",
             "default_state": "CLOSED",
         },

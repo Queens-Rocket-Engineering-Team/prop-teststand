@@ -160,9 +160,10 @@ def test_status_update_changes_reported_control_state() -> None:
     assert event["type"] == "control.updated"
     assert event["state_version"] == 2
     assert event["device_name"] == "TEST-DEVICE"
-    assert event["control_id"] == 0
-    assert event["control_name"] == "VALVE1"
-    assert event["reported_state"] == "OPEN"
+    event_control = cast("dict[str, Any]", event["control"])
+    assert event_control["id"] == 0
+    assert event_control["name"] == "VALVE1"
+    assert event_control["reported_state"] == "OPEN"
     control = snapshot["devices"][0]["controls"][0]
     assert control["reported_state"] == "OPEN"
     assert control["reported_timestamp"] == 42.0

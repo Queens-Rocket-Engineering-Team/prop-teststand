@@ -178,17 +178,17 @@ def test_control_command_acked_and_state_updated() -> None:
             await asyncio.wait_for(dev.timesync_received.wait(), timeout=2.0)
             session = _session_for(runtime, dev.device_name)
 
-            # AV101 starts CLOSED (from config default).
-            assert dev.valve_states.get("AV101") == "CLOSED"
+            # AV101 starts OPEN (from config default).
+            assert dev.valve_states.get("AV101") == "OPEN"
             assert dev.valve_states.get("SAFE24") == "OPEN"
 
             # Clear the event before sending so we can reliably await it.
             dev.control_handled.clear()
-            await runtime.set_control(session, "AV101", "OPEN")
+            await runtime.set_control(session, "AV101", "CLOSE")
 
             await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
 
-            assert dev.valve_states.get("AV101") == "OPEN"
+            assert dev.valve_states.get("AV101") == "CLOSED"
 
             dev.control_handled.clear()
             await runtime.set_control(session, "SAFE24", "CLOSE")
@@ -329,11 +329,11 @@ def test_estop_stops_streaming_and_resets_state() -> None:
             await asyncio.wait_for(dev.timesync_received.wait(), timeout=2.0)
             session = _session_for(runtime, dev.device_name)
 
-            # Open a valve so we can verify reset.
+            # Close a valve so we can verify ESTOP resets it back to its OPEN default.
             dev.control_handled.clear()
-            await runtime.set_control(session, "AV101", "OPEN")
+            await runtime.set_control(session, "AV101", "CLOSE")
             await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
-            assert dev.valve_states.get("AV101") == "OPEN"
+            assert dev.valve_states.get("AV101") == "CLOSED"
 
             # Close a relay so we can verify ESTOP resets it back to its OPEN default.
             dev.control_handled.clear()
@@ -354,12 +354,12 @@ def test_estop_stops_streaming_and_resets_state() -> None:
             stopped = await _wait_for(lambda: not dev.streaming, timeout_s=2.0)
             assert stopped, "Mock is still streaming after ESTOP"
 
-            # Valve state should be reset to default (CLOSED).
+            # Valve state should be reset to default (OPEN).
             reset_ok = await _wait_for(
-                lambda: dev.valve_states.get("AV101") == "CLOSED",
+                lambda: dev.valve_states.get("AV101") == "OPEN",
                 timeout_s=2.0,
             )
-            assert reset_ok, f"Valve AV101 did not reset to CLOSED; got {dev.valve_states.get('AV101')!r}"
+            assert reset_ok, f"Valve AV101 did not reset to OPEN; got {dev.valve_states.get('AV101')!r}"
 
             # Relay state should be reset to default (OPEN).
             relay_reset_ok = await _wait_for(

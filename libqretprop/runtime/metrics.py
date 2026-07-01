@@ -79,6 +79,7 @@ class Metrics:
         self._telemetry_data_packet_times: deque[float] = deque()
         self._telemetry_data_packet_times_by_device: defaultdict[str, deque[float]] = defaultdict(deque)
         self._telemetry_decode_errors: defaultdict[str, float] = defaultdict(float)
+        self._telemetry_unknown_source: defaultdict[str, float] = defaultdict(float)
         self._telemetry_dropped_batches: defaultdict[str, float] = defaultdict(float)
 
         self._command_totals: defaultdict[tuple[str, str], int] = defaultdict(int)
@@ -121,6 +122,9 @@ class Metrics:
                 },
                 "decode_errors": {
                     "total": self._counter_totals(self._telemetry_decode_errors),
+                },
+                "unknown_source": {
+                    "total": self._counter_totals(self._telemetry_unknown_source),
                 },
                 "streams": {
                     "dropped_batches_total": self._counter_totals(self._telemetry_dropped_batches),
@@ -174,6 +178,11 @@ class Metrics:
         """Record a telemetry decode error of the given kind."""
         self._telemetry_decode_errors[kind] += 1
         self._add_event("telemetry.decode_error", "warning", f"Telemetry decode error: {kind}", error_kind=kind)
+
+    def record_telemetry_unknown_source(self, reason: str) -> None:
+        """Record a telemetry datagram from a source that was never decoded (e.g. unregistered address)."""
+        self._telemetry_unknown_source[reason] += 1
+        self._add_event("telemetry.unknown_source", "warning", f"Telemetry from unknown source: {reason}", reason=reason)
 
     def record_telemetry_dropped_batch(self, stream: str) -> None:
         """Record a telemetry batch dropped due to a slow client."""

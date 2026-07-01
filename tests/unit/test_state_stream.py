@@ -3,6 +3,7 @@ import asyncio
 import contextlib
 from typing import Any, cast
 
+import orjson
 from fastapi import WebSocket
 
 from libqretprop.runtime.command_tracker import CommandTracker
@@ -22,12 +23,12 @@ class FakeWebSocket:
     async def accept(self) -> None:
         self.accepted = True
 
-    async def send_json(self, message: dict[str, Any]) -> None:
+    async def send_text(self, data: str) -> None:
         if self._fail_after is not None and self._send_count >= self._fail_after:
             raise RuntimeError("websocket send failed")
 
         self._send_count += 1
-        self.sent.append(message)
+        self.sent.append(orjson.loads(data))
 
     async def close(self) -> None:
         self.closed = True

@@ -49,7 +49,7 @@ def is_operator_visible(packet_type: PacketType) -> bool:
 
 
 class CommandLifecycle(StrEnum):
-    """Lifecycle state for an outbound command packet."""
+    """Lifecycle state for an outbound command packet. SENT is terminal if ack_expected is False; TIMED_OUT covers timeout, connection failure, and duplicate replacement."""
 
     SENT = "sent"
     ACKED = "acked"
@@ -117,6 +117,7 @@ class CommandTracker:
 
     @property
     def recent_completed(self) -> tuple[CommandRecord, ...]:
+        """Recently completed operator-visible commands only; see is_operator_visible."""
         return tuple(self._recent_completed)
 
     def mark_sent(

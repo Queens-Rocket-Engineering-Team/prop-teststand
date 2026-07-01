@@ -4,8 +4,10 @@ import socket
 import time
 from typing import Any, cast
 
-from libqretprop.qlcp.enums import PacketType
-from libqretprop.runtime.command_tracker import CommandTracker
+import pytest
+
+from libqretprop.qlcp.enums import ControlState, PacketType
+from libqretprop.runtime.command_tracker import CommandLifecycle, CommandTracker
 from libqretprop.runtime.esp_connection_runtime import ESPConnectionRuntime, ESPDeviceSession
 from libqretprop.state.system_state import SystemState
 
@@ -126,7 +128,7 @@ def test_heartbeat_loop_exits_when_send_heartbeat_fails() -> None:
             expire_calls = 0
             send_calls = 0
 
-            def expire_command_timeouts(self, session: ESPDeviceSession) -> bool:
+            async def expire_command_timeouts(self, session: ESPDeviceSession) -> bool:
                 self.expire_calls += 1
                 return False
 
@@ -140,6 +142,71 @@ def test_heartbeat_loop_exits_when_send_heartbeat_fails() -> None:
 
             assert runtime.expire_calls == 1
             assert runtime.send_calls == 1
+        finally:
+            session.close()
+            peer_sock.close()
+
+    asyncio.run(run())
+
+
+def test_expired_control_command_emits_timed_out_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A timed-out CONTROL (or STREAM_START/STOP) command must be visible on the state stream."""
+
+    async def run() -> None:
+        session, peer_sock = _make_session()
+        runtime, tracker, stream = _make_runtime()
+        monkeypatch.setattr(session, "COMMAND_ACK_TIMEOUT_S", 0.0)
+        try:
+            command = tracker.mark_sent(
+                connection_key=session.connection_key,
+                device_name=session.name,
+                device_address=session.address,
+                packet_type=PacketType.CONTROL,
+                packet_sequence=5,
+                now=0.0,
+                control_id=0,
+                control_name="VALVE1",
+                requested_state=ControlState.OPEN,
+            )
+
+            removed = await runtime.expire_command_timeouts(session)
+
+            assert removed is False
+            assert command.state == CommandLifecycle.TIMED_OUT
+            assert stream.events[-1]["type"] == "command.timed_out"
+        finally:
+            session.close()
+            peer_sock.close()
+
+    asyncio.run(run())
+
+
+def test_expired_timesync_retries_and_rearms_resync(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A timed-out TIMESYNC must retry (resend) and re-arm resync, not disable it permanently."""
+
+    async def run() -> None:
+        session, peer_sock = _make_session()
+        runtime, tracker, _stream = _make_runtime()
+        monkeypatch.setattr(session, "COMMAND_ACK_TIMEOUT_S", 0.0)
+        try:
+            session.mark_resync_sent()
+            tracker.mark_sent(
+                connection_key=session.connection_key,
+                device_name=session.name,
+                device_address=session.address,
+                packet_type=PacketType.TIMESYNC,
+                packet_sequence=7,
+                now=0.0,
+            )
+
+            removed = await runtime.expire_command_timeouts(session)
+
+            assert removed is False
+            assert any(record.packet_type == PacketType.TIMESYNC for record in tracker.pending)
+
+            loop = asyncio.get_running_loop()
+            resent_bytes = await loop.sock_recv(peer_sock, 4096)
+            assert len(resent_bytes) > 0
         finally:
             session.close()
             peer_sock.close()
