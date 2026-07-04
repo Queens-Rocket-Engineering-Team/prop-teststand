@@ -1,7 +1,7 @@
 services:
   server:
     # Pull latest image from GitHub
-    image: ghcr.io/queens-rocket-engineering-team/prop-teststand-server:latest
+    image: ghcr.io/queens-rocket-engineering-team/prop-teststand-server:${IMAGE_TAG:-latest}
     network_mode: "host"  # Use host networking for SSDP
     environment:
       - PROP_CONFIG=/app/config.yaml # Default config file location
