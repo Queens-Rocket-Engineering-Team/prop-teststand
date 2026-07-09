@@ -214,6 +214,31 @@ def test_accept_connection_closes_socket_on_non_config_first_packet() -> None:
     asyncio.run(run())
 
 
+def test_accept_connection_times_out_when_no_config_arrives(monkeypatch: Any) -> None:
+    async def run() -> None:
+        monkeypatch.setattr(
+            "libqretprop.runtime.esp_connection_runtime.CONFIG_HANDSHAKE_TIMEOUT_S",
+            0.05,
+        )
+        runtime, _tracker, _state, _stream = _make_runtime()
+        server_sock, peer_sock = socket.socketpair()
+        server_sock.setblocking(False)
+        peer_sock.setblocking(False)
+
+        try:
+            # Peer connects but never sends CONFIG.
+            result = await runtime.accept_connection(server_sock, "10.0.0.2")
+
+            assert result is None
+            assert runtime.devices.by_address("10.0.0.2") is None
+            assert server_sock.fileno() == -1
+        finally:
+            peer_sock.close()
+            await asyncio.sleep(0)
+
+    asyncio.run(run())
+
+
 def test_heartbeat_loop_removes_device_when_expiry_raises() -> None:
     async def run() -> None:
         runtime, _tracker, state, stream = _make_runtime()

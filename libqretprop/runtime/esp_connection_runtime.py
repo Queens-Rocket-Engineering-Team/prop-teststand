@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from libqretprop.qlcp.config_models import ControlConfig, SensorConfig
+    from libqretprop.qlcp.decoding import ServerReceivedPacket
     from libqretprop.runtime.command_tracker import CommandRecord, CommandTracker
     from libqretprop.state import SystemState
 
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
 TrackedCommandPacket = SimplePacket | ControlPacket | StreamStartPacket
 
 TCP_PORT = 50000
+CONFIG_HANDSHAKE_TIMEOUT_S = 10.0
 
 
 def normalize_control_name(control_name: str) -> str:
@@ -210,10 +212,8 @@ class ESPConnectionRuntime:
         failure.
         """
         driver = ESPDriver(client_socket, address)
-        try:
-            packet = await driver.read_packet()
-        except ESPDriverConnectionClosedError:
-            logger.warning(f"Device {address} disconnected during config.")
+        packet = await self._read_handshake_packet(driver, address)
+        if packet is None:
             client_socket.close()
             return None
 
@@ -241,6 +241,19 @@ class ESPConnectionRuntime:
             logger.exception(f"Failed to register device from {address}: {e}. Closing connection.")
             client_socket.close()
             return None
+
+    async def _read_handshake_packet(self, driver: ESPDriver, address: str) -> ServerReceivedPacket | None:
+        """Read the first packet of the config handshake, or None on timeout, disconnect, or decode failure."""
+        try:
+            async with asyncio.timeout(CONFIG_HANDSHAKE_TIMEOUT_S):
+                return await driver.read_packet()
+        except TimeoutError:
+            logger.warning("Device %s sent no CONFIG within %.0fs. Closing connection.", address, CONFIG_HANDSHAKE_TIMEOUT_S)
+        except ESPDriverConnectionClosedError:
+            logger.warning(f"Device {address} disconnected during config.")
+        except Exception:
+            logger.exception("Failed to read CONFIG from %s. Closing connection.", address)
+        return None
 
     async def register_configured_device(
         self,
@@ -744,6 +757,7 @@ class ESPConnectionRuntime:
         logger.info("TCP listener started on port %s", port)
 
         loop = asyncio.get_event_loop()
+        handshake_tasks: set[asyncio.Task[ESPDeviceSession | None]] = set()
 
         while True:
             try:
@@ -751,12 +765,18 @@ class ESPConnectionRuntime:
                 client_socket.setblocking(False)
                 logger.info("Accepted TCP connection from %s", addr[0])
 
-                await self.accept_connection(client_socket, addr[0])
+                # Handshake in its own task so a client that stalls before
+                # sending CONFIG cannot block other device registrations.
+                task = loop.create_task(self.accept_connection(client_socket, addr[0]))
+                handshake_tasks.add(task)
+                task.add_done_callback(handshake_tasks.discard)
 
             except asyncio.CancelledError:
                 logger.info("TCP listener cancelled")
+                for task in handshake_tasks:
+                    task.cancel()
                 server_socket.close()
                 raise
             except Exception:
-                logger.exception("Error in TCP listener: %s")
+                logger.exception("Error in TCP listener")
                 await asyncio.sleep(0.1)
