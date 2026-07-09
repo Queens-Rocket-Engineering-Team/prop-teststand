@@ -144,11 +144,26 @@ async def discover_devices(rt: Annotated[RuntimeServices, Depends(get_runtime)])
 
 
 @router.post("/v1/estop", summary="Emergency stop - stops all streaming and control commands immediately")
-async def emergency_stop(rt: Annotated[RuntimeServices, Depends(get_runtime)]) -> None:
+async def emergency_stop(rt: Annotated[RuntimeServices, Depends(get_runtime)]) -> CommandResponse:
     devices = rt.esp_runtime.get_registered_devices()
-    failed = [device.name for device in devices.values() if not await rt.esp_runtime.emergency_stop(device)]
-    if failed:
+    targeted = [device.name for device in devices.values()]
+    if not targeted:
+        raise HTTPException(400, "No valid target devices for the command")
+
+    sent = [device.name for device in devices.values() if await rt.esp_runtime.emergency_stop(device)]
+    if not sent:
+        logger.error("ESTOP failed to send to all target devices: %s", ", ".join(targeted))
+        raise HTTPException(502, f"ESTOP failed to send to all target devices: {', '.join(targeted)}.")
+
+    if len(sent) < len(targeted):
+        failed = [name for name in targeted if name not in sent]
         logger.error("ESTOP failed to send to: %s", ", ".join(failed))
+        return CommandResponse(
+            status="partial",
+            message=f"ESTOP sent to {', '.join(sent)}; failed for {', '.join(failed)}.",
+        )
+
+    return CommandResponse(status="sent", message=f"ESTOP sent to {', '.join(sent)}.")
 
 
 @router.post(
