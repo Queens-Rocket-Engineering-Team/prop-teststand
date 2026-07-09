@@ -7,6 +7,7 @@ services:
   mediamtx:
     ip: localhost
     api_port: 9997
+    recordings_dir: ./recordings/mediamtx
   mumble:
     ip: localhost
     port: 64738
