@@ -39,7 +39,7 @@ services:
         - action: rebuild
           path: ./hatch_build.py
         - action: rebuild
-          path: ./qlcp
+          path: ./ctl-qlcp-lib
 
   media:
     image: "bluenviron/mediamtx:latest"
