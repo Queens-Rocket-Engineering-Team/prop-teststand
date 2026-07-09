@@ -184,5 +184,5 @@ class TelemetryRuntime:
                 udp_socket.close()
                 raise
             except Exception:
-                logger.exception("Error in UDP listener: %s")
+                logger.exception("Error in UDP listener")
                 await asyncio.sleep(0.1)
