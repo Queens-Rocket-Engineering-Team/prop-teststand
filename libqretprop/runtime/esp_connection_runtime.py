@@ -337,10 +337,17 @@ class ESPConnectionRuntime:
         """Run heartbeat checks for one device connection."""
         while True:
             if session.is_connected:
-                if await self.expire_command_timeouts(session):
-                    break
+                try:
+                    if await self.expire_command_timeouts(session):
+                        break
 
-                if not await self.send_heartbeat(session):
+                    if not await self.send_heartbeat(session):
+                        break
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("Heartbeat loop failed for %s. Removing device.", session.name)
+                    self.remove_device(session)
                     break
 
             await asyncio.sleep(session.HEARTBEAT_INTERVAL_S)
@@ -688,9 +695,9 @@ class ESPConnectionRuntime:
     def _handle_missed_heartbeat(self, session: ESPDeviceSession, command: CommandRecord) -> bool:
         """Handle a missed HEARTBEAT ACK for a device session, recording the miss and potentially removing the session if it exceeds the miss limit. Returns True if the session was removed, False otherwise."""
         self.metrics.record_heartbeat_miss(session.name)
+        at_limit = session.register_missed_heartbeat()
         self._emit(self.system_state.record_command_timed_out(command))
 
-        at_limit = session.register_missed_heartbeat()
         if not at_limit:
             logger.debug(
                 "%s missed HEARTBEAT ACK seq=%s (%s/%s)",
