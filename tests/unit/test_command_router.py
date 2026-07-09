@@ -167,21 +167,53 @@ def test_command_is_sent_to_all_registered_devices() -> None:
 def test_estop_awaits_emergency_stop_on_each_device() -> None:
     sessions = [_make_fake_session(name=f"DEVICE-{i}") for i in range(2)]
     esp_rt = _make_fake_esp_runtime(sessions)
+    esp_rt.emergency_stop.return_value = True
     _install_runtime(esp_rt)
 
     with TestClient(app) as client:
         resp = client.post("/v1/estop")
 
     assert resp.status_code == 200
+    assert resp.json()["status"] == "sent"
     assert esp_rt.emergency_stop.await_count == 2
 
 
-def test_estop_with_no_devices_is_a_noop() -> None:
+def test_estop_returns_400_when_no_devices_registered() -> None:
     esp_rt = _make_fake_esp_runtime([])
     _install_runtime(esp_rt)
 
     with TestClient(app) as client:
         resp = client.post("/v1/estop")
 
-    assert resp.status_code == 200
+    assert resp.status_code == 400
+    assert "No valid target devices" in resp.json()["detail"]
     esp_rt.emergency_stop.assert_not_awaited()
+
+
+def test_estop_returns_502_when_all_sends_fail() -> None:
+    sessions = [_make_fake_session(name=f"DEVICE-{i}") for i in range(2)]
+    esp_rt = _make_fake_esp_runtime(sessions)
+    esp_rt.emergency_stop.return_value = False
+    _install_runtime(esp_rt)
+
+    with TestClient(app) as client:
+        resp = client.post("/v1/estop")
+
+    assert resp.status_code == 502
+    assert "DEVICE-0" in resp.json()["detail"]
+    assert "DEVICE-1" in resp.json()["detail"]
+
+
+def test_estop_reports_partial_when_some_sends_fail() -> None:
+    sessions = [_make_fake_session(name=f"DEVICE-{i}") for i in range(2)]
+    esp_rt = _make_fake_esp_runtime(sessions)
+    esp_rt.emergency_stop.side_effect = [True, False]
+    _install_runtime(esp_rt)
+
+    with TestClient(app) as client:
+        resp = client.post("/v1/estop")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "partial"
+    assert "DEVICE-1" in body["message"]
