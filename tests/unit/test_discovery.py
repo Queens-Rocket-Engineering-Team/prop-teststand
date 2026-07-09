@@ -83,6 +83,34 @@ def test_run_issues_discovery_when_enabled(monkeypatch: pytest.MonkeyPatch) -> N
     asyncio.run(run())
 
 
+def test_run_recovers_when_discover_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def run() -> None:
+        service = DiscoveryService(periodic_enabled=True, periodic_interval_s=7.0)
+        fake = FakeSocket()
+        service._socket = fake  # type: ignore[assignment]
+        sleeps: list[float] = []
+
+        def _discover() -> None:
+            raise OSError("network unreachable")
+
+        async def _fake_sleep(delay: float) -> None:
+            sleeps.append(delay)
+            raise _StopLoop
+
+        monkeypatch.setattr(service, "discover", _discover)
+        monkeypatch.setattr("libqretprop.runtime.discovery.asyncio.sleep", _fake_sleep)
+
+        with pytest.raises(_StopLoop):
+            await service.run()
+
+        # The loop survived the error, dropped the socket, and slept the normal interval.
+        assert fake.closed is True
+        assert service._socket is None
+        assert sleeps == [7.0]
+
+    asyncio.run(run())
+
+
 def test_run_skips_discovery_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     async def run() -> None:
         service = DiscoveryService(periodic_enabled=False)

@@ -53,7 +53,15 @@ class DiscoveryService:
         """Periodically issue discovery requests while periodic discovery is enabled."""
         while True:
             if self.periodic_enabled:
-                self.discover()
+                try:
+                    self.discover()
+                except Exception:
+                    # Drop the socket so the next attempt recreates it (e.g. after a network outage).
+                    logger.exception("Discovery request failed")
+                    if self._socket is not None:
+                        with contextlib.suppress(OSError):
+                            self._socket.close()
+                        self._socket = None
                 await asyncio.sleep(self.periodic_interval_s)
             else:
                 await asyncio.sleep(_DISABLED_POLL_INTERVAL_S)
