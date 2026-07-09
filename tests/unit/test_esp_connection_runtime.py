@@ -214,6 +214,52 @@ def test_accept_connection_closes_socket_on_non_config_first_packet() -> None:
     asyncio.run(run())
 
 
+def test_heartbeat_loop_removes_device_when_expiry_raises() -> None:
+    async def run() -> None:
+        runtime, _tracker, state, stream = _make_runtime()
+        session = _make_session(runtime)
+        runtime.devices.register(session)
+        state.register_device(session)
+
+        async def _raise(_session: ESPDeviceSession) -> bool:
+            raise BrokenPipeError
+
+        runtime.expire_command_timeouts = _raise  # type: ignore[method-assign]
+
+        # Must not raise: the guard removes the device and exits the loop.
+        await runtime._heartbeat_session(session)
+
+        assert runtime.devices.by_address(session.address) is None
+        assert any(event["type"] == "device.disconnected" for event in stream.events)
+
+    asyncio.run(run())
+
+
+def test_first_missed_heartbeat_event_reports_miss_count() -> None:
+    runtime, tracker, state, stream = _make_runtime()
+    session = _make_session(runtime)
+    runtime.devices.register(session)
+    state.register_device(session)
+
+    command = tracker.mark_sent(
+        connection_key=session.connection_key,
+        device_name=session.name,
+        device_address=session.address,
+        packet_type=PacketType.HEARTBEAT,
+        packet_sequence=1,
+        now=0.0,
+    )
+
+    removed = runtime._handle_missed_heartbeat(session, command)
+
+    assert removed is False
+    event = stream.events[-1]
+    assert event["type"] == "heartbeat.updated"
+    heartbeat = cast(dict[str, Any], event["heartbeat"])
+    assert heartbeat["consecutive_misses"] == 1
+    assert heartbeat["state"] == "missed"
+
+
 def test_runtime_replaces_existing_device_and_fails_pending_commands() -> None:
     runtime, tracker, state, stream = _make_runtime()
     old_device = _make_session(runtime, address="10.0.0.2", connection_key="conn-old")
