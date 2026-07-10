@@ -1,5 +1,6 @@
 import asyncio
 import os
+from datetime import UTC, datetime
 
 import onvif
 
@@ -48,6 +49,18 @@ class Camera:
                 self.hostname = hostname["Name"]
             else:
                 self.hostname = "Camera"
+
+            # Set the camera clock to current server time (UTC)
+            now = datetime.now(UTC)
+            time_params = self.devicemgmt.create_type("SetSystemDateAndTime")
+            time_params.DateTimeType = "Manual"
+            time_params.DaylightSavings = False
+            time_params.TimeZone = {"TZ": "UTC0"}
+            time_params.UTCDateTime = {
+                "Date": {"Year": now.year, "Month": now.month, "Day": now.day},
+                "Time": {"Hour": now.hour, "Minute": now.minute, "Second": now.second},
+            }
+            await self.devicemgmt.SetSystemDateAndTime(time_params)
 
             # Token (needed for PTZ and media commands)
             self.token = (await self.media.GetProfiles())[0].token
