@@ -25,7 +25,6 @@ words:
   - isconnected
   - kbhit
   - labjack
-  - libqretprop
   - matplotlib
   - microcontroller
   - micropython
@@ -40,7 +39,6 @@ words:
   - pyqtgraph
   - QRET
   - qretprop
-  - qretproptools
   - REUSEADDR
   - REUSEPORT
   - SERVERCOMMANDS

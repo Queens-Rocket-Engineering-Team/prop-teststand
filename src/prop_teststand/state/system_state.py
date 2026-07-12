@@ -1,0 +1,378 @@
+from __future__ import annotations
+import time
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+from prop_teststand.qlcp.enums import ControlState, PacketType
+from prop_teststand.runtime.command_tracker import (
+    CommandRecord,
+    CommandTracker,
+    is_operator_visible,
+)
+
+
+if TYPE_CHECKING:
+    from prop_teststand.qlcp.config_models import ControlConfig, DeviceConfig, SensorConfig
+    from prop_teststand.runtime.esp_connection_runtime import ESPDeviceSession
+
+
+StateEvent = dict[str, object]
+
+
+@dataclass(slots=True)
+class _KasaState:
+    """State projection for a single Kasa device."""
+    host: str
+    alias: str
+    model: str
+    active: bool
+    connected: bool
+
+
+@dataclass(slots=True)
+class _ControlStateRecord:
+    """Timestamped control state value: either device-reported or server-accepted."""
+    state: str
+    timestamp: float
+
+
+@dataclass(slots=True)
+class _DeviceState:
+    """State projection for a single device. Control flows requested -> accepted (CONTROL ACK) -> reported (STATUS)."""
+    device_name: str
+    address: str
+    connection_key: str
+    config: DeviceConfig
+    connected: bool
+    device: ESPDeviceSession | None = None
+    reported_controls: dict[int, _ControlStateRecord] = field(default_factory=dict)
+    accepted_controls: dict[int, _ControlStateRecord] = field(default_factory=dict)
+
+
+class SystemState:
+    """Read-only projection keyed by operational device identity. Heartbeat/sync/pending-command fields are sampled live and not covered by state_version."""
+
+    def __init__(self, *, command_tracker: CommandTracker) -> None:
+        self._devices_by_name: dict[str, _DeviceState] = {}
+        self._kasa_by_host: dict[str, _KasaState] = {}
+        self._command_tracker = command_tracker
+        self._state_version = 0
+
+    @property
+    def state_version(self) -> int:
+        return self._state_version
+
+    def register_device(self, device: ESPDeviceSession) -> StateEvent:
+        """Manage the registration of a new device."""
+        self._devices_by_name[device.name] = _DeviceState(
+            device_name=device.name,
+            address=device.address,
+            connection_key=device.connection_key,
+            config=device.qlcp_config,
+            connected=True,
+            device=device,
+        )
+        return self._make_event(
+            "device.registered",
+            device=self._snapshot_device(self._devices_by_name[device.name]),
+        )
+
+    def mark_disconnected(self, device: ESPDeviceSession) -> StateEvent | None:
+        """Mark a device as disconnected and return a state event if it was previously registered."""
+        device_state = self._devices_by_name.get(device.name)
+        if device_state is None or device_state.connection_key != device.connection_key:
+            return None
+
+        device_state.connected = False
+        device_state.device = device
+        return self._make_event(
+            "device.disconnected",
+            device_name=device_state.device_name,
+            device_address=device_state.address,
+            connection_key=device_state.connection_key,
+        )
+
+    def record_reported_control_state(
+        self,
+        device: ESPDeviceSession,
+        control_id: int,
+        state: ControlState | str,
+        *,
+        now: float | None = None,
+    ) -> StateEvent | None:
+        """Record a control's reported state and return a state event if the device/control is known."""
+
+        device_state = self._devices_by_name.get(device.name)
+        if device_state is None:
+            return None
+        if device_state.connection_key != device.connection_key:
+            return None
+
+        control = device_state.config.controls_by_id.get(control_id)
+        if control is None:
+            return None
+
+        device_state.reported_controls[control_id] = _ControlStateRecord(
+            state=self._control_state_name(state),
+            timestamp=time.monotonic() if now is None else now,
+        )
+        return self._make_event(
+            "control.updated",
+            device_name=device_state.device_name,
+            control=self._snapshot_control(device_state, control),
+        )
+
+    def record_accepted_control_state(
+        self,
+        device: ESPDeviceSession,
+        control_id: int,
+        state: ControlState | str,
+        *,
+        now: float | None = None,
+    ) -> StateEvent | None:
+        """Record a control's accepted state and return a state event if the device/control is known."""
+
+        device_state = self._devices_by_name.get(device.name)
+        if device_state is None:
+            return None
+        if device_state.connection_key != device.connection_key:
+            return None
+
+        control = device_state.config.controls_by_id.get(control_id)
+        if control is None:
+            return None
+
+        device_state.accepted_controls[control_id] = _ControlStateRecord(
+            state=self._control_state_name(state),
+            timestamp=time.monotonic() if now is None else now,
+        )
+        return self._make_event(
+            "control.accepted",
+            device_name=device_state.device_name,
+            control=self._snapshot_control(device_state, control),
+        )
+
+    def register_kasa_device(self, host: str, alias: str, model: str, active: bool) -> StateEvent:
+        """Register or update a Kasa device and return a state event."""
+        self._kasa_by_host[host] = _KasaState(
+            host=host,
+            alias=alias,
+            model=model,
+            active=active,
+            connected=True,
+        )
+        return self._make_event(
+            "kasa.registered",
+            kasa=self._snapshot_kasa(self._kasa_by_host[host]),
+        )
+
+    def record_kasa_state(self, host: str, active: bool) -> StateEvent | None:
+        """Update a Kasa device's power state and return a state event, or None if not registered."""
+        kasa_state = self._kasa_by_host.get(host)
+        if kasa_state is None:
+            return None
+        kasa_state.active = active
+        kasa_state.connected = True
+        return self._make_event(
+            "kasa.updated",
+            kasa=self._snapshot_kasa(kasa_state),
+        )
+
+    def mark_kasa_unavailable(self, host: str) -> StateEvent | None:
+        """Mark a Kasa device as unavailable and return a state event, or None if not registered."""
+        kasa_state = self._kasa_by_host.get(host)
+        if kasa_state is None:
+            return None
+        kasa_state.connected = False
+        return self._make_event(
+            "kasa.disconnected",
+            kasa=self._snapshot_kasa(kasa_state),
+        )
+
+    def record_command_sent(self, command: CommandRecord) -> StateEvent | None:
+        return self._command_event("command.sent", command)
+
+    def record_command_acked(self, command: CommandRecord) -> StateEvent | None:
+        return self._command_event("command.acked", command)
+
+    def record_command_nacked(self, command: CommandRecord) -> StateEvent | None:
+        return self._command_event("command.nacked", command)
+
+    def record_command_timed_out(self, command: CommandRecord) -> StateEvent | None:
+        return self._command_event("command.timed_out", command)
+
+    def snapshot(self) -> dict[str, Any]:
+        devices = [self._snapshot_device(device_state) for device_state in sorted(self._devices_by_name.values(), key=lambda item: item.device_name)]
+        kasa = [self._snapshot_kasa(kasa_state) for kasa_state in sorted(self._kasa_by_host.values(), key=lambda item: item.host)]
+        commands = self._snapshot_commands()
+
+        return {
+            "state_version": self._state_version,
+            "devices": devices,
+            "kasa": kasa,
+            "commands": commands,
+        }
+
+    @staticmethod
+    def _snapshot_kasa(kasa_state: _KasaState) -> dict[str, Any]:
+        return {
+            "host": kasa_state.host,
+            "alias": kasa_state.alias,
+            "model": kasa_state.model,
+            "active": kasa_state.active,
+            "connected": kasa_state.connected,
+        }
+
+    def _snapshot_device(self, device_state: _DeviceState) -> dict[str, Any]:
+        config = device_state.config
+        device = device_state.device
+
+        return {
+            "name": config.name,
+            "device_type": config.device_type,
+            "connected": device_state.connected,
+            "address": device_state.address,
+            "sensors": [self._snapshot_sensor(sensor) for sensor in sorted(config.sensors_by_id.values(), key=lambda sensor: sensor.id)],
+            "controls": [
+                self._snapshot_control(device_state, control) for control in sorted(config.controls_by_id.values(), key=lambda control: control.id)
+            ],
+            "last_sync_time": device.last_sync_time if device is not None else None,
+            "heartbeat": self._snapshot_heartbeat(device_state),
+        }
+
+    @staticmethod
+    def _snapshot_sensor(sensor: SensorConfig) -> dict[str, Any]:
+        return {
+            "id": sensor.id,
+            "name": sensor.name,
+            "type": sensor.type,
+            "unit": sensor.unit.name,
+        }
+
+    def _snapshot_control(
+        self,
+        device_state: _DeviceState,
+        control: ControlConfig,
+    ) -> dict[str, Any]:
+        reported_state = device_state.reported_controls.get(control.id)
+        accepted_state = device_state.accepted_controls.get(control.id)
+
+        return {
+            "id": control.id,
+            "name": control.name,
+            "type": control.control_type,
+            "default_state": control.default.name,
+            "reported_state": reported_state.state if reported_state is not None else None,
+            "reported_timestamp": reported_state.timestamp if reported_state is not None else None,
+            "accepted_state": accepted_state.state if accepted_state is not None else None,
+            "accepted_timestamp": accepted_state.timestamp if accepted_state is not None else None,
+            "pending_command_id": self._pending_command_id(device_state, control.id),
+        }
+
+    def _pending_command_id(self, device_state: _DeviceState, control_id: int) -> int | None:
+        device = device_state.device
+        if device is None:
+            return None
+
+        pending_commands = [
+            command
+            for command in self._command_tracker.pending
+            if (command.connection_key == device.connection_key and command.packet_type == PacketType.CONTROL and command.control_id == control_id)
+        ]
+        if not pending_commands:
+            return None
+
+        return max(command.command_id for command in pending_commands)
+
+    def _snapshot_heartbeat(self, device_state: _DeviceState) -> dict[str, Any]:
+        device = device_state.device
+        consecutive_misses = device.missed_heartbeat_count if device is not None else 0
+
+        if not device_state.connected:
+            state = "disconnected"
+        elif consecutive_misses > 0:
+            state = "missed"
+        else:
+            state = "ok"
+
+        return {
+            "state": state,
+            "consecutive_misses": consecutive_misses,
+        }
+
+    def _snapshot_commands(self) -> dict[str, Any]:
+        pending = [
+            self._snapshot_command(command)
+            for command in sorted(self._command_tracker.pending, key=lambda command: command.command_id)
+            if is_operator_visible(command.packet_type)
+        ]
+        recent = [
+            self._snapshot_command(command) for command in sorted(self._command_tracker.recent_completed, key=lambda command: command.command_id)
+        ]
+
+        return {"pending": pending, "recent": recent}
+
+    @staticmethod
+    def _snapshot_command(command: CommandRecord) -> dict[str, Any]:
+        return {
+            "command_id": command.command_id,
+            "connection_key": command.connection_key,
+            "device_address": command.device_address,
+            "device_name": command.device_name,
+            "packet_type": command.packet_type.name,
+            "sequence": command.packet_sequence,
+            "state": command.state.value,
+            "sent_at": command.sent_at,
+            "ack_expected": command.ack_expected,
+            "acked_at": command.acked_at,
+            "nacked_at": command.nacked_at,
+            "timed_out_at": command.timed_out_at,
+            "nack_error_code": command.nack_error_code.name if command.nack_error_code is not None else None,
+            "control_id": command.control_id,
+            "control_name": command.control_name,
+            "requested_state": command.requested_state.name if command.requested_state is not None else None,
+        }
+
+    @staticmethod
+    def _control_state_name(state: ControlState | str) -> str:
+        if isinstance(state, ControlState):
+            return state.name
+        return state.upper()
+
+    def _command_event(self, event_type: str, command: CommandRecord) -> StateEvent | None:
+        if command.packet_type == PacketType.HEARTBEAT:
+            return self._heartbeat_event(command.connection_key)
+        if not is_operator_visible(command.packet_type):
+            return None
+
+        return self._make_event(
+            event_type,
+            command=self._snapshot_command(command),
+        )
+
+    def _heartbeat_event(self, connection_key: str) -> StateEvent | None:
+        device_state = self._device_state_for_connection(connection_key)
+        if device_state is None:
+            return None
+
+        return self._make_event(
+            "heartbeat.updated",
+            device_name=device_state.device_name,
+            device_address=device_state.address,
+            connection_key=device_state.connection_key,
+            heartbeat=self._snapshot_heartbeat(device_state),
+        )
+
+    def _device_state_for_connection(self, connection_key: str) -> _DeviceState | None:
+        for device_state in self._devices_by_name.values():
+            if device_state.connection_key == connection_key:
+                return device_state
+        return None
+
+    def _make_event(self, event_type: str, **payload: object) -> StateEvent:
+        self._state_version += 1
+        return {
+            "type": event_type,
+            "state_version": self._state_version,
+            **payload,
+        }

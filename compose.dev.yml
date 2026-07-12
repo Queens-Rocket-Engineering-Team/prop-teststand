@@ -20,8 +20,8 @@ services:
       watch:
         # Sync the working directory with the `/app` directory in the container
         - action: sync+restart
-          path: ./libqretprop
-          target: /app/libqretprop
+          path: ./src
+          target: /app/src
           # Exclude the project virtual environment
           ignore:
             - .venv/

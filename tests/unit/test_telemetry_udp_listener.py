@@ -3,7 +3,7 @@ import asyncio
 import contextlib
 import socket
 
-from libqretprop.runtime.telemetry_ingest import (
+from prop_teststand.runtime.telemetry_ingest import (
     TelemetryBatch,
     TelemetryRuntime,
 )

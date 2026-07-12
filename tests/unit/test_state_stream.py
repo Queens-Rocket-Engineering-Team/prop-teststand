@@ -6,9 +6,9 @@ from typing import Any, cast
 import orjson
 from fastapi import WebSocket
 
-from libqretprop.runtime.command_tracker import CommandTracker
-from libqretprop.runtime.state_stream import STATE_STREAM_MAX_QUEUE, StateStream
-from libqretprop.state.system_state import SystemState
+from prop_teststand.runtime.command_tracker import CommandTracker
+from prop_teststand.runtime.state_stream import STATE_STREAM_MAX_QUEUE, StateStream
+from prop_teststand.state.system_state import SystemState
 from tests.unit.test_system_state import _make_device
 
 

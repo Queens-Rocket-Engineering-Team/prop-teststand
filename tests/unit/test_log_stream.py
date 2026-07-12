@@ -7,8 +7,8 @@ from typing import Any, cast
 import pytest
 from fastapi import WebSocket
 
-import libqretprop.runtime.logging as log_config
-from libqretprop.runtime.log_stream import LogStream
+import prop_teststand.runtime.logging as log_config
+from prop_teststand.runtime.log_stream import LogStream
 
 
 pytestmark = pytest.mark.real_logging

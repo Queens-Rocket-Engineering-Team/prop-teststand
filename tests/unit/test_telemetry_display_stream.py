@@ -10,14 +10,14 @@ import pytest
 from fastapi import WebSocket
 from tsdownsample import M4Downsampler
 
-from libqretprop.runtime.metrics import Metrics
-from libqretprop.runtime.telemetry_display_stream import (
+from prop_teststand.runtime.metrics import Metrics
+from prop_teststand.runtime.telemetry_display_stream import (
     DISPLAY_POINTS_PER_BUCKET,
     DISPLAY_TARGET_HZ,
     TelemetryDisplayStream,
     _SensorBuffer,
 )
-from libqretprop.runtime.telemetry_ingest import TelemetryBatch, TelemetryReading
+from prop_teststand.runtime.telemetry_ingest import TelemetryBatch, TelemetryReading
 
 
 # ---------------------------------------------------------------------------

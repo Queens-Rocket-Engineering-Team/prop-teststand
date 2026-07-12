@@ -3,10 +3,10 @@ import socket
 
 import pytest
 
-from libqretprop.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
-from libqretprop.qlcp.decoding import decode_packet_client
-from libqretprop.qlcp.enums import PacketType
-from libqretprop.qlcp.packets import ConfigPacket, SimplePacket
+from prop_teststand.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
+from prop_teststand.qlcp.decoding import decode_packet_client
+from prop_teststand.qlcp.enums import PacketType
+from prop_teststand.qlcp.packets import ConfigPacket, SimplePacket
 
 
 def test_esp_driver_sends_encoded_packets() -> None:

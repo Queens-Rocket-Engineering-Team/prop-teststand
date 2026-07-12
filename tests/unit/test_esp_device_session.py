@@ -6,10 +6,10 @@ from typing import Any, cast
 
 import pytest
 
-from libqretprop.qlcp.enums import ControlState, PacketType
-from libqretprop.runtime.command_tracker import CommandLifecycle, CommandTracker
-from libqretprop.runtime.esp_connection_runtime import ESPConnectionRuntime, ESPDeviceSession
-from libqretprop.state.system_state import SystemState
+from prop_teststand.qlcp.enums import ControlState, PacketType
+from prop_teststand.runtime.command_tracker import CommandLifecycle, CommandTracker
+from prop_teststand.runtime.esp_connection_runtime import ESPConnectionRuntime, ESPDeviceSession
+from prop_teststand.state.system_state import SystemState
 
 
 class FakeStateStream:

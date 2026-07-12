@@ -15,12 +15,12 @@ import contextlib
 import socket
 from typing import TYPE_CHECKING, Any
 
-from libqretprop.qlcp.enums import PacketType
-from libqretprop.runtime.command_tracker import CommandLifecycle, CommandTracker
-from libqretprop.runtime.esp_connection_runtime import ESPConnectionRuntime, ESPDeviceSession
-from libqretprop.runtime.telemetry_ingest import TelemetryBatch, TelemetryRuntime
-from libqretprop.state.system_state import SystemState
-from qretproptools.cli.mock_device.mock_device import MockSensorDevice
+from prop_teststand.qlcp.enums import PacketType
+from prop_teststand.runtime.command_tracker import CommandLifecycle, CommandTracker
+from prop_teststand.runtime.esp_connection_runtime import ESPConnectionRuntime, ESPDeviceSession
+from prop_teststand.runtime.telemetry_ingest import TelemetryBatch, TelemetryRuntime
+from prop_teststand.state.system_state import SystemState
+from tests.mock_device import MockSensorDevice
 
 
 if TYPE_CHECKING:

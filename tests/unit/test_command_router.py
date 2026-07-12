@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
 
-from libqretprop.api.fast_api import app
-from libqretprop.runtime.services import RuntimeServices
+from prop_teststand.api.fast_api import app
+from prop_teststand.runtime.services import RuntimeServices
 
 
 # ---------------------------------------------------------------------------

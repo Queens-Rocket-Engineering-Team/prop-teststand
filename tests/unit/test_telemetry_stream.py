@@ -6,9 +6,9 @@ from typing import Any, cast
 import orjson
 from fastapi import WebSocket
 
-from libqretprop.runtime.metrics import Metrics
-from libqretprop.runtime.telemetry_ingest import TelemetryBatch, TelemetryReading
-from libqretprop.runtime.telemetry_stream import TelemetryStreamRuntime
+from prop_teststand.runtime.metrics import Metrics
+from prop_teststand.runtime.telemetry_ingest import TelemetryBatch, TelemetryReading
+from prop_teststand.runtime.telemetry_stream import TelemetryStreamRuntime
 
 
 class FakeWebSocket:

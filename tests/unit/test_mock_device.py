@@ -2,9 +2,9 @@ from itertools import pairwise
 
 import pytest
 
-from libqretprop.qlcp.config_models import SensorConfig
-from libqretprop.qlcp.enums import Unit
-from qretproptools.cli.mock_device.mock_device import (
+from prop_teststand.qlcp.config_models import SensorConfig
+from prop_teststand.qlcp.enums import Unit
+from tests.mock_device import (
     MOCK_SIGNAL_AMPLITUDE,
     MOCK_SIGNAL_FREQUENCY_HZ,
     sensor_signal_center_amplitude,

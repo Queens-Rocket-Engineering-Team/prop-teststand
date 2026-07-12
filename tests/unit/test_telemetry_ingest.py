@@ -3,12 +3,12 @@ from typing import Any, cast
 
 import pytest
 
-from libqretprop.qlcp.config_parser import parse_config
-from libqretprop.qlcp.enums import PacketType, Unit
-from libqretprop.qlcp.packets import AckPacket, DataPacket, SensorReading
-from libqretprop.runtime.esp_connection_runtime import ESPDeviceSession
-from libqretprop.runtime.metrics import Metrics
-from libqretprop.runtime.telemetry_ingest import (
+from prop_teststand.qlcp.config_parser import parse_config
+from prop_teststand.qlcp.enums import PacketType, Unit
+from prop_teststand.qlcp.packets import AckPacket, DataPacket, SensorReading
+from prop_teststand.runtime.esp_connection_runtime import ESPDeviceSession
+from prop_teststand.runtime.metrics import Metrics
+from prop_teststand.runtime.telemetry_ingest import (
     TelemetryReading,
     TelemetryRuntime,
 )
@@ -99,7 +99,7 @@ def test_unsynced_session_uses_monotonic_timestamp(monkeypatch: pytest.MonkeyPat
     session = _make_session(last_sync_time=None)
     devices: dict[str, ESPDeviceSession] = {session.address: session}
     ingest = TelemetryRuntime(devices.get)
-    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.time.monotonic", lambda: 42.25)
+    monkeypatch.setattr("prop_teststand.runtime.telemetry_ingest.time.monotonic", lambda: 42.25)
     packet = DataPacket(
         sequence=1,
         timestamp=12345,
@@ -116,7 +116,7 @@ def test_unsynced_session_uses_monotonic_timestamp(monkeypatch: pytest.MonkeyPat
 
 def test_unknown_device_address_is_logged_and_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
     errors: list[str] = []
-    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
+    monkeypatch.setattr("prop_teststand.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
     metrics = Metrics(time_fn=lambda: 100.0)
     ingest = TelemetryRuntime({}.get, metrics=metrics)  # type: ignore[arg-type]
 
@@ -133,7 +133,7 @@ def test_decode_error_records_metric(monkeypatch: pytest.MonkeyPatch) -> None:
     session = _make_session()
     devices: dict[str, ESPDeviceSession] = {session.address: session}
     metrics = Metrics(time_fn=lambda: 100.0)
-    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("prop_teststand.runtime.telemetry_ingest.logger.error", lambda *_args, **_kwargs: None)
     ingest = TelemetryRuntime(devices.get, metrics=metrics)
 
     batch = ingest.handle_datagram(b"not decoded", session.address)
@@ -165,7 +165,7 @@ def test_non_data_packet_is_logged_and_ignored(monkeypatch: pytest.MonkeyPatch) 
     session = _make_session()
     devices: dict[str, ESPDeviceSession] = {session.address: session}
     errors: list[str] = []
-    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
+    monkeypatch.setattr("prop_teststand.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
     ingest = TelemetryRuntime(devices.get)
     packet = AckPacket.create(PacketType.HEARTBEAT, ack_sequence=4)
 
@@ -179,7 +179,7 @@ def test_unknown_sensor_id_is_logged_and_dropped(monkeypatch: pytest.MonkeyPatch
     session = _make_session()
     devices: dict[str, ESPDeviceSession] = {session.address: session}
     errors: list[str] = []
-    monkeypatch.setattr("libqretprop.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
+    monkeypatch.setattr("prop_teststand.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
     ingest = TelemetryRuntime(devices.get)
     packet = DataPacket(
         sequence=1,

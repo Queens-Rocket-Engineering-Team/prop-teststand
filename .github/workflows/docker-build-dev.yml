@@ -24,7 +24,7 @@ jobs:
               id: package-version
               run: |
                   uv sync --locked --no-dev
-                  version="$(uv run --no-sync --no-dev python -c 'from libqretprop._version import __version__; print(__version__)')"
+                  version="$(uv run --no-sync --no-dev python -c 'from prop_teststand._version import __version__; print(__version__)')"
                   test -n "$version"
                   echo "version=${version}" >> "$GITHUB_OUTPUT"
 

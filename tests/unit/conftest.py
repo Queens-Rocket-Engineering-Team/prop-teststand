@@ -3,7 +3,7 @@ import logging
 
 import pytest
 
-from libqretprop.runtime.logging import LOGGER_NAME
+from prop_teststand.runtime.logging import LOGGER_NAME
 
 
 def pytest_configure(config: pytest.Config) -> None:
