@@ -4,7 +4,7 @@ import contextlib
 import socket
 from typing import cast
 
-from libqretprop.runtime.esp_connection_runtime import ESPConnectionRuntime
+from prop_teststand.runtime.esp_connection_runtime import ESPConnectionRuntime
 
 
 class FakeRuntime:

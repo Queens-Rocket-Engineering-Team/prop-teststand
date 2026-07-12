@@ -22,8 +22,9 @@ from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 ROOT = Path(__file__).resolve().parent
 QLCP_DIR = ROOT / "ctl-qlcp-lib"
 QLCP_INCLUDE = QLCP_DIR / "include"
-LIB_DIR = ROOT / "libqretprop" / "_lib"
-PROTOCOL_DIR = ROOT / "libqretprop" / "_protocol"
+PKG_DIR = ROOT / "src" / "prop_teststand"
+LIB_DIR = PKG_DIR / "_lib"
+PROTOCOL_DIR = PKG_DIR / "_protocol"
 LIBQLCP = LIB_DIR / "libqlcp.so"
 EXPANDED_HEADER = LIB_DIR / "qlcp_lib_expanded.h"
 SKIP_ENV = "SKIP_PROTOCOL_BUILD"
@@ -129,10 +130,10 @@ def build_cffi_extension(cffi_dir: Path) -> None:
     shutil.copy2(built_extension, PROTOCOL_DIR / f"_qlcp{extension_suffix()}")
     (PROTOCOL_DIR / "__init__.py").write_text(f"{GENERATED_BANNER}\n")
 
-    sys.path.insert(0, str(ROOT))
-    sys.modules.pop("libqretprop._protocol._qlcp", None)
+    sys.path.insert(0, str(ROOT / "src"))
+    sys.modules.pop("prop_teststand._protocol._qlcp", None)
     importlib.invalidate_caches()
-    lib = importlib.import_module("libqretprop._protocol._qlcp").lib
+    lib = importlib.import_module("prop_teststand._protocol._qlcp").lib
     write_stub(lib)
 
     pycache = PROTOCOL_DIR / "__pycache__"

@@ -1,8 +1,8 @@
 import pytest
 
-from libqretprop.qlcp.config_models import SensorConfig
-from libqretprop.qlcp.config_parser import QLCPConfigError, parse_config
-from libqretprop.qlcp.enums import ControlState, Unit
+from prop_teststand.qlcp.config_models import SensorConfig
+from prop_teststand.qlcp.config_parser import QLCPConfigError, parse_config
+from prop_teststand.qlcp.enums import ControlState, Unit
 
 
 TEST_CONFIG_VALID_FULL = {

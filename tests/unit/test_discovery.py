@@ -3,7 +3,7 @@ import asyncio
 
 import pytest
 
-from libqretprop.runtime.discovery import DiscoveryService
+from prop_teststand.runtime.discovery import DiscoveryService
 
 
 class FakeSocket:
@@ -72,7 +72,7 @@ def test_run_issues_discovery_when_enabled(monkeypatch: pytest.MonkeyPatch) -> N
             raise _StopLoop  # break out after the first loop iteration
 
         monkeypatch.setattr(service, "discover", _discover)
-        monkeypatch.setattr("libqretprop.runtime.discovery.asyncio.sleep", _fake_sleep)
+        monkeypatch.setattr("prop_teststand.runtime.discovery.asyncio.sleep", _fake_sleep)
 
         with pytest.raises(_StopLoop):
             await service.run()
@@ -98,7 +98,7 @@ def test_run_recovers_when_discover_raises(monkeypatch: pytest.MonkeyPatch) -> N
             raise _StopLoop
 
         monkeypatch.setattr(service, "discover", _discover)
-        monkeypatch.setattr("libqretprop.runtime.discovery.asyncio.sleep", _fake_sleep)
+        monkeypatch.setattr("prop_teststand.runtime.discovery.asyncio.sleep", _fake_sleep)
 
         with pytest.raises(_StopLoop):
             await service.run()
@@ -126,7 +126,7 @@ def test_run_skips_discovery_when_disabled(monkeypatch: pytest.MonkeyPatch) -> N
             raise _StopLoop
 
         monkeypatch.setattr(service, "discover", _discover)
-        monkeypatch.setattr("libqretprop.runtime.discovery.asyncio.sleep", _fake_sleep)
+        monkeypatch.setattr("prop_teststand.runtime.discovery.asyncio.sleep", _fake_sleep)
 
         with pytest.raises(_StopLoop):
             await service.run()

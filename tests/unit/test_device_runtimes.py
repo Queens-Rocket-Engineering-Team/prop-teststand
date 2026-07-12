@@ -6,13 +6,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from libqretprop.config import MediaMTXConfig, MumbleConfig
-from libqretprop.runtime.audio_runtime import AudioRuntime
-from libqretprop.runtime.camera_runtime import CameraRuntime
-from libqretprop.runtime.command_tracker import CommandTracker
-from libqretprop.runtime.kasa_runtime import KasaRuntime
-from libqretprop.runtime.state_stream import StateStream
-from libqretprop.state.system_state import SystemState
+from prop_teststand.config import MediaMTXConfig, MumbleConfig
+from prop_teststand.runtime.audio_runtime import AudioRuntime
+from prop_teststand.runtime.camera_runtime import CameraRuntime
+from prop_teststand.runtime.command_tracker import CommandTracker
+from prop_teststand.runtime.kasa_runtime import KasaRuntime
+from prop_teststand.runtime.state_stream import StateStream
+from prop_teststand.state.system_state import SystemState
 
 
 def _make_kasa_runtime() -> KasaRuntime:

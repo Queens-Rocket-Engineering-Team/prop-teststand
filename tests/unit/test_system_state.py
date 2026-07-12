@@ -1,10 +1,10 @@
 from types import SimpleNamespace
 from typing import Any, cast
 
-from libqretprop.qlcp.config_parser import parse_config
-from libqretprop.qlcp.enums import ControlState, ErrorCode, PacketType
-from libqretprop.runtime.command_tracker import CommandRecord, CommandTracker
-from libqretprop.state.system_state import SystemState
+from prop_teststand.qlcp.config_parser import parse_config
+from prop_teststand.qlcp.enums import ControlState, ErrorCode, PacketType
+from prop_teststand.runtime.command_tracker import CommandRecord, CommandTracker
+from prop_teststand.state.system_state import SystemState
 
 
 def _make_config(name: str = "TEST-DEVICE") -> dict[str, Any]:

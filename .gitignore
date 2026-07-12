@@ -10,8 +10,8 @@ dist/
 
 .ruff_cache/
 
-libqretprop/_protocol
-libqretprop/_lib
-libqretprop/_version.py
+src/prop_teststand/_protocol
+src/prop_teststand/_lib
+src/prop_teststand/_version.py
 
 *.egg-info

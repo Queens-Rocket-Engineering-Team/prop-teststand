@@ -11,5 +11,5 @@ dist
 *.egg-info
 media
 ctl-qlcp-lib/build
-libqretprop/_lib
-libqretprop/_protocol
+src/prop_teststand/_lib
+src/prop_teststand/_protocol

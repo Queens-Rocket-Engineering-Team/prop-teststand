@@ -53,11 +53,6 @@ build-backend = "hatchling.build"
 [tool.uv.sources]
 pymumble = { git = "https://git.sr.ht/~oopsbagel/pymumble" }
 
-[project.scripts]
-# CLI TOOLS
-start_server = "qretproptools.cli.start_server.start_server:main"
-mock_device = "qretproptools.cli.mock_device.mock_device:main"
-
 [tool.mypy]
 strict = false
 ignore_missing_imports = true
@@ -78,7 +73,7 @@ source = "vcs"
 fallback-version = "0+unknown"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "libqretprop/_version.py"
+version-file = "src/prop_teststand/_version.py"
 template = """
 from __future__ import annotations
 
@@ -108,17 +103,17 @@ __commit_id__ = commit_id = {scm_version.short_node!r}
 """
 
 [tool.hatch.build.targets.wheel]
-packages = ["libqretprop", "qretproptools"]
+packages = ["src/prop_teststand"]
 exclude = [
-    "/libqretprop/_lib/qlcp_lib_expanded.h",
-    "/libqretprop/_protocol/_qlcp.c",
-    "/libqretprop/_protocol/*.o",
+    "/src/prop_teststand/_lib/qlcp_lib_expanded.h",
+    "/src/prop_teststand/_protocol/_qlcp.c",
+    "/src/prop_teststand/_protocol/*.o",
 ]
 artifacts = [
-    "/libqretprop/_lib/libqlcp.so",
-    "/libqretprop/_protocol/__init__.py",
-    "/libqretprop/_protocol/_qlcp*.so",
-    "/libqretprop/_protocol/_qlcp.pyi",
+    "/src/prop_teststand/_lib/libqlcp.so",
+    "/src/prop_teststand/_protocol/__init__.py",
+    "/src/prop_teststand/_protocol/_qlcp*.so",
+    "/src/prop_teststand/_protocol/_qlcp.pyi",
 ]
 
 [tool.hatch.build.targets.sdist]
@@ -126,12 +121,11 @@ include = [
     "/hatch_build.py",
     "/pyproject.toml",
     "/README.md",
-    "/libqretprop",
-    "/qretproptools",
+    "/src",
     "/ctl-qlcp-lib",
 ]
 exclude = [
-    "/libqretprop/_lib",
-    "/libqretprop/_protocol",
+    "/src/prop_teststand/_lib",
+    "/src/prop_teststand/_protocol",
     "/ctl-qlcp-lib/build",
 ]

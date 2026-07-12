@@ -52,7 +52,7 @@ flowchart LR
 docker compose -f compose.dev.yml up
 ```
 
-This starts all necessary services with file watching — code changes in `libqretprop/` and `config.yaml` trigger automatic restarts.
+This starts all necessary services with file watching — code changes in `src/` and `config.yaml` trigger automatic restarts.
 
 Follow server logs with:
 
@@ -72,7 +72,7 @@ Pulls pre-built images from `ghcr.io/queens-rocket-engineering-team/`.
 
 ```bash
 uv sync
-uv run start_server
+uv run python -m prop_teststand
 ```
 
 `uv sync` installs the environment. The qlcp native library and CFFI protocol
@@ -82,7 +82,7 @@ Run `uv sync` again to force a local protocol rebuild.
 Run the mock device locally for testing with:
 
 ```bash
-uv run mock_device
+uv run python tests/mock_device.py
 ```
 
 ## Configuration
@@ -109,12 +109,12 @@ Override the path with the `PROP_CONFIG` environment variable (defaults to `./co
 
 ESP32 devices configure themselves — each device sends a JSON CONFIG packet on connection describing its sensors and controls.
 
-## CLI Tools
+## Running
 
 | Command | Description |
 |---------|-------------|
-| `start_server` | Start the main server |
-| `mock_device` | Simulate an ESP32 device for testing |
+| `uv run python -m prop_teststand` | Start the main server |
+| `uv run python tests/mock_device.py` | Simulate an ESP32 device for testing |
 
 Once the server is running, an interactive CLI provides commands like `discover`, `list`, `stream <device> <Hz>`, `control <device> <name> <state>`, and `estop`.
 
