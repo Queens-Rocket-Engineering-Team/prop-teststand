@@ -1,10 +1,10 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol, Self
 
 from prop_teststand.qlcp._bindings import ffi as _ffi
 from prop_teststand.qlcp._bindings import lib as _lib
-from prop_teststand.qlcp.enums import ControlState, ControlType
+from prop_teststand.qlcp.enums import ControlState, ControlType, PacketType
 from prop_teststand.qlcp.native import (
     ENCODE_BUF_SIZE,
     MAX_CONFIG,
@@ -18,7 +18,7 @@ from prop_teststand.qlcp.native import (
 
 
 if TYPE_CHECKING:
-    from prop_teststand.qlcp.enums import ErrorCode, PacketType
+    from prop_teststand.qlcp.enums import ErrorCode
 
 
 class EncodablePacket(Protocol):
@@ -42,13 +42,16 @@ class PacketHeader:
 class SimplePacket:
     """Base for header-only packets. Do not use this class directly.
 
+    Each subclass fixes ``packet_type`` as a ClassVar, so ``create()`` takes no arguments
+    and the name of the class is the only thing that identifies the packet.
+    """
+
     header: PacketHeader
-    packet_type: PacketType
+    packet_type: ClassVar[PacketType]
 
     @classmethod
     def create(cls) -> Self:
         return cls(
-            packet_type=packet_type,
             header=PacketHeader(
                 sequence=next_sequence(),
                 timestamp_us=get_timestamp_us(),
@@ -75,11 +78,38 @@ class SimplePacket:
         return bytes(_ffi.buffer(buf, buf_len[0]))
 
 @dataclass
+class EstopPacket(SimplePacket):
+    packet_type: ClassVar[PacketType] = PacketType.ESTOP
+
+@dataclass
+class DiscoveryPacket(SimplePacket):
+    packet_type: ClassVar[PacketType] = PacketType.DISCOVERY
+
+@dataclass
+class HeartbeatPacket(SimplePacket):
+    packet_type: ClassVar[PacketType] = PacketType.HEARTBEAT
+
+@dataclass
+class StatusRequestPacket(SimplePacket):
+    packet_type: ClassVar[PacketType] = PacketType.STATUS_REQUEST
+
+@dataclass
+class StreamStopPacket(SimplePacket):
+    packet_type: ClassVar[PacketType] = PacketType.STREAM_STOP
+
+@dataclass
+class GetSinglePacket(SimplePacket):
+    packet_type: ClassVar[PacketType] = PacketType.GET_SINGLE
+
+@dataclass
+class TimesyncRequestPacket(SimplePacket):
+    packet_type: ClassVar[PacketType] = PacketType.TIMESYNC_REQ
+
+@dataclass
 class ControlStatus:
     id: int
     type: ControlType
     state: ControlState | int | float
-
 
 @dataclass
 class StatusPacket:

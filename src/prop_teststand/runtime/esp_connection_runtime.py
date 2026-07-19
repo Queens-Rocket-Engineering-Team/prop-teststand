@@ -26,6 +26,8 @@ from prop_teststand.qlcp.packets import (
     StatusPacket,
     StatusRequestPacket,
     StreamStartPacket,
+    StreamStopPacket,
+    TimesyncRequestPacket,
     TimesyncResponsePacket,
 )
 from prop_teststand.runtime.device_registry import DeviceRegistry
@@ -41,7 +43,17 @@ if TYPE_CHECKING:
     from prop_teststand.state import SystemState
 
 
-TrackedCommandPacket = SimplePacket | TimesyncResponsePacket | ControlPacket | StreamStartPacket
+# Command packets the server sends to a device and tracks for ACK/NACK.
+TrackedCommandPacket = (
+    EstopPacket
+    | HeartbeatPacket
+    | StatusRequestPacket
+    | StreamStopPacket
+    | GetSinglePacket
+    | TimesyncResponsePacket
+    | ControlPacket
+    | StreamStartPacket
+)
 
 TCP_PORT = 50000
 CONFIG_HANDSHAKE_TIMEOUT_S = 10.0
@@ -383,7 +395,7 @@ class ESPConnectionRuntime:
         self,
         session: ESPDeviceSession,
         *,
-        timesync_request: SimplePacket,
+        timesync_request: TimesyncRequestPacket,
         t2_us: int,
     ) -> CommandRecord:
         """Send a TIMESYNC_RESP packet in response to a TIMESYNC_REQ packet."""
@@ -510,7 +522,7 @@ class ESPConnectionRuntime:
 
         return False
 
-    async def handle_timesync_request(self, session: ESPDeviceSession, packet: SimplePacket) -> None:
+    async def handle_timesync_request(self, session: ESPDeviceSession, packet: TimesyncRequestPacket) -> None:
         """Handle a TIMESYNC_REQ packet from a device session, responding with a TIMESYNC_RESP."""
         # T2: server receipt time, sampled as early as possible (PROTOCOL_SPECIFICATION 7.7.2).
         t2_us = get_timestamp_us()
@@ -669,7 +681,7 @@ class ESPConnectionRuntime:
                     "Unexpected DATA packet received over TCP from %s. This should be sent over UDP. Ignoring.",
                     session.name,
                 )
-            case SimplePacket(packet_type=PacketType.TIMESYNC_REQ):
+            case TimesyncRequestPacket():
                 await self.handle_timesync_request(session, packet)
             case StatusPacket():
                 self.handle_status(session, packet)

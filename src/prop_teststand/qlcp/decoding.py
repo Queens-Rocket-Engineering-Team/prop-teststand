@@ -21,6 +21,8 @@ from prop_teststand.qlcp.packets import (
     StatusPacket,
     StatusRequestPacket,
     StreamStartPacket,
+    StreamStopPacket,
+    TimesyncRequestPacket,
     TimesyncResponsePacket,
 )
 
@@ -43,8 +45,38 @@ _buffers = _ffi.new(
 )
 _payload = _ffi.new("qlcp_server_payload *")
 
-ServerReceivedPacket = SimplePacket | StatusPacket | DataPacket | ConfigPacket | AckPacket | NackPacket
-ClientReceivedPacket = SimplePacket | TimesyncResponsePacket| ControlPacket | StreamStartPacket | AckPacket | NackPacket
+# Header-only packets the server may receive over TCP (Device -> Server): only TIMESYNC_REQ.
+ServerReceivedPacket = (
+    TimesyncRequestPacket | StatusPacket | DataPacket | ConfigPacket | AckPacket | NackPacket
+)
+
+# Header-only packets a client/device may receive (Server -> Device).
+ClientHeaderOnlyPacket = (
+    EstopPacket
+    | DiscoveryPacket
+    | HeartbeatPacket
+    | StatusRequestPacket
+    | StreamStopPacket
+    | GetSinglePacket
+)
+ClientReceivedPacket = (
+    ClientHeaderOnlyPacket
+    | TimesyncResponsePacket
+    | ControlPacket
+    | StreamStartPacket
+    | AckPacket
+    | NackPacket
+)
+
+# Maps a decoded header-only packet type to its concrete class (Server -> Device direction).
+_CLIENT_HEADER_ONLY: dict[int, type[ClientHeaderOnlyPacket]] = {
+    _lib.QLCP_PT_ESTOP: EstopPacket,
+    _lib.QLCP_PT_DISCOVERY: DiscoveryPacket,
+    _lib.QLCP_PT_HEARTBEAT: HeartbeatPacket,
+    _lib.QLCP_PT_STATUS_REQUEST: StatusRequestPacket,
+    _lib.QLCP_PT_STREAM_STOP: StreamStopPacket,
+    _lib.QLCP_PT_GET_SINGLE: GetSinglePacket,
+}
 
 
 def decode_packet_server(data: bytes) -> ServerReceivedPacket:
@@ -153,12 +185,11 @@ def _server_payload_to_python(payload: Any) -> ServerReceivedPacket:
             error_code=ErrorCode(payload_data.nack.nack_error_code),
         )
     if payload_type == _lib.QLCP_PT_TIMESYNC_REQ:
-        return SimplePacket(
+        return TimesyncRequestPacket(
             header=PacketHeader(
                 sequence=payload_data.header_only.header.sequence,
                 timestamp_us=payload_data.header_only.header.timestamp_us,
             ),
-            packet_type=PacketType(payload_type),
         )
 
     message = f"unknown packet type: {payload_type}"
@@ -190,20 +221,13 @@ def _client_payload_to_python(payload: Any) -> ClientReceivedPacket:
     payload_type = payload.packet_type
     payload_data = payload.payload_data
 
-    if payload_type in (
-        _lib.QLCP_PT_ESTOP,
-        _lib.QLCP_PT_DISCOVERY,
-        _lib.QLCP_PT_STREAM_STOP,
-        _lib.QLCP_PT_GET_SINGLE,
-        _lib.QLCP_PT_HEARTBEAT,
-        _lib.QLCP_PT_STATUS_REQUEST,
-    ):
-        return SimplePacket(
+    header_only_cls = _CLIENT_HEADER_ONLY.get(payload_type)
+    if header_only_cls is not None:
+        return header_only_cls(
             header=PacketHeader(
                 sequence=payload_data.header_only.header.sequence,
                 timestamp_us=payload_data.header_only.header.timestamp_us,
             ),
-            packet_type=PacketType(payload_type),
         )
     if payload_type == _lib.QLCP_PT_TIMESYNC_RESP:
         return TimesyncResponsePacket(
