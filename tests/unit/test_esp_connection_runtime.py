@@ -41,7 +41,7 @@ class FakeDriver:
 def _make_config(name: str = "TEST-DEVICE") -> dict[str, Any]:
     return {
         "device_name": name,
-        "sensor_info": {
+        "sensors": {
             "thermocouple": {
                 "TC1": {
                     "sensor_index": "TC1",

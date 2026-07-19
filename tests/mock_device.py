@@ -46,6 +46,7 @@ from prop_teststand.qlcp.packets import (
     ControlStatus,
     DataPacket,
     NackPacket,
+    PacketHeader,
     SensorReading,
     SimplePacket,
     StatusPacket,
@@ -54,6 +55,9 @@ from prop_teststand.qlcp.packets import (
 
 
 logger = logging.getLogger("MockDevice")
+
+# Re-run TIMESYNC at least this often to bound clock drift (PROTOCOL_SPECIFICATION 7.7.4).
+TIMESYNC_RESYNC_INTERVAL_S = 60.0
 
 MOCK_SIGNAL_FREQUENCY_HZ = 0.25
 MOCK_SIGNAL_AMPLITUDE = 20.0
@@ -92,11 +96,11 @@ def sensor_signal_value(sensor: SensorConfig, elapsed_s: float, sensor_id: int) 
     return center + amplitude * math.sin((2.0 * math.pi * MOCK_SIGNAL_FREQUENCY_HZ * elapsed_s) + phase)
 
 # Default device config: 2 thermocouples (ids 0-1, CELSIUS) + 2 pressure transducers (ids 2-3, PSI).
-# Sensor ordering in sensor_info determines the ids assigned by parse_config.
+# Sensor ordering in sensors determines the ids assigned by parse_config.
 _DEFAULT_CONFIG: dict[str, Any] = {
     "device_name": "MockDevice",
     "device_type": "Sensor Monitor",
-    "sensor_info": {
+    "sensors": {
         "thermocouple": {
             "TC101": {
                 "sensor_index": "TC1",
@@ -231,7 +235,8 @@ class MockSensorDevice:
 
         # Per-sensor simulated state (keyed by sensor_id).
         self._sensor_values: dict[int, float] = {sid: self._initial_value(s) for sid, s in self._device_config.sensors_by_id.items()}
-        self._signal_start_monotonic = time.monotonic_ns() // 1000
+        # Seconds axis, matching send_sensor_data's `time.monotonic() - _signal_start_monotonic`.
+        self._signal_start_monotonic = time.monotonic()
 
         # Control states (keyed by control name), initialised from config defaults.
         self.control_states: dict[str, str] = {c.name: control_state_str(c.default) for c in self._device_config.controls_by_id.values()}
@@ -241,6 +246,7 @@ class MockSensorDevice:
         self.stream_frequency = 10
         self.stream_task: asyncio.Task[None] | None = None
         self.command_task: asyncio.Task[None] | None = None
+        self.timesync_task: asyncio.Task[None] | None = None
         self.ssdp_task: asyncio.Task[None] | None = None
 
         # Timesync offset: added to local monotonic ms to produce server-scale timestamps.
@@ -335,6 +341,12 @@ class MockSensorDevice:
                 await self.command_task
             self.command_task = None
 
+        if self.timesync_task:
+            self.timesync_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.timesync_task
+            self.timesync_task = None
+
         if self.ssdp_task:
             self.ssdp_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -368,7 +380,11 @@ class MockSensorDevice:
     # ---------------------------------------------------------------------- #
 
     def _get_adjusted_ts(self) -> int:
-        """Return a server-scale timestamp (ms) by applying the TIMESYNC offset."""
+        """Return a server-scale timestamp (microseconds) by applying the TIMESYNC offset.
+
+        Per PROTOCOL_SPECIFICATION 7.7.3, after sync all outgoing timestamps are
+        ``device_time_us() - ts_offset``.
+        """
         return (int(time.monotonic_ns() // 1000) - self.timesync_offset) & 0xFFFFFFFFFFFFFFFF
 
     # ---------------------------------------------------------------------- #
@@ -456,6 +472,7 @@ class MockSensorDevice:
             await self.send_config()
 
             self.command_task = asyncio.create_task(self.handle_commands())
+            self.timesync_task = asyncio.create_task(self.periodic_timesync())
 
         except Exception as e:
             logger.error(f"Connection failed: {e}")
@@ -539,7 +556,7 @@ class MockSensorDevice:
                             t4_us = int(time.monotonic_ns() // 1000) & 0xFFFFFFFFFFFFFFFF
 
                             self.timesync_offset = ((t1_us - t2_us) + (t4_us - t3_us)) // 2
-                            logger.info(f"TIMESYNC: locked to server (offset={self.timesync_offset} ms)")
+                            logger.info(f"TIMESYNC: locked to server (offset={self.timesync_offset} us)")
 
                             ack = AckPacket.create(PacketType.TIMESYNC_REQ, packet.header.sequence)
                             await loop.sock_sendall(sock, ack.encode())
@@ -549,6 +566,8 @@ class MockSensorDevice:
                         elif isinstance(packet, SimplePacket) and packet.packet_type == PacketType.ESTOP:
                             logger.warning("Received ESTOP — stopping stream and resetting state")
                             self.reset_device_state(announce=True)
+                            # Device MUST report control states after ESTOP (PROTOCOL_SPECIFICATION 10.3).
+                            await self.send_status(PacketType.ESTOP, packet.header.sequence)
 
                         elif isinstance(packet, ControlPacket):
                             await self.handle_control_command(packet)
@@ -587,6 +606,25 @@ class MockSensorDevice:
             task = asyncio.current_task()
             if self.sock is not None and not (task and task.cancelled()):
                 await self.handle_server_disconnect()
+
+    async def periodic_timesync(self) -> None:
+        """Re-issue TIMESYNC_REQ at least every 60s to bound clock drift (PROTOCOL_SPECIFICATION 7.7.4)."""
+        loop = asyncio.get_event_loop()
+        try:
+            while True:
+                await asyncio.sleep(TIMESYNC_RESYNC_INTERVAL_S)
+                sock = self.sock
+                if sock is None:
+                    break
+                try:
+                    timesync_req = SimplePacket.create(PacketType.TIMESYNC_REQ)
+                    await loop.sock_sendall(sock, timesync_req.encode())
+                    logger.debug("Sent periodic TIMESYNC_REQ")
+                except Exception as e:
+                    logger.error(f"Periodic timesync failed: {e}")
+                    break
+        except asyncio.CancelledError:
+            raise
 
     # ---------------------------------------------------------------------- #
     # Command handlers                                                         #
@@ -680,7 +718,11 @@ class MockSensorDevice:
                 ),
             )
 
-        packet = DataPacket.create(readings)
+        # Stamp with server-base time (device_time - ts_offset) per PROTOCOL_SPECIFICATION 7.7.3.
+        packet = DataPacket(
+            header=PacketHeader(sequence=next_sequence(), timestamp_us=self._get_adjusted_ts()),
+            readings=readings,
+        )
 
         loop = asyncio.get_event_loop()
         await loop.sock_sendto(self.udp_sock, packet.encode(), (self.server_ip, self.server_udp_port))

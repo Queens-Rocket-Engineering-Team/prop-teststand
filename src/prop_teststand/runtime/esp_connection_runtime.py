@@ -375,12 +375,18 @@ class ESPConnectionRuntime:
         self._emit(self.system_state.record_command_sent(command))
         return command
 
-    async def send_timesync_response(self, session: ESPDeviceSession, *, timesync_request: SimplePacket) -> CommandRecord:
+    async def send_timesync_response(
+        self,
+        session: ESPDeviceSession,
+        *,
+        timesync_request: SimplePacket,
+        t2_us: int,
+    ) -> CommandRecord:
         """Send a TIMESYNC_RESP packet in response to a TIMESYNC_REQ packet."""
         timesync_resp = TimesyncResponsePacket.create(ack_packet_type=timesync_request.packet_type,
             ack_sequence=timesync_request.header.sequence,
             t1_echo_us=timesync_request.header.timestamp_us,
-            t2_us=get_timestamp_us())
+            t2_us=t2_us)
 
         command = await self.send_tracked_command(session, timesync_resp)
         logger.debug("Sent TIMESYNC_RESP to %s", session.name)
@@ -502,7 +508,9 @@ class ESPConnectionRuntime:
 
     async def handle_timesync_request(self, session: ESPDeviceSession, packet: SimplePacket) -> None:
         """Handle a TIMESYNC_REQ packet from a device session, responding with a TIMESYNC_RESP."""
-        await self.send_timesync_response(session, timesync_request=packet)
+        # T2: server receipt time, sampled as early as possible (PROTOCOL_SPECIFICATION 7.7.2).
+        t2_us = get_timestamp_us()
+        await self.send_timesync_response(session, timesync_request=packet, t2_us=t2_us)
 
     def handle_ack(self, session: ESPDeviceSession, packet: AckPacket) -> CommandRecord | None:
         """Handle an ACK packet from a device session, marking the corresponding command as acknowledged and updating the system state."""

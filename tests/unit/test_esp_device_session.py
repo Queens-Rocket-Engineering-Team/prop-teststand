@@ -25,7 +25,7 @@ def _make_config() -> dict[str, Any]:
     return {
         "device_name": "TEST-DEVICE",
         "device_type": "Sensor Monitor",
-        "sensor_info": {},
+        "sensors": {},
         "controls": {},
     }
 

@@ -37,7 +37,10 @@ def check_qlcp_error(ret: Any, context: str) -> None:
         _lib.QLCP_NO_MEM: "buffer too small",
         _lib.QLCP_LEN_MISMATCH: "length mismatch",
         _lib.QLCP_VERSION_MISMATCH: "protocol version mismatch",
+        _lib.QLCP_NO_MAGIC_NUM: "magic number not found",
+        _lib.QLCP_INVALID_HEADER: "invalid header",
         _lib.QLCP_INVALID_PACKET_TYPE: "invalid packet type",
+        _lib.QLCP_INVALID_PACKET: "invalid packet",
     }
     error_name = names.get(ret, f"unknown error {ret}")
     message = f"{context}: {error_name}"

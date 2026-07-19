@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 
 UDP_PORT = 50001  # Distinct from the TCP port; a different number is useful for debugging.
 
+MICROSECONDS_PER_SECOND = 1_000_000
+
 
 @dataclass(frozen=True, slots=True)
 class TelemetryReading:
@@ -133,10 +135,9 @@ class TelemetryRuntime:
         packet: DataPacket,
         session: ESPDeviceSession,
     ) -> tuple[float, Literal["device_synced", "server_receive"], bool]:
-        # TIMESYNC seeds the device clock from get_timestamp_ms(), so both share one axis; wraps at ~49.7 days.
         if session.last_sync_time is None:
             return time.monotonic(), "server_receive", False
-        return packet.header.timestamp_us / 1000.0, "device_synced", True
+        return packet.header.timestamp_us / MICROSECONDS_PER_SECOND, "device_synced", True
 
     async def run_udp_listener(
         self,

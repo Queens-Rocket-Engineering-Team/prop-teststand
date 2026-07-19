@@ -22,7 +22,7 @@ def _make_config() -> dict[str, Any]:
     return {
         "device_name": "PANDA",
         "device_type": "Sensor Monitor",
-        "sensor_info": {
+        "sensors": {
             "thermocouple": {
                 "TC1": {
                     "sensor_index": "TC1",
@@ -73,7 +73,8 @@ def test_data_packet_from_registered_session_produces_batch() -> None:
     assert batch.device_name == "PANDA"
     assert batch.device_address == session.address
     assert batch.connection_key == "conn-a"
-    assert batch.timestamp_s == 12.345
+    # 12345 us of device (server-base) time == 0.012345 s, on the same axis as time.monotonic().
+    assert batch.timestamp_s == pytest.approx(0.012345)
     assert batch.timestamp_source == "device_synced"
     assert batch.timestamp_synced is True
     assert len(batch.readings) == 2
