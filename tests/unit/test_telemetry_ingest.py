@@ -5,7 +5,7 @@ import pytest
 
 from prop_teststand.qlcp.config_parser import parse_config
 from prop_teststand.qlcp.enums import PacketType
-from prop_teststand.qlcp.packets import AckPacket, DataPacket, SensorReading
+from prop_teststand.qlcp.packets import AckPacket, DataPacket, PacketHeader, SensorReading
 from prop_teststand.runtime.esp_connection_runtime import ESPDeviceSession
 from prop_teststand.runtime.metrics import Metrics
 from prop_teststand.runtime.telemetry_ingest import (

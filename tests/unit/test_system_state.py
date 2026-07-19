@@ -10,7 +10,7 @@ from prop_teststand.state.system_state import SystemState
 def _make_config(name: str = "TEST-DEVICE") -> dict[str, Any]:
     return {
         "device_name": name,
-        "sensors": {
+        "sensor_info": {
             "thermocouple": {
                 "TC1": {
                     "sensor_index": "TC1",

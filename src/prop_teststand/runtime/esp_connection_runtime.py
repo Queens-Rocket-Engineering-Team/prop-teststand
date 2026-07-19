@@ -572,20 +572,17 @@ class ESPConnectionRuntime:
     def handle_status(self, session: ESPDeviceSession, packet: StatusPacket) -> None:
         """Handle a STATUS packet from a device session.
 
-        STATUS is either the response to CONTROL and STATUS_REQUEST (in which case it
-        acknowledges the correlated command), or an unsolicited device-initiated update
-        (ack_packet_type == NO_ACK), in which case command-response tracking is skipped
-        entirely. Either way the reported control states are applied as normal.
+        Per the protocol, STATUS is the response to CONTROL and STATUS_REQUEST: it
+        acknowledges the correlated command and reports the resulting control states.
         """
-        if packet.ack_packet_type != PacketType.NO_ACK:
-            command = self.command_tracker.mark_acked(
-                connection_key=session.connection_key,
-                packet_type=packet.ack_packet_type,
-                packet_sequence=packet.ack_sequence,
-                now=time.monotonic(),
-            )
-            if command is not None:
-                self._emit(self.system_state.record_command_acked(command))
+        command = self.command_tracker.mark_acked(
+            connection_key=session.connection_key,
+            packet_type=packet.ack_packet_type,
+            packet_sequence=packet.ack_sequence,
+            now=time.monotonic(),
+        )
+        if command is not None:
+            self._emit(self.system_state.record_command_acked(command))
 
         for control_state in packet.control_states:
             self._emit(
@@ -707,6 +704,8 @@ class ESPConnectionRuntime:
                 return PacketType.CONTROL, sequence, control_id, control_state
             case StreamStartPacket(header=PacketHeader(sequence=sequence)):
                 return PacketType.STREAM_START, sequence, None, None
+            case TimesyncResponsePacket(header=PacketHeader(sequence=sequence)):
+                return PacketType.TIMESYNC_RESP, sequence, None, None
             case _:
                 message = f"Unsupported tracked command packet: {type(packet).__name__}"
                 raise TypeError(message)
