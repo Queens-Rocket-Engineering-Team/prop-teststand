@@ -63,7 +63,7 @@ from prop_teststand.qlcp.packets import (
 logger = logging.getLogger("MockDevice")
 
 # Re-run TIMESYNC at least this often to bound clock drift (PROTOCOL_SPECIFICATION 7.7.4).
-TIMESYNC_RESYNC_INTERVAL_S = 60.0
+TIMESYNC_RESYNC_INTERVAL_S = 5.0
 
 MOCK_SIGNAL_FREQUENCY_HZ = 0.25
 MOCK_SIGNAL_AMPLITUDE = 20.0
