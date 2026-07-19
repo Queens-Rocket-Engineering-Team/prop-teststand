@@ -108,6 +108,8 @@ class ESPDeviceSession:
     def name(self) -> str:
         return self.qlcp_config.name
 
+
+
     @property
     def sensors(self) -> dict[str, SensorConfig]:
         return {sensor.name: sensor for sensor in self.qlcp_config.sensors_by_id.values()}
