@@ -18,7 +18,7 @@ def parse_config(config: dict[str, Any]) -> DeviceConfig:
     current_sensor_id = 0
     sensors_by_id: dict[int, SensorConfig] = {}
 
-    for sensor_group, sensors in config.get("sensors", {}).items():
+    for sensor_group, sensors in config.get("sensor_info", {}).items():
         for sensor_name, details in sensors.items():
             sensors_by_id[current_sensor_id] = parse_sensor_config(
                 sensor_id=current_sensor_id,
@@ -31,7 +31,7 @@ def parse_config(config: dict[str, Any]) -> DeviceConfig:
     current_control_id = 0
     controls_by_id: dict[int, ControlConfig] = {}
 
-    for control_group, controls in config.get("controls", {}).items():
+    for control_group, controls in config.get("control_info", {}).items():
         for control_name, details in controls.items():
             controls_by_id[current_control_id] = parse_control_config(
                 control_id=current_control_id,
@@ -72,10 +72,7 @@ def parse_control_config(
     context = f"control {control_name!r}"
 
     control_type = cast_control_type(require_string_field(details, "type", context))
-    default_state = cast_control_state(
-        control_type, require_field(details, "default_state", context),
-    )
-    unit = details.get("unit") # unit is optional
+    default_state = cast_control_state(control_type, require_string_field(details, "default_state", context))
 
     return ControlConfig(
         id=control_id,
@@ -83,7 +80,6 @@ def parse_control_config(
         group=control_group,
         default=default_state,
         type=control_type,
-        unit=unit,
     )
 
 
@@ -117,18 +113,15 @@ def cast_control_type(type_str: str) -> ControlType:
         message = f"Invalid control type: {type_str}"
         raise QLCPConfigError(message) from err
 
-def cast_control_state(control_type: ControlType, state: str | float) -> ControlState | int | float:
+def cast_control_state(control_type: ControlType, state_str: str) -> ControlState | int | float:
     try:
         match control_type:
             case ControlType.BOOL:
-                if not isinstance(state, str):
-                    message = f"Invalid control state type: {type(state).__name__}. {ControlType.BOOL.name} control state must be a string."
-                    raise QLCPConfigError(message)
-                return ControlState[state.upper()]
+                return ControlState[state_str.upper()]
             case ControlType.UINT32 | ControlType.INT32:
-                return int(state)
+                return int(state_str)
             case ControlType.FLOAT32:
-                return float(state)
-    except (KeyError, ValueError) as err:
-        message = f"Invalid control state: {state}"
+                return float(state_str)
+    except KeyError as err:
+        message = f"Invalid control state: {state_str}"
         raise QLCPConfigError(message) from err
