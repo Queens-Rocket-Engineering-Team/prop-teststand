@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 import orjson
 
 from prop_teststand.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
-from prop_teststand.qlcp.config_parser import cast_control_state, parse_config
+from prop_teststand.qlcp.config_parser import QLCPConfigError, cast_control_state, parse_config
 from prop_teststand.qlcp.enums import ControlState, PacketType
 from prop_teststand.qlcp.native import get_timestamp_us
 from prop_teststand.qlcp.packets import (
@@ -21,6 +21,8 @@ from prop_teststand.qlcp.packets import (
     GetSinglePacket,
     HeartbeatPacket,
     NackPacket,
+    PacketHeader,
+    SimplePacket,
     StatusPacket,
     StatusRequestPacket,
     StreamStartPacket,
@@ -444,14 +446,10 @@ class ESPConnectionRuntime:
             logger.error("Invalid state '%s' for %s control '%s'", control_state, control.type.name, control_name)
             return False
 
-        control_id = session.controls[control_name].id
-        control_type = session.controls[control_name].type
-        state = cast_control_state(control_type, control_state)
-
         return await self._send_or_remove(
             session,
-            ControlPacket.create(control_id, control_type, control_state=state),
-            f"CONTROL command (id={control_id}, {control_name} {control_state})",
+            ControlPacket.create(control.id, control.type, control_state=state),
+            f"CONTROL command (id={control.id}, {control_name} {control_state})",
         )
 
     async def get_status(self, session: ESPDeviceSession) -> bool:
@@ -702,14 +700,16 @@ class ESPConnectionRuntime:
         packet: TrackedCommandPacket,
     ) -> tuple[PacketType, int, int | None, ControlState | int | float | None]:
         """Return the packet type, sequence number, control ID, and requested state for a given command packet."""
-        if not isinstance(packet, TrackedCommandPacket):
-            message = f"Unsupported tracked command packet: {type(packet).__name__}"
-            raise TypeError(message)
-
-        # CONTROL packets have additional metadata
-        if isinstance(packet, ControlPacket):
-            return packet.packet_type, packet.header.sequence, packet.control_id, packet.control_state
-        return packet.packet_type, packet.header.sequence, None, None
+        match packet:
+            case SimplePacket(packet_type=packet_type, header=PacketHeader(sequence=sequence)):
+                return packet_type, sequence, None, None
+            case ControlPacket(header=PacketHeader(sequence=sequence), control_id=control_id, control_state=control_state):
+                return PacketType.CONTROL, sequence, control_id, control_state
+            case StreamStartPacket(header=PacketHeader(sequence=sequence)):
+                return PacketType.STREAM_START, sequence, None, None
+            case _:
+                message = f"Unsupported tracked command packet: {type(packet).__name__}"
+                raise TypeError(message)
 
     def _handle_missed_heartbeat(self, session: ESPDeviceSession, command: CommandRecord) -> bool:
         """Handle a missed HEARTBEAT ACK for a device session, recording the miss and potentially removing the session if it exceeds the miss limit. Returns True if the session was removed, False otherwise."""

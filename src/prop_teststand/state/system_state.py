@@ -263,7 +263,7 @@ class SystemState:
         return {
             "id": sensor.id,
             "name": sensor.name,
-            "type": sensor.type,
+            "group": sensor.group,
             "unit": sensor.unit,
         }
 

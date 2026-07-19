@@ -128,7 +128,7 @@ def test_parse_config_valid_full() -> None:
 
 TEST_CONFIG_SENSORS_ONLY = {
     "device_name": "TEST-DEVICE-2",
-    "sensors": {
+    "sensor_info": {
         "thermocouple": {
             "TC1": {
                 "sensor_index": "TC1",
@@ -170,7 +170,7 @@ def test_parse_config_sensors_only() -> None:
 def test_parse_config_known_sensor_types_only_require_common_fields() -> None:
     config = {
         "device_name": "TEST-DEVICE-MINIMAL",
-        "sensors": {
+        "sensor_info": {
             "thermocouple": {"TC1": {"unit": "C"}},
             "pressure_transducer": {"PT1": {"unit": "PSI"}},
             "load_cell": {"LC1": {"unit": "N"}},
@@ -225,7 +225,7 @@ def test_parse_config_controls_only() -> None:
 
 TETS_CONFIG_DUPLICATE_SENSOR_NAMES = {
     "device_name": "TEST-DEVICE-4",
-    "sensors": {
+    "sensor_info": {
         "thermocouple": {
             "SENSOR1": {"sensor_index": "TC101", "type": "K", "unit": "C"},
         },
@@ -260,7 +260,7 @@ def test_parse_config_duplicate_sensor_names() -> None:
 
 TEST_CONFIG_UNKNOWN_SENSOR = {
     "device_name": "TEST-DEVICE-5",
-    "sensors": {
+    "sensor_info": {
         "future_sensor": {
             "FS1": {"sensor_index": "FS1", "unit": "unitless"},
         },
@@ -308,7 +308,7 @@ def test_parse_config_missing_sensor_field_raises(missing_field: str) -> None:
 
     config = {
         "device_name": "TEST-DEVICE-7",
-        "sensors": {"thermocouple": {"TC1": sensor_details}},
+        "sensor_info": {"thermocouple": {"TC1": sensor_details}},
     }
 
     with pytest.raises(

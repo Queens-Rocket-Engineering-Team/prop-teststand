@@ -200,8 +200,8 @@ def _client_payload_to_python(payload: Any) -> ClientReceivedPacket:
     ):
         return SimplePacket(
             header=PacketHeader(
-                sequence=payload_data.header_only.sequence,
-                timestamp_us=payload_data.header_only.timestamp_us,
+                sequence=payload_data.header_only.header.sequence,
+                timestamp_us=payload_data.header_only.header.timestamp_us,
             ),
             packet_type=PacketType(payload_type),
         )
