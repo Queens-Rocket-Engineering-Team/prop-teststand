@@ -6,7 +6,7 @@ from typing import Any, cast
 import orjson
 
 from prop_teststand.qlcp.config_parser import parse_config
-from prop_teststand.qlcp.enums import ControlState, ErrorCode, PacketType
+from prop_teststand.qlcp.enums import ControlState, ControlType, ErrorCode, PacketType
 from prop_teststand.qlcp.packets import (
     AckPacket,
     ConfigPacket,
@@ -16,6 +16,7 @@ from prop_teststand.qlcp.packets import (
     HeartbeatPacket,
     NackPacket,
     PacketHeader,
+    SimplePacket,
     StatusPacket,
     StatusRequestPacket,
 )
@@ -591,20 +592,22 @@ def test_runtime_command_visibility_policy_for_status_request_and_estop() -> Non
 
         status_request = await runtime.send_tracked_command(
             device,
-            StatusRequestPacket(
+            SimplePacket(
                 header=PacketHeader(
                     sequence=30,
                     timestamp_us=0,
                 ),
+                packet_type=PacketType.STATUS_REQUEST,
             ),
         )
         estop = await runtime.send_tracked_command(
             device,
-            EstopPacket(
+            SimplePacket(
                 header=PacketHeader(
                     sequence=31,
                     timestamp_us=0,
                 ),
+                packet_type=PacketType.ESTOP,
             ),
         )
 

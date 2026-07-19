@@ -372,7 +372,7 @@ def test_custom_config_sensor_ids_match_readings() -> None:
 
     custom_config: dict[str, Any] = {
         "device_name": "CustomDevice",
-        "sensors": {
+        "sensor_info": {
             "load_cell": {
                 "LC101": {
                     "sensor_index": "LC1",

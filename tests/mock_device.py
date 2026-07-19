@@ -514,7 +514,7 @@ class MockSensorDevice:
         buffer = b""
 
         # Initial timesync request
-        timesync_req = TimesyncRequestPacket.create()
+        timesync_req = SimplePacket.create(PacketType.TIMESYNC_REQ)
         await loop.sock_sendall(sock, timesync_req.encode())
 
         logger.info("Listening for commands…")
