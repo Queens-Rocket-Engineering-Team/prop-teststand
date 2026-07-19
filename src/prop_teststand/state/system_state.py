@@ -101,7 +101,7 @@ class SystemState:
         self,
         device: ESPDeviceSession,
         control_id: int,
-        state: ControlState | int | float | None,
+        state: ControlState | int | float,
         *,
         status: ControlConfirmStatus = ControlConfirmStatus.CONFIRMED,
         now: float | None = None,
@@ -263,7 +263,7 @@ class SystemState:
         return {
             "id": sensor.id,
             "name": sensor.name,
-            "group": sensor.group,
+            "type": sensor.type,
             "unit": sensor.unit,
         }
 
@@ -280,9 +280,7 @@ class SystemState:
         return {
             "id": control.id,
             "name": control.name,
-            "group": control.group,
             "type": control.type.name,
-            "unit": control.unit,
             "default_state": self._control_state_name(control.default),
             "reported_state": reported_state.state if reported_state is not None else None,
             "reported_status": reported_status,
