@@ -35,7 +35,7 @@ COMMAND_POLICIES: dict[PacketType, CommandPolicy] = {
     PacketType.GET_SINGLE: CommandPolicy(ack_expected=False, operator_visible=True),
     PacketType.STATUS_REQUEST: CommandPolicy(ack_expected=False, operator_visible=False),
     PacketType.HEARTBEAT: CommandPolicy(ack_expected=True, operator_visible=False),
-    PacketType.TIMESYNC: CommandPolicy(ack_expected=True, operator_visible=False),
+    PacketType.TIMESYNC_RESP: CommandPolicy(ack_expected=True, operator_visible=False),
 }
 
 def command_policy(packet_type: PacketType) -> CommandPolicy:

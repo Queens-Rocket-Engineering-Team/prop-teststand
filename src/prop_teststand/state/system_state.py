@@ -96,7 +96,7 @@ class SystemState:
         self,
         device: ESPDeviceSession,
         control_id: int,
-        state: ControlState | str,
+        state: ControlState | int | float,
         *,
         now: float | None = None,
     ) -> StateEvent | None:
@@ -229,7 +229,6 @@ class SystemState:
 
         return {
             "name": config.name,
-            "device_type": config.device_type,
             "connected": device_state.connected,
             "address": device_state.address,
             "sensors": [self._snapshot_sensor(sensor) for sensor in sorted(config.sensors_by_id.values(), key=lambda sensor: sensor.id)],
@@ -246,7 +245,7 @@ class SystemState:
             "id": sensor.id,
             "name": sensor.name,
             "type": sensor.type,
-            "unit": sensor.unit.name,
+            "unit": sensor.unit,
         }
 
     def _snapshot_control(
@@ -260,8 +259,8 @@ class SystemState:
         return {
             "id": control.id,
             "name": control.name,
-            "type": control.control_type,
-            "default_state": control.default.name,
+            "type": control.type.name,
+            "default_state": self._control_state_name(control.default),
             "reported_state": reported_state.state if reported_state is not None else None,
             "reported_timestamp": reported_state.timestamp if reported_state is not None else None,
             "accepted_state": accepted_state.state if accepted_state is not None else None,
@@ -334,10 +333,14 @@ class SystemState:
         }
 
     @staticmethod
-    def _control_state_name(state: ControlState | str) -> str:
-        if isinstance(state, ControlState):
-            return state.name
-        return state.upper()
+    def _control_state_name(state: ControlState | int | float | str) -> str:
+        match state:
+            case ControlState() as control_state:
+                return control_state.name
+            case int() | float():
+                return str(state).upper()
+            case _:
+                return state.upper()
 
     def _command_event(self, event_type: str, command: CommandRecord) -> StateEvent | None:
         if command.packet_type == PacketType.HEARTBEAT:
