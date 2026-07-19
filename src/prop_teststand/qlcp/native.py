@@ -52,9 +52,10 @@ def get_packet_len(data: bytes) -> int:
 def next_sequence() -> int:
     global _sequence_counter  # noqa: PLW0603 - Intentional module-level protocol sequence counter.
     seq = _sequence_counter
-    _sequence_counter = (_sequence_counter + 1) & 0xFF
+    _sequence_counter = (_sequence_counter + 1) & 0xFF # 8-bit wraparound
     return seq
 
+NANOSECONDS_PER_MICROSECOND = 1000
 
-def get_timestamp_ms() -> int:
-    return (int(time.monotonic() * 1000)) & 0xFFFFFFFF
+def get_timestamp_us() -> int:
+    return (time.monotonic_ns() // NANOSECONDS_PER_MICROSECOND) & 0xFFFFFFFFFFFFFFFF # 64-bit wraparound
