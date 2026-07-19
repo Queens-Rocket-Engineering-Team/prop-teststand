@@ -395,7 +395,7 @@ class MockSensorDevice:
 
     async def start_ssdp_listener(self) -> None:
         """Listen for SSDP M-SEARCH broadcasts and initiate connection on discovery."""
-        logger.info("Starting SSDP listener on 239.255.255.250:1900")
+        logger.info("Starting QLCP discovery listener on 239.100.0.1:10000")
 
         if self.ssdp_sock:
             with contextlib.suppress(Exception):
@@ -406,21 +406,21 @@ class MockSensorDevice:
         self.ssdp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         with contextlib.suppress(AttributeError):
             self.ssdp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        self.ssdp_sock.bind(("", 1900))
+        self.ssdp_sock.bind(("", 10000))
 
-        membership = struct.pack("4sL", socket.inet_aton("239.255.255.250"), socket.INADDR_ANY)
+        membership = struct.pack("4sL", socket.inet_aton("239.100.0.1"), socket.INADDR_ANY)
         self.ssdp_sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membership)
         self.ssdp_sock.setblocking(False)
 
         loop = asyncio.get_event_loop()
-        logger.info("Waiting for SSDP discovery broadcast…")
+        logger.info("Waiting for QLCP discovery broadcast…")
 
         while True:
             try:
                 data, addr = await loop.sock_recvfrom(self.ssdp_sock, 1024)
-                message = data.decode("utf-8", errors="ignore")
+                packet = decode_packet_client(data)
 
-                if "M-SEARCH" in message and "urn:qretprop:espdevice:1" in message:
+                if isinstance(packet, SimplePacket) and packet.packet_type == PacketType.DISCOVERY:
                     logger.info(f"Received discovery from {addr[0]}")
                     if self.server_ip is None:
                         self.server_ip = addr[0]
