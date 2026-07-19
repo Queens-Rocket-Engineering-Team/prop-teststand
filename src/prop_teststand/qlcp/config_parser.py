@@ -18,7 +18,7 @@ def parse_config(config: dict[str, Any]) -> DeviceConfig:
     current_sensor_id = 0
     sensors_by_id: dict[int, SensorConfig] = {}
 
-    for sensor_group, sensors in config.get("sensor_info", {}).items():
+    for sensor_group, sensors in config.get("sensors", {}).items():
         for sensor_name, details in sensors.items():
             sensors_by_id[current_sensor_id] = parse_sensor_config(
                 sensor_id=current_sensor_id,
