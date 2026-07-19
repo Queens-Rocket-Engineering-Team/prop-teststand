@@ -3,7 +3,7 @@ from typing import Any, cast
 
 from prop_teststand.qlcp._bindings import ffi as _ffi
 from prop_teststand.qlcp._bindings import lib as _lib
-from prop_teststand.qlcp.enums import ControlConfirmStatus, ControlState, ControlType, ErrorCode, PacketType
+from prop_teststand.qlcp.enums import ControlState, ControlType, ErrorCode, PacketType
 from prop_teststand.qlcp.native import HEADER_SIZE, MAX_CONFIG, MAX_CONTROLS, MAX_SENSORS, QLCPError, check_qlcp_error
 from prop_teststand.qlcp.packets import (
     AckPacket,
@@ -21,8 +21,6 @@ from prop_teststand.qlcp.packets import (
     StatusPacket,
     StatusRequestPacket,
     StreamStartPacket,
-    StreamStopPacket,
-    TimesyncRequestPacket,
     TimesyncResponsePacket,
 )
 
@@ -45,38 +43,8 @@ _buffers = _ffi.new(
 )
 _payload = _ffi.new("qlcp_server_payload *")
 
-# Header-only packets the server may receive over TCP (Device -> Server): only TIMESYNC_REQ.
-ServerReceivedPacket = (
-    TimesyncRequestPacket | StatusPacket | DataPacket | ConfigPacket | AckPacket | NackPacket
-)
-
-# Header-only packets a client/device may receive (Server -> Device).
-ClientHeaderOnlyPacket = (
-    EstopPacket
-    | DiscoveryPacket
-    | HeartbeatPacket
-    | StatusRequestPacket
-    | StreamStopPacket
-    | GetSinglePacket
-)
-ClientReceivedPacket = (
-    ClientHeaderOnlyPacket
-    | TimesyncResponsePacket
-    | ControlPacket
-    | StreamStartPacket
-    | AckPacket
-    | NackPacket
-)
-
-# Maps a decoded header-only packet type to its concrete class (Server -> Device direction).
-_CLIENT_HEADER_ONLY: dict[int, type[ClientHeaderOnlyPacket]] = {
-    _lib.QLCP_PT_ESTOP: EstopPacket,
-    _lib.QLCP_PT_DISCOVERY: DiscoveryPacket,
-    _lib.QLCP_PT_HEARTBEAT: HeartbeatPacket,
-    _lib.QLCP_PT_STATUS_REQUEST: StatusRequestPacket,
-    _lib.QLCP_PT_STREAM_STOP: StreamStopPacket,
-    _lib.QLCP_PT_GET_SINGLE: GetSinglePacket,
-}
+ServerReceivedPacket = SimplePacket | StatusPacket | DataPacket | ConfigPacket | AckPacket | NackPacket
+ClientReceivedPacket = SimplePacket | TimesyncResponsePacket| ControlPacket | StreamStartPacket | AckPacket | NackPacket
 
 
 def decode_packet_server(data: bytes) -> ServerReceivedPacket:
@@ -118,21 +86,13 @@ def _server_payload_to_python(payload: Any) -> ServerReceivedPacket:
         control_states = []
         for i in range(payload_data.status.control_count):
             control_type = ControlType(payload_data.status.control_data[i].type)
-            control_status = ControlConfirmStatus(payload_data.status.control_data[i].status)
-
-            # Per spec, state bytes are undefined when status is ERROR; don't interpret them.
-            control_state = (
-                None
-                if control_status == ControlConfirmStatus.ERROR
-                else parse_control_state(control_type, payload_data.status.control_data[i].state)
-            )
+            control_state = parse_control_state(control_type, payload_data.status.control_data[i].state)
 
             control_states.append(
                 ControlStatus(
                     id=payload_data.status.control_data[i].id,
                     type=control_type,
                     state=control_state,
-                    status=control_status,
                 ),
             )
 
@@ -229,24 +189,21 @@ def _client_payload_to_python(payload: Any) -> ClientReceivedPacket:
     payload_type = payload.packet_type
     payload_data = payload.payload_data
 
-    header_only_cls = _CLIENT_HEADER_ONLY.get(payload_type)
-    if header_only_cls is not None:
-        return header_only_cls(
+    if payload_type in (
+        _lib.QLCP_PT_ESTOP,
+        _lib.QLCP_PT_DISCOVERY,
+        _lib.QLCP_PT_TIMESYNC_RESP,
+        _lib.QLCP_PT_STREAM_STOP,
+        _lib.QLCP_PT_GET_SINGLE,
+        _lib.QLCP_PT_HEARTBEAT,
+        _lib.QLCP_PT_STATUS_REQUEST,
+    ):
+        return SimplePacket(
             header=PacketHeader(
-                sequence=payload_data.header_only.header.sequence,
-                timestamp_us=payload_data.header_only.header.timestamp_us,
+                sequence=payload_data.header_only.sequence,
+                timestamp_us=payload_data.header_only.timestamp_us,
             ),
-        )
-    if payload_type == _lib.QLCP_PT_TIMESYNC_RESP:
-        return TimesyncResponsePacket(
-            header=PacketHeader(
-                sequence=payload_data.timesync_resp.header.sequence,
-                timestamp_us=payload_data.timesync_resp.header.timestamp_us,
-            ),
-            ack_packet_type=PacketType(payload_data.timesync_resp.ack_packet_type),
-            ack_sequence=payload_data.timesync_resp.ack_sequence,
-            t1_echo_us=payload_data.timesync_resp.t1_echo_us,
-            t2_us=payload_data.timesync_resp.t2_us,
+            packet_type=PacketType(payload_type),
         )
     if payload_type == _lib.QLCP_PT_CONTROL:
         control_type = ControlType(payload_data.control.control_data.type)
