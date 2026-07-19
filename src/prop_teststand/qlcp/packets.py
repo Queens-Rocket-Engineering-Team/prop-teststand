@@ -117,15 +117,7 @@ class StatusPacket:
                 raise QLCPError(message)
             control_arr[i].id = ctrl.id
             control_arr[i].type = ctrl.type
-            match ctrl.type:
-                case ControlType.BOOL:
-                    control_arr[i].state.control_bool = ctrl.state
-                case ControlType.UINT32:
-                    control_arr[i].state.control_uint32 = ctrl.state
-                case ControlType.INT32:
-                    control_arr[i].state.control_int32 = ctrl.state
-                case ControlType.FLOAT32:
-                    control_arr[i].state.control_float32 = ctrl.state
+            _assign_control_state(control_arr[i], ctrl.type, ctrl.state)
 
         pkt = _ffi.new(
             "qlcp_status_packet *",
@@ -210,31 +202,7 @@ class ControlPacket:
         )
 
         # Validate control state type and assign union field
-        match self.control_type:
-            case ControlType.BOOL:
-                if not isinstance(self.control_state, ControlState):
-                    msg = f"control_state must be ControlState for BOOL control, got {type(self.control_state)}"
-                    raise QLCPError(msg)
-
-                control_data.state.control_bool = self.control_state
-            case ControlType.UINT32:
-                if not isinstance(self.control_state, int):
-                    msg = f"control_state must be int for UINT32 control, got {type(self.control_state)}"
-                    raise QLCPError(msg)
-
-                control_data.state.control_uint32 = self.control_state
-            case ControlType.INT32:
-                if not isinstance(self.control_state, int):
-                    msg = f"control_state must be int for INT32 control, got {type(self.control_state)}"
-                    raise QLCPError(msg)
-
-                control_data.state.control_int32 = self.control_state
-            case ControlType.FLOAT32:
-                if not isinstance(self.control_state, float):
-                    msg = f"control_state must be float for FLOAT32 control, got {type(self.control_state)}"
-                    raise QLCPError(msg)
-
-                control_data.state.control_float32 = self.control_state
+        _assign_control_state(control_data, self.control_type, self.control_state)
 
         pkt = _ffi.new(
             "qlcp_control_packet *",
@@ -460,3 +428,30 @@ class ConfigPacket:
         )
         check_qlcp_error(_lib.qlcp_encode_config(buf, buf_len, pkt), "encode_config")
         return bytes(_ffi.buffer(buf, buf_len[0]))
+
+def _assign_control_state(
+    control_data,  # cffi qlcp_control_data*
+    control_type: ControlType,
+    state: ControlState | int | float,
+) -> None:
+    match control_type:
+        case ControlType.BOOL:
+            if not isinstance(state, ControlState):
+                msg = f"control_state must be ControlState for BOOL control, got {type(state)}"
+                raise QLCPError(msg)
+            control_data.state.control_bool = state
+        case ControlType.UINT32:
+            if not isinstance(state, int):
+                msg = f"control_state must be int for UINT32 control, got {type(state)}"
+                raise QLCPError(msg)
+            control_data.state.control_uint32 = state
+        case ControlType.INT32:
+            if not isinstance(state, int):
+                msg = f"control_state must be int for INT32 control, got {type(state)}"
+                raise QLCPError(msg)
+            control_data.state.control_int32 = state
+        case ControlType.FLOAT32:
+            if not isinstance(state, float):
+                msg = f"control_state must be float for FLOAT32 control, got {type(state)}"
+                raise QLCPError(msg)
+            control_data.state.control_float32 = state
