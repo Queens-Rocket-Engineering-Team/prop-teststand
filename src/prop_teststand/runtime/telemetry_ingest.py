@@ -137,7 +137,7 @@ class TelemetryRuntime:
     ) -> tuple[float, Literal["device_synced", "server_receive"], bool]:
         if session.last_sync_time is None:
             return time.monotonic(), "server_receive", False
-        return packet.header.timestamp_us / MICROSECONDS_PER_SECOND, "device_synced", True
+        return packet.header.timestamp_us / 1000.0, "device_synced", True
 
     async def run_udp_listener(
         self,

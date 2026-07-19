@@ -6,7 +6,7 @@ from typing import Any, cast
 import orjson
 
 from prop_teststand.qlcp.config_parser import parse_config
-from prop_teststand.qlcp.enums import ControlConfirmStatus, ControlState, ControlType, ErrorCode, PacketType
+from prop_teststand.qlcp.enums import ControlState, ErrorCode, PacketType
 from prop_teststand.qlcp.packets import (
     AckPacket,
     ConfigPacket,
@@ -44,7 +44,7 @@ class FakeDriver:
 def _make_config(name: str = "TEST-DEVICE") -> dict[str, Any]:
     return {
         "device_name": name,
-        "sensors": {
+        "sensor_info": {
             "thermocouple": {
                 "TC1": {
                     "sensor_index": "TC1",
@@ -59,18 +59,6 @@ def _make_config(name: str = "TEST-DEVICE") -> dict[str, Any]:
                     "control_index": "VALVE1",
                     "type": "BOOL",
                     "default_state": "CLOSED",
-                },
-            },
-            "heater": {
-                "HEATER1": {
-                    "control_index": "HEATER1",
-                    "type": "UINT32",
-                    "default_state": "0",
-                },
-                "HEATER2": {
-                    "control_index": "HEATER2",
-                    "type": "FLOAT32",
-                    "default_state": "0.0",
                 },
             },
         },
