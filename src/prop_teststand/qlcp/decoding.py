@@ -148,6 +148,14 @@ def _server_payload_to_python(payload: Any) -> ServerReceivedPacket:
             nack_sequence=payload_data.nack.nack_sequence,
             error_code=ErrorCode(payload_data.nack.nack_error_code),
         )
+    if payload_type == _lib.QLCP_PT_TIMESYNC_REQ:
+        return SimplePacket(
+            header=PacketHeader(
+                sequence=payload_data.header_only.header.sequence,
+                timestamp_us=payload_data.header_only.header.timestamp_us,
+            ),
+            packet_type=PacketType(payload_type),
+        )
 
     message = f"unknown packet type: {payload_type}"
     raise QLCPError(message)
@@ -181,7 +189,6 @@ def _client_payload_to_python(payload: Any) -> ClientReceivedPacket:
     if payload_type in (
         _lib.QLCP_PT_ESTOP,
         _lib.QLCP_PT_DISCOVERY,
-        _lib.QLCP_PT_TIMESYNC_RESP,
         _lib.QLCP_PT_STREAM_STOP,
         _lib.QLCP_PT_GET_SINGLE,
         _lib.QLCP_PT_HEARTBEAT,
@@ -193,6 +200,17 @@ def _client_payload_to_python(payload: Any) -> ClientReceivedPacket:
                 timestamp_us=payload_data.header_only.header.timestamp_us,
             ),
             packet_type=PacketType(payload_type),
+        )
+    if payload_type == _lib.QLCP_PT_TIMESYNC_RESP:
+        return TimesyncResponsePacket(
+            header=PacketHeader(
+                sequence=payload_data.timesync_resp.header.sequence,
+                timestamp_us=payload_data.timesync_resp.header.timestamp_us,
+            ),
+            ack_packet_type=PacketType(payload_data.timesync_resp.ack_packet_type),
+            ack_sequence=payload_data.timesync_resp.ack_sequence,
+            t1_echo_us=payload_data.timesync_resp.t1_echo_us,
+            t2_us=payload_data.timesync_resp.t2_us,
         )
     if payload_type == _lib.QLCP_PT_CONTROL:
         control_type = ControlType(payload_data.control.control_data.type)

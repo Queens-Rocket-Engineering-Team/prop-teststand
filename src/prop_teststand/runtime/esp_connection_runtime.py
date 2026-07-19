@@ -566,7 +566,20 @@ class ESPConnectionRuntime:
         return command
 
     def handle_status(self, session: ESPDeviceSession, packet: StatusPacket) -> None:
-        """Handle a STATUS packet from a device session, updating the system state with the reported control states."""
+        """Handle a STATUS packet from a device session.
+
+        Per the protocol, STATUS is the response to CONTROL and STATUS_REQUEST: it
+        acknowledges the correlated command and reports the resulting control states.
+        """
+        command = self.command_tracker.mark_acked(
+            connection_key=session.connection_key,
+            packet_type=packet.ack_packet_type,
+            packet_sequence=packet.ack_sequence,
+            now=time.monotonic(),
+        )
+        if command is not None:
+            self._emit(self.system_state.record_command_acked(command))
+
         for control_state in packet.control_states:
             self._emit(self.system_state.record_reported_control_state(session, control_state.id, control_state.state))
 
@@ -680,6 +693,8 @@ class ESPConnectionRuntime:
                 return PacketType.CONTROL, sequence, control_id, control_state
             case StreamStartPacket(header=PacketHeader(sequence=sequence)):
                 return PacketType.STREAM_START, sequence, None, None
+            case TimesyncResponsePacket(header=PacketHeader(sequence=sequence)):
+                return PacketType.TIMESYNC_RESP, sequence, None, None
             case _:
                 message = f"Unsupported tracked command packet: {type(packet).__name__}"
                 raise TypeError(message)

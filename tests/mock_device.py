@@ -454,6 +454,7 @@ class MockSensorDevice:
             logger.info("TCP connection established")
 
             await self.send_config()
+
             self.command_task = asyncio.create_task(self.handle_commands())
 
         except Exception as e:
@@ -491,6 +492,10 @@ class MockSensorDevice:
 
         loop = asyncio.get_event_loop()
         buffer = b""
+
+        # Initial timesync request
+        timesync_req = SimplePacket.create(PacketType.TIMESYNC_REQ)
+        await loop.sock_sendall(sock, timesync_req.encode())
 
         logger.info("Listening for commands…")
 

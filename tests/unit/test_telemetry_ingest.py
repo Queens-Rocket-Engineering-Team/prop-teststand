@@ -5,7 +5,7 @@ import pytest
 
 from prop_teststand.qlcp.config_parser import parse_config
 from prop_teststand.qlcp.enums import PacketType
-from prop_teststand.qlcp.packets import AckPacket, DataPacket, SensorReading
+from prop_teststand.qlcp.packets import AckPacket, DataPacket, PacketHeader, SensorReading
 from prop_teststand.runtime.esp_connection_runtime import ESPDeviceSession
 from prop_teststand.runtime.metrics import Metrics
 from prop_teststand.runtime.telemetry_ingest import (
@@ -57,11 +57,13 @@ def test_data_packet_from_registered_session_produces_batch() -> None:
     devices: dict[str, ESPDeviceSession] = {session.address: session}
     ingest = TelemetryRuntime(devices.get)
     packet = DataPacket(
-        sequence=1,
-        timestamp=12345,
+        header=PacketHeader(
+            sequence=1,
+            timestamp_us=12345,
+        ),
         readings=[
-            SensorReading(sensor_id=0, unit=Unit.CELSIUS, value=12.345),
-            SensorReading(sensor_id=1, unit=Unit.CELSIUS, value=67.891),
+            SensorReading(sensor_id=0, value=12.345),
+            SensorReading(sensor_id=1, value=67.891),
         ],
     )
 
@@ -82,14 +84,14 @@ def test_data_packet_from_registered_session_produces_batch() -> None:
             sensor_id=0,
             sensor_name="TC1",
             value=batch.readings[0].value,
-            unit_name="CELSIUS",
+            unit_name="C",
             sensor_type="thermocouple",
         ),
         TelemetryReading(
             sensor_id=1,
             sensor_name="TC2",
             value=batch.readings[1].value,
-            unit_name="CELSIUS",
+            unit_name="C",
             sensor_type="thermocouple",
         ),
     )
@@ -101,9 +103,11 @@ def test_unsynced_session_uses_monotonic_timestamp(monkeypatch: pytest.MonkeyPat
     ingest = TelemetryRuntime(devices.get)
     monkeypatch.setattr("prop_teststand.runtime.telemetry_ingest.time.monotonic", lambda: 42.25)
     packet = DataPacket(
-        sequence=1,
-        timestamp=12345,
-        readings=[SensorReading(sensor_id=0, unit=Unit.CELSIUS, value=1.0)],
+        header=PacketHeader(
+            sequence=1,
+            timestamp_us=12345,
+        ),
+        readings=[SensorReading(sensor_id=0, value=1.0)],
     )
 
     batch = ingest.handle_datagram(packet.encode(), session.address)
@@ -149,10 +153,10 @@ def test_data_packets_record_throughput_without_packet_loss_estimate() -> None:
     devices: dict[str, ESPDeviceSession] = {session.address: session}
     metrics = Metrics(time_fn=lambda: 100.0)
     ingest = TelemetryRuntime(devices.get, metrics=metrics)
-    readings = [SensorReading(sensor_id=0, unit=Unit.CELSIUS, value=1.0)]
+    readings = [SensorReading(sensor_id=0, value=1.0)]
 
-    ingest.handle_packet(DataPacket(sequence=254, timestamp=12345, readings=readings), session)
-    ingest.handle_packet(DataPacket(sequence=1, timestamp=12346, readings=readings), session)
+    ingest.handle_packet(DataPacket(header=PacketHeader(sequence=254, timestamp_us=12345), readings=readings), session)
+    ingest.handle_packet(DataPacket(header=PacketHeader(sequence=1, timestamp_us=12346), readings=readings), session)
 
     snapshot = _metrics_snapshot(metrics)
     assert "loss" not in snapshot["telemetry"]
@@ -182,9 +186,11 @@ def test_unknown_sensor_id_is_logged_and_dropped(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr("prop_teststand.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
     ingest = TelemetryRuntime(devices.get)
     packet = DataPacket(
-        sequence=1,
-        timestamp=12345,
-        readings=[SensorReading(sensor_id=99, unit=Unit.CELSIUS, value=1.0)],
+        header=PacketHeader(
+            sequence=1,
+            timestamp_us=12345,
+        ),
+        readings=[SensorReading(sensor_id=99, value=1.0)],
     )
 
     batch = ingest.handle_datagram(packet.encode(), session.address)

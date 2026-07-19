@@ -6,12 +6,13 @@ from typing import Any, cast
 import orjson
 
 from prop_teststand.qlcp.config_parser import parse_config
-from prop_teststand.qlcp.enums import ControlState, ErrorCode, PacketType
+from prop_teststand.qlcp.enums import ControlState, ControlType, ErrorCode, PacketType
 from prop_teststand.qlcp.packets import (
     AckPacket,
     ConfigPacket,
     ControlStatus,
     NackPacket,
+    PacketHeader,
     SimplePacket,
     StatusPacket,
 )
@@ -343,8 +344,10 @@ def test_runtime_ack_routes_through_tracker_and_records_accepted_control_state()
     runtime.handle_ack(
         device,
         AckPacket(
-            sequence=20,
-            timestamp=0,
+            header=PacketHeader(
+                sequence=20,
+                timestamp_us=0,
+            ),
             ack_packet_type=PacketType.CONTROL,
             ack_sequence=12,
         ),
@@ -377,8 +380,10 @@ def test_runtime_nack_routes_through_tracker_without_control_update() -> None:
     runtime.handle_nack(
         device,
         NackPacket(
-            sequence=20,
-            timestamp=0,
+            header=PacketHeader(
+                sequence=12,
+                timestamp_us=0,
+            ),
             nack_packet_type=PacketType.CONTROL,
             nack_sequence=12,
             error_code=ErrorCode.INVALID_PARAM,
@@ -399,10 +404,13 @@ def test_runtime_status_updates_reported_control_state() -> None:
     runtime.handle_status(
         device,
         StatusPacket(
-            sequence=1,
-            timestamp=0,
-            status=DeviceStatus.ACTIVE,
-            control_states=[ControlStatus(id=0, state=ControlState.OPEN)],
+            header=PacketHeader(
+                sequence=1,
+                timestamp_us=0,
+            ),
+            ack_packet_type=PacketType.STATUS_REQUEST,
+            ack_sequence=1,
+            control_states=[ControlStatus(id=0, type=ControlType.BOOL, state=ControlState.OPEN)],
         ),
     )
 
@@ -417,11 +425,23 @@ def test_runtime_command_visibility_policy_for_status_request_and_estop() -> Non
 
         status_request = await runtime.send_tracked_command(
             device,
-            SimplePacket(packet_type=PacketType.STATUS_REQUEST, sequence=30, timestamp=0),
+            SimplePacket(
+                header=PacketHeader(
+                    sequence=30,
+                    timestamp_us=0,
+                ),
+                packet_type=PacketType.STATUS_REQUEST,
+            ),
         )
         estop = await runtime.send_tracked_command(
             device,
-            SimplePacket(packet_type=PacketType.ESTOP, sequence=31, timestamp=0),
+            SimplePacket(
+                header=PacketHeader(
+                    sequence=31,
+                    timestamp_us=0,
+                ),
+                packet_type=PacketType.ESTOP,
+            ),
         )
 
         assert status_request.ack_expected is False
@@ -465,9 +485,12 @@ def test_status_packet_with_no_controls_does_not_error(caplog: Any) -> None:
     state.register_device(device)
 
     empty_status = StatusPacket(
-        sequence=1,
-        timestamp=0,
-        status=DeviceStatus.ACTIVE,
+        header=PacketHeader(
+            sequence=1,
+            timestamp_us=0,
+        ),
+        ack_packet_type=PacketType.STATUS_REQUEST,
+        ack_sequence=1,
         control_states=[],  # sensors-only board
     )
 

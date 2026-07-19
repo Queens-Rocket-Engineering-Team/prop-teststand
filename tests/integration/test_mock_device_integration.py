@@ -15,7 +15,7 @@ import contextlib
 import socket
 from typing import TYPE_CHECKING, Any
 
-from prop_teststand.qlcp.enums import PacketType
+from prop_teststand.qlcp.enums import ControlState, PacketType
 from prop_teststand.runtime.command_tracker import CommandLifecycle, CommandTracker
 from prop_teststand.runtime.esp_connection_runtime import ESPConnectionRuntime, ESPDeviceSession
 from prop_teststand.runtime.telemetry_ingest import TelemetryBatch, TelemetryRuntime
@@ -134,7 +134,7 @@ def _session_for(runtime: ESPConnectionRuntime, device_name: str) -> ESPDeviceSe
 
 
 def test_device_registers_on_connect() -> None:
-    """Mock device connects → CONFIG → device appears in runtime.devices after TIMESYNC."""
+    """Mock device connects → CONFIG → device appears in runtime.devices."""
 
     async def run() -> None:
         async with (
@@ -145,11 +145,7 @@ def test_device_registers_on_connect() -> None:
                 server_udp_port=udp_port,
             ) as dev,
         ):
-            # Await the TIMESYNC round-trip: the server sends TIMESYNC only after
-            # registering the device, so once the mock sets this event, the device
-            # is guaranteed to be in runtime.devices.
             await asyncio.wait_for(dev.timesync_received.wait(), timeout=2.0)
-
             assert dev.device_name in {s.name for s in runtime.devices.values()}, (
                 f"Device {dev.device_name!r} not found in runtime.devices: {list(runtime.devices.snapshot_by_address())}"
             )
@@ -157,8 +153,8 @@ def test_device_registers_on_connect() -> None:
             relays = {name: session.controls[name] for name in ("SAFE24", "IGNPRIME", "IGNRUN")}
 
             assert set(relays) == {"SAFE24", "IGNPRIME", "IGNRUN"}
-            assert all(control.control_type == "relay" for control in relays.values())
-            assert all(control.default.name == "OPEN" for control in relays.values())
+            assert all(control.group == "relay" for control in relays.values())
+            assert all(control.default == ControlState.OPEN for control in relays.values())
 
     asyncio.run(run())
 
@@ -184,14 +180,14 @@ def test_control_command_acked_and_state_updated() -> None:
 
             # Clear the event before sending so we can reliably await it.
             dev.control_handled.clear()
-            await runtime.set_control(session, "AV101", "CLOSE")
+            await runtime.set_control(session, "AV101", "CLOSED")
 
             await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
 
             assert dev.control_states.get("AV101") == "CLOSED"
 
             dev.control_handled.clear()
-            await runtime.set_control(session, "SAFE24", "CLOSE")
+            await runtime.set_control(session, "SAFE24", "CLOSED")
 
             await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
 
@@ -228,7 +224,7 @@ def test_control_command_closed() -> None:
             await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
 
             dev.control_handled.clear()
-            await runtime.set_control(session, "AV101", "CLOSE")
+            await runtime.set_control(session, "AV101", "CLOSED")
             await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
 
             assert dev.control_states.get("AV101") == "CLOSED"
@@ -270,7 +266,7 @@ def test_telemetry_stream_readings_match_config() -> None:
                 sensor = config_sensors.get(reading.sensor_id)
                 assert sensor is not None, f"Unknown sensor_id {reading.sensor_id} in batch"
                 assert reading.sensor_name == sensor.name, f"sensor_id {reading.sensor_id}: name {reading.sensor_name!r} != config {sensor.name!r}"
-                assert reading.unit_name == sensor.unit.name, f"sensor {sensor.name}: unit {reading.unit_name!r} != config {sensor.unit.name!r}"
+                assert reading.unit_name == sensor.unit, f"sensor {sensor.name}: unit {reading.unit_name!r} != config {sensor.unit!r}"
 
             # Stop streaming and confirm the mock acknowledges it.
             dev.stream_stopped.clear()
@@ -331,13 +327,13 @@ def test_estop_stops_streaming_and_resets_state() -> None:
 
             # Close a valve so we can verify ESTOP resets it back to its OPEN default.
             dev.control_handled.clear()
-            await runtime.set_control(session, "AV101", "CLOSE")
+            await runtime.set_control(session, "AV101", "CLOSED")
             await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
             assert dev.control_states.get("AV101") == "CLOSED"
 
             # Close a relay so we can verify ESTOP resets it back to its OPEN default.
             dev.control_handled.clear()
-            await runtime.set_control(session, "SAFE24", "CLOSE")
+            await runtime.set_control(session, "SAFE24", "CLOSED")
             await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
             assert dev.control_states.get("SAFE24") == "CLOSED"
 
@@ -376,7 +372,6 @@ def test_custom_config_sensor_ids_match_readings() -> None:
 
     custom_config: dict[str, Any] = {
         "device_name": "CustomDevice",
-        "device_type": "Load Cell Monitor",
         "sensor_info": {
             "load_cell": {
                 "LC101": {
@@ -389,10 +384,12 @@ def test_custom_config_sensor_ids_match_readings() -> None:
             },
         },
         "controls": {
-            "RELAY1": {
-                "control_index": "RELAY_1",
-                "type": "relay",
-                "default_state": "CLOSED",
+            "relay": {
+                "RELAY1": {
+                    "control_index": "RELAY_1",
+                    "type": "BOOL",
+                    "default_state": "CLOSED",
+                },
             },
         },
     }
@@ -418,7 +415,7 @@ def test_custom_config_sensor_ids_match_readings() -> None:
             assert len(batch.readings) == 1
             reading = batch.readings[0]
             assert reading.sensor_name == "LC101"
-            assert reading.unit_name == "NEWTONS"
+            assert reading.unit_name == "N"
 
     asyncio.run(run())
 

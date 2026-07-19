@@ -27,7 +27,7 @@ def test_esp_driver_sends_encoded_packets() -> None:
 
             assert isinstance(decoded, SimplePacket)
             assert decoded.packet_type == PacketType.HEARTBEAT
-            assert decoded.sequence == packet.sequence
+            assert decoded.header.sequence == packet.header.sequence
         finally:
             driver_socket.close()
             peer_socket.close()
@@ -53,7 +53,7 @@ def test_esp_driver_reads_framed_server_packets() -> None:
 
             assert isinstance(decoded, ConfigPacket)
             assert decoded.config_json == packet.config_json
-            assert decoded.sequence == packet.sequence
+            assert decoded.header.sequence == packet.header.sequence
         finally:
             driver_socket.close()
             peer_socket.close()
