@@ -4,7 +4,8 @@ import contextlib
 import logging
 import socket
 
-from prop_teststand.qlcp.packets import DiscoveryPacket
+from prop_teststand.qlcp.enums import PacketType
+from prop_teststand.qlcp.packets import SimplePacket
 
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ class DiscoveryService:
 
         logger.debug("Sending discovery request.")
 
-        packet = DiscoveryPacket.create().encode()
+        packet = SimplePacket.create(PacketType.DISCOVERY).encode()
         self._socket.sendto(packet, (self.multicast_address, self.multicast_port))
 
     async def run(self) -> None:

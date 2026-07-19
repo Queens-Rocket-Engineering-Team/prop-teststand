@@ -439,7 +439,7 @@ class MockSensorDevice:
                 data, addr = await loop.sock_recvfrom(self.ssdp_sock, 1024)
                 packet = decode_packet_client(data)
 
-                if isinstance(packet, DiscoveryPacket):
+                if isinstance(packet, SimplePacket) and packet.packet_type == PacketType.DISCOVERY:
                     logger.info(f"Received discovery from {addr[0]}")
                     if self.server_ip is None:
                         self.server_ip = addr[0]
