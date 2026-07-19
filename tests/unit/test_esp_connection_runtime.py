@@ -11,10 +11,11 @@ from prop_teststand.qlcp.packets import (
     AckPacket,
     ConfigPacket,
     ControlStatus,
+    EstopPacket,
     NackPacket,
     PacketHeader,
-    SimplePacket,
     StatusPacket,
+    StatusRequestPacket,
 )
 from prop_teststand.runtime.command_tracker import CommandLifecycle, CommandTracker
 from prop_teststand.runtime.esp_connection_runtime import ESPConnectionRuntime, ESPDeviceSession
@@ -425,22 +426,20 @@ def test_runtime_command_visibility_policy_for_status_request_and_estop() -> Non
 
         status_request = await runtime.send_tracked_command(
             device,
-            SimplePacket(
+            StatusRequestPacket(
                 header=PacketHeader(
                     sequence=30,
                     timestamp_us=0,
                 ),
-                packet_type=PacketType.STATUS_REQUEST,
             ),
         )
         estop = await runtime.send_tracked_command(
             device,
-            SimplePacket(
+            EstopPacket(
                 header=PacketHeader(
                     sequence=31,
                     timestamp_us=0,
                 ),
-                packet_type=PacketType.ESTOP,
             ),
         )
 

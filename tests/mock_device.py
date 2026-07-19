@@ -45,12 +45,18 @@ from prop_teststand.qlcp.packets import (
     ControlPacket,
     ControlStatus,
     DataPacket,
+    DiscoveryPacket,
+    EstopPacket,
+    GetSinglePacket,
+    HeartbeatPacket,
     NackPacket,
     PacketHeader,
     SensorReading,
-    SimplePacket,
     StatusPacket,
+    StatusRequestPacket,
     StreamStartPacket,
+    StreamStopPacket,
+    TimesyncRequestPacket,
 )
 
 
@@ -436,7 +442,7 @@ class MockSensorDevice:
                 data, addr = await loop.sock_recvfrom(self.ssdp_sock, 1024)
                 packet = decode_packet_client(data)
 
-                if isinstance(packet, SimplePacket) and packet.packet_type == PacketType.DISCOVERY:
+                if isinstance(packet, DiscoveryPacket):
                     logger.info(f"Received discovery from {addr[0]}")
                     if self.server_ip is None:
                         self.server_ip = addr[0]
@@ -511,7 +517,7 @@ class MockSensorDevice:
         buffer = b""
 
         # Initial timesync request
-        timesync_req = SimplePacket.create(PacketType.TIMESYNC_REQ)
+        timesync_req = TimesyncRequestPacket.create()
         await loop.sock_sendall(sock, timesync_req.encode())
 
         logger.info("Listening for commands…")
@@ -547,7 +553,7 @@ class MockSensorDevice:
                         packet_data = buffer[:packet_len]
                         packet = decode_packet_client(packet_data)
 
-                        logger.debug(f"Decoded {packet.__class__.__name__} [{packet.packet_type.name if isinstance(packet, SimplePacket) else 'n/a'}] ({packet_len} bytes)")
+                        logger.debug(f"Decoded {packet.__class__.__name__} ({packet_len} bytes)")
 
                         if isinstance(packet, TimesyncResponsePacket):
                             t1_us = packet.t1_echo_us
@@ -563,7 +569,7 @@ class MockSensorDevice:
 
                             self.timesync_received.set()
 
-                        elif isinstance(packet, SimplePacket) and packet.packet_type == PacketType.ESTOP:
+                        elif isinstance(packet, EstopPacket):
                             logger.warning("Received ESTOP — stopping stream and resetting state")
                             self.reset_device_state(announce=True)
                             # Device MUST report control states after ESTOP (PROTOCOL_SPECIFICATION 10.3).
@@ -575,16 +581,16 @@ class MockSensorDevice:
                         elif isinstance(packet, StreamStartPacket):
                             await self.handle_stream_start(packet)
 
-                        elif isinstance(packet, SimplePacket) and packet.packet_type == PacketType.STREAM_STOP:
+                        elif isinstance(packet, StreamStopPacket):
                             await self.handle_stream_stop(packet)
 
-                        elif isinstance(packet, SimplePacket) and packet.packet_type == PacketType.GET_SINGLE:
+                        elif isinstance(packet, GetSinglePacket):
                             await self.send_single_reading()
 
-                        elif isinstance(packet, SimplePacket) and packet.packet_type == PacketType.STATUS_REQUEST:
+                        elif isinstance(packet, StatusRequestPacket):
                             await self.send_status(packet.packet_type, packet.header.sequence)
 
-                        elif isinstance(packet, SimplePacket) and packet.packet_type == PacketType.HEARTBEAT:
+                        elif isinstance(packet, HeartbeatPacket):
                             ack = AckPacket.create(PacketType.HEARTBEAT, packet.header.sequence)
                             await loop.sock_sendall(sock, ack.encode())
 
@@ -617,7 +623,7 @@ class MockSensorDevice:
                 if sock is None:
                     break
                 try:
-                    timesync_req = SimplePacket.create(PacketType.TIMESYNC_REQ)
+                    timesync_req = TimesyncRequestPacket.create()
                     await loop.sock_sendall(sock, timesync_req.encode())
                     logger.debug("Sent periodic TIMESYNC_REQ")
                 except Exception as e:
@@ -668,7 +674,7 @@ class MockSensorDevice:
         self.stream_task = asyncio.create_task(self.stream_data())
         self.stream_started.set()
 
-    async def handle_stream_stop(self, packet: SimplePacket) -> None:
+    async def handle_stream_stop(self, packet: StreamStopPacket) -> None:
         if self.sock is None:
             return
 

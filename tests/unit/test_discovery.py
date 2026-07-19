@@ -3,8 +3,9 @@ import asyncio
 
 import pytest
 
-from prop_teststand.qlcp.decoding import SimplePacket, decode_packet_client
+from prop_teststand.qlcp.decoding import decode_packet_client
 from prop_teststand.qlcp.enums import PacketType
+from prop_teststand.qlcp.packets import DiscoveryPacket
 from prop_teststand.runtime.discovery import DiscoveryService
 
 
@@ -57,7 +58,7 @@ def test_discover_lazily_creates_socket_once_and_sends_request(monkeypatch: pyte
     assert address == ("239.100.0.1", 10000)
 
     packet = decode_packet_client(payload)
-    assert isinstance(packet, SimplePacket)
+    assert isinstance(packet, DiscoveryPacket)
     assert packet.packet_type == PacketType.DISCOVERY
 
 def test_run_issues_discovery_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:

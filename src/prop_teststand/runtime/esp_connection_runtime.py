@@ -17,11 +17,17 @@ from prop_teststand.qlcp.packets import (
     ConfigPacket,
     ControlPacket,
     DataPacket,
+    EstopPacket,
+    GetSinglePacket,
+    HeartbeatPacket,
     NackPacket,
     PacketHeader,
     SimplePacket,
     StatusPacket,
+    StatusRequestPacket,
     StreamStartPacket,
+    StreamStopPacket,
+    TimesyncRequestPacket,
     TimesyncResponsePacket,
 )
 from prop_teststand.runtime.device_registry import DeviceRegistry
@@ -37,7 +43,17 @@ if TYPE_CHECKING:
     from prop_teststand.state import SystemState
 
 
-TrackedCommandPacket = SimplePacket | TimesyncResponsePacket | ControlPacket | StreamStartPacket
+# Command packets the server sends to a device and tracks for ACK/NACK.
+TrackedCommandPacket = (
+    EstopPacket
+    | HeartbeatPacket
+    | StatusRequestPacket
+    | StreamStopPacket
+    | GetSinglePacket
+    | TimesyncResponsePacket
+    | ControlPacket
+    | StreamStartPacket
+)
 
 TCP_PORT = 50000
 CONFIG_HANDSHAKE_TIMEOUT_S = 10.0
@@ -281,7 +297,7 @@ class ESPConnectionRuntime:
             await new_session.driver.send_packet(ack)
 
             # Initial STATUS_REQUEST for the device to report its control states
-            status_request = SimplePacket.create(PacketType.STATUS_REQUEST)
+            status_request = StatusRequestPacket.create()
             await self.send_tracked_command(new_session, status_request)
             logger.debug("Sent initial STATUS_REQUEST to %s", new_session.name)
         except Exception:
@@ -379,7 +395,7 @@ class ESPConnectionRuntime:
         self,
         session: ESPDeviceSession,
         *,
-        timesync_request: SimplePacket,
+        timesync_request: TimesyncRequestPacket,
         t2_us: int,
     ) -> CommandRecord:
         """Send a TIMESYNC_RESP packet in response to a TIMESYNC_REQ packet."""
@@ -394,7 +410,7 @@ class ESPConnectionRuntime:
 
     async def send_heartbeat(self, session: ESPDeviceSession) -> bool:
         try:
-            packet = SimplePacket.create(PacketType.HEARTBEAT)
+            packet = HeartbeatPacket.create()
             await self.send_tracked_command(session, packet)
             return True
         except (BrokenPipeError, ConnectionResetError, OSError):
@@ -408,7 +424,7 @@ class ESPConnectionRuntime:
 
     async def get_single(self, session: ESPDeviceSession) -> bool:
         """Request a single data sample from the device. Returns True if the command was sent."""
-        return await self._send_or_remove(session, SimplePacket.create(PacketType.GET_SINGLE), "GET_SINGLE command")
+        return await self._send_or_remove(session, GetSinglePacket.create(), "GET_SINGLE command")
 
     async def start_streaming(self, session: ESPDeviceSession, frequency_hz: int) -> bool:
         """Request the device to start streaming data at the given frequency. Returns True if sent."""
@@ -423,7 +439,7 @@ class ESPConnectionRuntime:
 
     async def stop_streaming(self, session: ESPDeviceSession) -> bool:
         """Request the device to stop streaming data. Returns True if sent."""
-        return await self._send_or_remove(session, SimplePacket.create(PacketType.STREAM_STOP), "STREAM_STOP command")
+        return await self._send_or_remove(session, StreamStopPacket.create(), "STREAM_STOP command")
 
     async def set_control(
         self,
@@ -456,11 +472,11 @@ class ESPConnectionRuntime:
 
     async def get_status(self, session: ESPDeviceSession) -> bool:
         """Request the device to report its current control states. Returns True if sent."""
-        return await self._send_or_remove(session, SimplePacket.create(PacketType.STATUS_REQUEST), "STATUS_REQUEST command")
+        return await self._send_or_remove(session, StatusRequestPacket.create(), "STATUS_REQUEST command")
 
     async def emergency_stop(self, session: ESPDeviceSession) -> bool:
         """Request the device to perform an emergency stop. Returns True if sent."""
-        return await self._send_or_remove(session, SimplePacket.create(PacketType.ESTOP), "EMERGENCY STOP command")
+        return await self._send_or_remove(session, EstopPacket.create(), "EMERGENCY STOP command")
 
     async def _send_or_remove(
         self,
@@ -506,7 +522,7 @@ class ESPConnectionRuntime:
 
         return False
 
-    async def handle_timesync_request(self, session: ESPDeviceSession, packet: SimplePacket) -> None:
+    async def handle_timesync_request(self, session: ESPDeviceSession, packet: TimesyncRequestPacket) -> None:
         """Handle a TIMESYNC_REQ packet from a device session, responding with a TIMESYNC_RESP."""
         # T2: server receipt time, sampled as early as possible (PROTOCOL_SPECIFICATION 7.7.2).
         t2_us = get_timestamp_us()
@@ -658,7 +674,7 @@ class ESPConnectionRuntime:
                     "Unexpected DATA packet received over TCP from %s. This should be sent over UDP. Ignoring.",
                     session.name,
                 )
-            case SimplePacket(packet_type=PacketType.TIMESYNC_REQ):
+            case TimesyncRequestPacket():
                 await self.handle_timesync_request(session, packet)
             case StatusPacket():
                 self.handle_status(session, packet)

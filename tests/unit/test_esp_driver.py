@@ -6,7 +6,7 @@ import pytest
 from prop_teststand.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
 from prop_teststand.qlcp.decoding import decode_packet_client
 from prop_teststand.qlcp.enums import PacketType
-from prop_teststand.qlcp.packets import ConfigPacket, SimplePacket
+from prop_teststand.qlcp.packets import ConfigPacket, HeartbeatPacket
 
 
 def test_esp_driver_sends_encoded_packets() -> None:
@@ -17,7 +17,7 @@ def test_esp_driver_sends_encoded_packets() -> None:
 
         try:
             driver = ESPDriver(driver_socket, "test-device")
-            packet = SimplePacket.create(PacketType.HEARTBEAT)
+            packet = HeartbeatPacket.create()
 
             await driver.send_packet(packet)
 
@@ -25,7 +25,7 @@ def test_esp_driver_sends_encoded_packets() -> None:
             data = await loop.sock_recv(peer_socket, 4096)
             decoded = decode_packet_client(data)
 
-            assert isinstance(decoded, SimplePacket)
+            assert isinstance(decoded, HeartbeatPacket)
             assert decoded.packet_type == PacketType.HEARTBEAT
             assert decoded.header.sequence == packet.header.sequence
         finally:
