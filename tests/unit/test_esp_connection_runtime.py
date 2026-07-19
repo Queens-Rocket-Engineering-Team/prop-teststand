@@ -6,7 +6,7 @@ from typing import Any, cast
 import orjson
 
 from prop_teststand.qlcp.config_parser import parse_config
-from prop_teststand.qlcp.enums import ControlState, DeviceStatus, ErrorCode, PacketType
+from prop_teststand.qlcp.enums import ControlState, ErrorCode, PacketType
 from prop_teststand.qlcp.packets import (
     AckPacket,
     ConfigPacket,
@@ -40,7 +40,6 @@ class FakeDriver:
 def _make_config(name: str = "TEST-DEVICE") -> dict[str, Any]:
     return {
         "device_name": name,
-        "device_type": "Sensor Monitor",
         "sensor_info": {
             "thermocouple": {
                 "TC1": {
@@ -51,10 +50,12 @@ def _make_config(name: str = "TEST-DEVICE") -> dict[str, Any]:
             },
         },
         "controls": {
-            "VALVE1": {
-                "control_index": "VALVE1",
-                "type": "solenoid",
-                "default_state": "CLOSED",
+            "valve": {
+                "VALVE1": {
+                    "control_index": "VALVE1",
+                    "type": "BOOL",
+                    "default_state": "CLOSED",
+                },
             },
         },
     }
@@ -84,7 +85,6 @@ def _make_session(
         address=address,
         connection_key=connection_key,
         name=config.name,
-        type=config.device_type,
         qlcp_config=config,
         controls={control.name.upper(): control for control in config.controls_by_id.values()},
         monitor_task=None,

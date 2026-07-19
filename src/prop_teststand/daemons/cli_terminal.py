@@ -101,7 +101,7 @@ async def handle_server_command(runtime: RuntimeServices, command: str, args: li
         else:
             logger.info(f"Connected devices ({len(devices)}):")
             for registered_device in devices.values():
-                logger.info(f"  {registered_device.name} ({registered_device.type}) - {registered_device.address}")
+                logger.info(f"  {registered_device.name} - {registered_device.address}")
                 logger.info(f"    Sensors: {len(registered_device.sensors)}, Controls: {len(registered_device.controls)}")
     elif cmd == "REMOVE":
         if not args:
@@ -125,7 +125,6 @@ async def handle_server_command(runtime: RuntimeServices, command: str, args: li
             logger.info(f"Device '{args[0]}' not found")
             return
         logger.info(f"Device: {device.name}")
-        logger.info(f"  Type: {device.type}")
         logger.info(f"  Address: {device.address}")
         logger.info(f"  Sensors ({len(device.sensors)}):")
         for idx, name in enumerate(device.sensors.keys()):
@@ -185,7 +184,7 @@ async def handle_device_command(runtime: RuntimeServices, command: str, args: li
             logger.info(f"Stopped streaming from {device.name}")
         elif cmd == "CONTROL":
             if len(args) < 3:
-                logger.info("Usage: control <device> <name> <open|close>")
+                logger.info("Usage: control <device> <name> <OPEN|CLOSED|value>")
                 return
             await runtime.esp_runtime.set_control(device, args[1], args[2])
             logger.info(f"Sent {args[2]} to {args[1]} on {device.name}")
@@ -199,7 +198,7 @@ async def handle_device_command(runtime: RuntimeServices, command: str, args: li
             if len(args) < 2:
                 logger.info("Usage: close <device> <control_name>")
                 return
-            await runtime.esp_runtime.set_control(device, args[1], "CLOSE")
+            await runtime.esp_runtime.set_control(device, args[1], "CLOSED")
             logger.info(f"Closed {args[1]} on {device.name}")
         elif cmd == "STATUS":
             await runtime.esp_runtime.get_status(device)

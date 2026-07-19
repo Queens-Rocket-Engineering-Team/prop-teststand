@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from prop_teststand.qlcp._bindings import ffi as _ffi
 from prop_teststand.qlcp._bindings import lib as _lib
+from prop_teststand.qlcp.enums import ControlState, ControlType
 from prop_teststand.qlcp.native import (
     ENCODE_BUF_SIZE,
     MAX_CONFIG,
@@ -17,7 +18,7 @@ from prop_teststand.qlcp.native import (
 
 
 if TYPE_CHECKING:
-    from prop_teststand.qlcp.enums import ControlState, ControlType, ErrorCode, PacketType
+    from prop_teststand.qlcp.enums import ErrorCode, PacketType
 
 
 class EncodablePacket(Protocol):
@@ -57,18 +58,13 @@ class SimplePacket:
     def encode(self) -> bytes:
         buf, buf_len = _encode_buf()
 
-        header = _ffi.new(
-            "qlcp_header *",
-            {
-                "sequence": self.header.sequence,
-                "timestamp_us": self.header.timestamp_us,
-            },
-        )
-
         pkt = _ffi.new(
             "qlcp_header_only_packet *",
             {
-                "header": header,
+                "header": {
+                    "sequence": self.header.sequence,
+                    "timestamp_us": self.header.timestamp_us,
+                },
                 "packet_type": self.packet_type,
             },
         )
@@ -119,22 +115,25 @@ class StatusPacket:
             if i >= MAX_CONTROLS:
                 message = f"too many controls in status packet: {len(self.control_states)} (max {MAX_CONTROLS})"
                 raise QLCPError(message)
-            control_arr[i].control_id = ctrl.id
-            control_arr[i].control_type = ctrl.type
-            control_arr[i].control_state = ctrl.state
-
-        header = _ffi.new(
-            "qlcp_header *",
-            {
-                "sequence": self.header.sequence,
-                "timestamp_us": self.header.timestamp_us,
-            },
-        )
+            control_arr[i].id = ctrl.id
+            control_arr[i].type = ctrl.type
+            match ctrl.type:
+                case ControlType.BOOL:
+                    control_arr[i].state.control_bool = ctrl.state
+                case ControlType.UINT32:
+                    control_arr[i].state.control_uint32 = ctrl.state
+                case ControlType.INT32:
+                    control_arr[i].state.control_int32 = ctrl.state
+                case ControlType.FLOAT32:
+                    control_arr[i].state.control_float32 = ctrl.state
 
         pkt = _ffi.new(
             "qlcp_status_packet *",
             {
-                "header": header,
+                "header": {
+                    "sequence": self.header.sequence,
+                    "timestamp_us": self.header.timestamp_us,
+                },
                 "ack_packet_type": self.ack_packet_type,
                 "ack_sequence": self.ack_sequence,
                 "control_data": control_arr,
@@ -164,18 +163,13 @@ class StreamStartPacket:
     def encode(self) -> bytes:
         buf, buf_len = _encode_buf()
 
-        header = _ffi.new(
-            "qlcp_header *",
-            {
-                "sequence": self.header.sequence,
-                "timestamp_us": self.header.timestamp_us,
-            },
-        )
-
         pkt = _ffi.new(
             "qlcp_stream_start_packet *",
             {
-                "header": header,
+                "header": {
+                    "sequence": self.header.sequence,
+                    "timestamp_us": self.header.timestamp_us,
+                },
                 "stream_frequency": self.frequency_hz,
             },
         )
@@ -206,14 +200,6 @@ class ControlPacket:
 
     def encode(self) -> bytes:
         buf, buf_len = _encode_buf()
-
-        header = _ffi.new(
-            "qlcp_header *",
-            {
-                "sequence": self.header.sequence,
-                "timestamp_us": self.header.timestamp_us,
-            },
-        )
 
         control_data = _ffi.new(
             "qlcp_control_data *",
@@ -253,8 +239,11 @@ class ControlPacket:
         pkt = _ffi.new(
             "qlcp_control_packet *",
             {
-                "header": header,
-                "control_data": control_data,
+                "header": {
+                    "sequence": self.header.sequence,
+                    "timestamp_us": self.header.timestamp_us,
+                },
+                "control_data": control_data[0],
             },
         )
         check_qlcp_error(_lib.qlcp_encode_control(buf, buf_len, pkt), "encode_control")
@@ -283,18 +272,13 @@ class AckPacket:
     def encode(self) -> bytes:
         buf, buf_len = _encode_buf()
 
-        header = _ffi.new(
-            "qlcp_header *",
-            {
-                "sequence": self.header.sequence,
-                "timestamp_us": self.header.timestamp_us,
-            },
-        )
-
         pkt = _ffi.new(
             "qlcp_ack_packet *",
             {
-                "header": header,
+                "header": {
+                    "sequence": self.header.sequence,
+                    "timestamp_us": self.header.timestamp_us,
+                },
                 "ack_packet_type": self.ack_packet_type,
                 "ack_sequence": self.ack_sequence,
             },
@@ -327,18 +311,13 @@ class NackPacket:
     def encode(self) -> bytes:
         buf, buf_len = _encode_buf()
 
-        header = _ffi.new(
-            "qlcp_header *",
-            {
-                "sequence": self.header.sequence,
-                "timestamp_us": self.header.timestamp_us,
-            },
-        )
-
         pkt = _ffi.new(
             "qlcp_nack_packet *",
             {
-                "header": header,
+                "header": {
+                    "sequence": self.header.sequence,
+                    "timestamp_us": self.header.timestamp_us,
+                },
                 "nack_packet_type": self.nack_packet_type,
                 "nack_sequence": self.nack_sequence,
                 "nack_error_code": self.error_code,
@@ -374,18 +353,13 @@ class TimesyncResponsePacket:
     def encode(self) -> bytes:
         buf, buf_len = _encode_buf()
 
-        header = _ffi.new(
-            "qlcp_header *",
-            {
-                "sequence": self.header.sequence,
-                "timestamp_us": self.header.timestamp_us,
-            },
-        )
-
         pkt = _ffi.new(
             "qlcp_timesync_resp_packet *",
             {
-                "header": header,
+                "header": {
+                    "sequence": self.header.sequence,
+                    "timestamp_us": self.header.timestamp_us,
+                },
                 "ack_packet_type": self.ack_packet_type,
                 "ack_sequence": self.ack_sequence,
                 "t1_echo_us": self.t1_echo_us,
@@ -427,21 +401,16 @@ class DataPacket:
         for i, reading in enumerate(self.readings):
             if i >= MAX_SENSORS:
                 break
-            sensor_arr[i].sensor_id = reading.sensor_id
+            sensor_arr[i].id = reading.sensor_id
             sensor_arr[i].value = reading.value
-
-        header = _ffi.new(
-            "qlcp_header *",
-            {
-                "sequence": self.header.sequence,
-                "timestamp_us": self.header.timestamp_us,
-            },
-        )
 
         pkt = _ffi.new(
             "qlcp_data_packet *",
             {
-                "header": header,
+                "header": {
+                    "sequence": self.header.sequence,
+                    "timestamp_us": self.header.timestamp_us,
+                },
                 "sensor_data": sensor_arr,
                 "sensor_count": min(len(self.readings), MAX_SENSORS),
             },
@@ -478,18 +447,13 @@ class ConfigPacket:
             message = f"config JSON too large: {conf_buf_len} bytes (max {MAX_CONFIG})"
             raise QLCPError(message)
 
-        header = _ffi.new(
-            "qlcp_header *",
-            {
-                "sequence": self.header.sequence,
-                "timestamp_us": self.header.timestamp_us,
-            },
-        )
-
         pkt = _ffi.new(
             "qlcp_config_packet *",
             {
-                "header": header,
+                "header": {
+                    "sequence": self.header.sequence,
+                    "timestamp_us": self.header.timestamp_us,
+                },
                 "config_data": conf_buf,
                 "config_data_len": conf_buf_len,
             },

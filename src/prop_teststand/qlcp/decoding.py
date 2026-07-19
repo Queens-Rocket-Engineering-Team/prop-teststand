@@ -109,7 +109,7 @@ def _server_payload_to_python(payload: Any) -> ServerReceivedPacket:
             ),
             readings=[
                 SensorReading(
-                    sensor_id=payload_data.data.sensor_data[i].sensor_id,
+                    sensor_id=payload_data.data.sensor_data[i].id,
                     value=payload_data.data.sensor_data[i].value,
                 )
                 for i in range(payload_data.data.sensor_count)
@@ -189,8 +189,8 @@ def _client_payload_to_python(payload: Any) -> ClientReceivedPacket:
     ):
         return SimplePacket(
             header=PacketHeader(
-                sequence=payload_data.header_only.sequence,
-                timestamp_us=payload_data.header_only.timestamp_us,
+                sequence=payload_data.header_only.header.sequence,
+                timestamp_us=payload_data.header_only.header.timestamp_us,
             ),
             packet_type=PacketType(payload_type),
         )

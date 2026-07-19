@@ -126,7 +126,7 @@ class SystemState:
         self,
         device: ESPDeviceSession,
         control_id: int,
-        state: ControlState | str,
+        state: ControlState | int | float | str,
         *,
         now: float | None = None,
     ) -> StateEvent | None:
@@ -244,7 +244,7 @@ class SystemState:
         return {
             "id": sensor.id,
             "name": sensor.name,
-            "type": sensor.type,
+            "group": sensor.group,
             "unit": sensor.unit,
         }
 
@@ -311,8 +311,7 @@ class SystemState:
 
         return {"pending": pending, "recent": recent}
 
-    @staticmethod
-    def _snapshot_command(command: CommandRecord) -> dict[str, Any]:
+    def _snapshot_command(self,command: CommandRecord) -> dict[str, Any]:
         return {
             "command_id": command.command_id,
             "connection_key": command.connection_key,
@@ -329,7 +328,7 @@ class SystemState:
             "nack_error_code": command.nack_error_code.name if command.nack_error_code is not None else None,
             "control_id": command.control_id,
             "control_name": command.control_name,
-            "requested_state": command.requested_state.name if command.requested_state is not None else None,
+            "requested_state": self._control_state_name(command.requested_state) if command.requested_state is not None else None,
         }
 
     @staticmethod

@@ -179,8 +179,8 @@ def test_control_command_acked_and_state_updated() -> None:
             session = _session_for(runtime, dev.device_name)
 
             # AV101 starts OPEN (from config default).
-            assert dev.valve_states.get("AV101") == "OPEN"
-            assert dev.valve_states.get("SAFE24") == "OPEN"
+            assert dev.control_states.get("AV101") == "OPEN"
+            assert dev.control_states.get("SAFE24") == "OPEN"
 
             # Clear the event before sending so we can reliably await it.
             dev.control_handled.clear()
@@ -188,14 +188,14 @@ def test_control_command_acked_and_state_updated() -> None:
 
             await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
 
-            assert dev.valve_states.get("AV101") == "CLOSED"
+            assert dev.control_states.get("AV101") == "CLOSED"
 
             dev.control_handled.clear()
             await runtime.set_control(session, "SAFE24", "CLOSE")
 
             await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
 
-            assert dev.valve_states.get("SAFE24") == "CLOSED"
+            assert dev.control_states.get("SAFE24") == "CLOSED"
 
             # Give the ACK a tick to propagate through the server's monitor loop.
             await asyncio.sleep(0.05)
@@ -231,7 +231,7 @@ def test_control_command_closed() -> None:
             await runtime.set_control(session, "AV101", "CLOSE")
             await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
 
-            assert dev.valve_states.get("AV101") == "CLOSED"
+            assert dev.control_states.get("AV101") == "CLOSED"
 
     asyncio.run(run())
 
@@ -333,13 +333,13 @@ def test_estop_stops_streaming_and_resets_state() -> None:
             dev.control_handled.clear()
             await runtime.set_control(session, "AV101", "CLOSE")
             await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
-            assert dev.valve_states.get("AV101") == "CLOSED"
+            assert dev.control_states.get("AV101") == "CLOSED"
 
             # Close a relay so we can verify ESTOP resets it back to its OPEN default.
             dev.control_handled.clear()
             await runtime.set_control(session, "SAFE24", "CLOSE")
             await asyncio.wait_for(dev.control_handled.wait(), timeout=2.0)
-            assert dev.valve_states.get("SAFE24") == "CLOSED"
+            assert dev.control_states.get("SAFE24") == "CLOSED"
 
             # Start streaming.
             dev.stream_started.clear()
@@ -356,17 +356,17 @@ def test_estop_stops_streaming_and_resets_state() -> None:
 
             # Valve state should be reset to default (OPEN).
             reset_ok = await _wait_for(
-                lambda: dev.valve_states.get("AV101") == "OPEN",
+                lambda: dev.control_states.get("AV101") == "OPEN",
                 timeout_s=2.0,
             )
-            assert reset_ok, f"Valve AV101 did not reset to OPEN; got {dev.valve_states.get('AV101')!r}"
+            assert reset_ok, f"Valve AV101 did not reset to OPEN; got {dev.control_states.get('AV101')!r}"
 
             # Relay state should be reset to default (OPEN).
             relay_reset_ok = await _wait_for(
-                lambda: dev.valve_states.get("SAFE24") == "OPEN",
+                lambda: dev.control_states.get("SAFE24") == "OPEN",
                 timeout_s=2.0,
             )
-            assert relay_reset_ok, f"Relay SAFE24 did not reset to OPEN; got {dev.valve_states.get('SAFE24')!r}"
+            assert relay_reset_ok, f"Relay SAFE24 did not reset to OPEN; got {dev.control_states.get('SAFE24')!r}"
 
     asyncio.run(run())
 

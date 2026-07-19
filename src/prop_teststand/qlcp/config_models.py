@@ -10,7 +10,6 @@ class SensorConfig:
     group: str
     unit: str
 
-
 @dataclass(slots=True, frozen=True, kw_only=True)
 class ControlConfig:
     id: int

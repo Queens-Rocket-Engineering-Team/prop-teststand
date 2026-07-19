@@ -18,6 +18,9 @@ if not hasattr(_lib, "QLCP_HEADER_SIZE"):
     )
 HEADER_SIZE = int(_lib.QLCP_HEADER_SIZE)
 
+# The QLCP magic number ("QLCP") is a fixed 4-byte prefix on every header.
+MAGIC_NUM_SIZE = 4
+
 _sequence_counter = 0
 
 
@@ -47,6 +50,17 @@ def get_packet_len(data: bytes) -> int:
     data_len = _ffi.new("uint16_t *")
     check_qlcp_error(_lib.qlcp_get_packet_len(data_len, buf, len(data)), "get_packet_len")
     return int(data_len[0])
+
+
+def find_magic_num(data: bytes) -> int | None:
+    """Return the index of the QLCP magic number in data, or None if not present."""
+    buf = _ffi.from_buffer(data)
+    index = _ffi.new("size_t *")
+    ret = _lib.qlcp_find_magic_num(index, buf, len(data))
+    if ret == _lib.QLCP_NO_MAGIC_NUM:
+        return None
+    check_qlcp_error(ret, "find_magic_num")
+    return int(index[0])
 
 
 def next_sequence() -> int:

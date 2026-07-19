@@ -108,8 +108,8 @@ class TelemetryRuntime:
                     sensor_id=reading.sensor_id,
                     sensor_name=sensor.name,
                     value=reading.value,
-                    unit_name=reading.unit.name,
-                    sensor_type=sensor.type,
+                    unit_name=sensor.unit,
+                    sensor_type=sensor.group,
                 ),
             )
 
@@ -136,7 +136,7 @@ class TelemetryRuntime:
         # TIMESYNC seeds the device clock from get_timestamp_ms(), so both share one axis; wraps at ~49.7 days.
         if session.last_sync_time is None:
             return time.monotonic(), "server_receive", False
-        return packet.timestamp / 1000.0, "device_synced", True
+        return packet.header.timestamp_us / 1000.0, "device_synced", True
 
     async def run_udp_listener(
         self,

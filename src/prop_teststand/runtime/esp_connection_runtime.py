@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 import orjson
 
 from prop_teststand.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
-from prop_teststand.qlcp.config_parser import cast_control_state, parse_config
+from prop_teststand.qlcp.config_parser import QLCPConfigError, cast_control_state, parse_config
 from prop_teststand.qlcp.enums import ControlState, PacketType
 from prop_teststand.qlcp.native import get_timestamp_us
 from prop_teststand.qlcp.packets import (
@@ -18,6 +18,7 @@ from prop_teststand.qlcp.packets import (
     ControlPacket,
     DataPacket,
     NackPacket,
+    PacketHeader,
     SimplePacket,
     StatusPacket,
     StreamStartPacket,
@@ -424,25 +425,27 @@ class ESPConnectionRuntime:
         control_name: str,
         control_state: str,
     ) -> bool:
-        """Request the device to set a control to a given state (OPEN or CLOSE). Returns True if sent."""
+        """Request the device to set a control to a given state. Returns True if sent.
+
+        BOOL controls take OPEN or CLOSED; numeric controls take a number.
+        """
         control_name = normalize_control_name(control_name)
-        control_state = control_state.upper()
 
         if control_name not in session.controls:
             logger.error("Invalid control name '%s'. Valid: %s", control_name, list(session.controls.keys()))
             return False
-        if control_state not in ["OPEN", "CLOSE"]:
-            logger.error("Invalid state '%s'. Valid: OPEN, CLOSE", control_state)
-            return False
 
-        control_id = session.controls[control_name].id
-        control_type = session.controls[control_name].type
-        state = cast_control_state(control_type, control_state)
+        control = session.controls[control_name]
+        try:
+            state = cast_control_state(control.type, control_state)
+        except QLCPConfigError:
+            logger.error("Invalid state '%s' for %s control '%s'", control_state, control.type.name, control_name)
+            return False
 
         return await self._send_or_remove(
             session,
-            ControlPacket.create(control_id, control_type, control_state=state),
-            f"CONTROL command (id={control_id}, {control_name} {control_state})",
+            ControlPacket.create(control.id, control.type, control_state=state),
+            f"CONTROL command (id={control.id}, {control_name} {control_state})",
         )
 
     async def get_status(self, session: ESPDeviceSession) -> bool:
@@ -668,14 +671,14 @@ class ESPConnectionRuntime:
     @staticmethod
     def _command_packet_metadata(
         packet: TrackedCommandPacket,
-    ) -> tuple[PacketType, int, int | None, ControlState | None]:
+    ) -> tuple[PacketType, int, int | None, ControlState | int | float | None]:
         """Return the packet type, sequence number, control ID, and requested state for a given command packet."""
         match packet:
-            case SimplePacket(packet_type=packet_type, sequence=sequence):
+            case SimplePacket(packet_type=packet_type, header=PacketHeader(sequence=sequence)):
                 return packet_type, sequence, None, None
-            case ControlPacket(sequence=sequence, command_id=command_id, command_state=command_state):
-                return PacketType.CONTROL, sequence, command_id, command_state
-            case StreamStartPacket(sequence=sequence):
+            case ControlPacket(header=PacketHeader(sequence=sequence), control_id=control_id, control_state=control_state):
+                return PacketType.CONTROL, sequence, control_id, control_state
+            case StreamStartPacket(header=PacketHeader(sequence=sequence)):
                 return PacketType.STREAM_START, sequence, None, None
             case _:
                 message = f"Unsupported tracked command packet: {type(packet).__name__}"

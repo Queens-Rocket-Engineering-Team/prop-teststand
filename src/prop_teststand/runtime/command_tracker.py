@@ -85,7 +85,7 @@ class CommandRecord:
     nack_error_code: ErrorCode | None = None
     control_id: int | None = None
     control_name: str | None = None
-    requested_state: ControlState | None = None
+    requested_state: ControlState | int | float | None = None
 
     @property
     def key(self) -> CommandKey:
@@ -131,7 +131,7 @@ class CommandTracker:
         now: float | None = None,
         control_id: int | None = None,
         control_name: str | None = None,
-        requested_state: ControlState | None = None,
+        requested_state: ControlState | float | int | None = None,
         ack_expected: bool | None = None,
     ) -> CommandRecord:
         record = CommandRecord(

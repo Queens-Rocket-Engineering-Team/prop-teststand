@@ -31,7 +31,7 @@ def parse_config(config: dict[str, Any]) -> DeviceConfig:
     current_control_id = 0
     controls_by_id: dict[int, ControlConfig] = {}
 
-    for control_group, controls in config.get("control_info", {}).items():
+    for control_group, controls in config.get("controls", {}).items():
         for control_name, details in controls.items():
             controls_by_id[current_control_id] = parse_control_config(
                 control_id=current_control_id,
@@ -122,6 +122,6 @@ def cast_control_state(control_type: ControlType, state_str: str) -> ControlStat
                 return int(state_str)
             case ControlType.FLOAT32:
                 return float(state_str)
-    except KeyError as err:
+    except (KeyError, ValueError) as err:
         message = f"Invalid control state: {state_str}"
         raise QLCPConfigError(message) from err
