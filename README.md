@@ -72,7 +72,7 @@ Pulls pre-built images from `ghcr.io/queens-rocket-engineering-team/`.
 
 ```bash
 uv sync
-uv run python -m prop_teststand
+uv run -m prop_teststand
 ```
 
 `uv sync` installs the environment. The qlcp native library and CFFI protocol
@@ -82,7 +82,15 @@ Run `uv sync` again to force a local protocol rebuild.
 Run the mock device locally for testing with:
 
 ```bash
-uv run python tests/mock_device.py
+uv run -m tests.mock_device
+```
+
+## Testing
+
+The server uses [pytest](https://docs.pytest.org/) for unit testing. Tests are located in the `tests/` directory and can be run with:
+
+```bash
+uv run pytest
 ```
 
 ## Configuration
@@ -113,14 +121,14 @@ ESP32 devices configure themselves — each device sends a JSON CONFIG packet on
 
 | Command | Description |
 |---------|-------------|
-| `uv run python -m prop_teststand` | Start the main server |
-| `uv run python tests/mock_device.py` | Simulate an ESP32 device for testing |
+| `uv run -m prop_teststand` | Start the main server |
+| `uv run -m tests.mock_device` | Simulate an ESP32 device for testing |
 
 Once the server is running, an interactive CLI provides commands like `discover`, `list`, `stream <device> <Hz>`, `control <device> <name> <state>`, and `estop`.
 
 ## Protocol
 
-Devices communicate using a custom binary protocol over TCP (port 50000) and UDP (port 50001). Devices are discovered via SSDP multicast on `239.255.255.250:1900`. On discovery, the device opens a TCP connection to the server and sends its CONFIG. The server then time-syncs the device and normal operation begins (streaming, control commands, heartbeats).
+Devices communicate using the QRET Launch Control Protocol (QLCP) over TCP (port 50000) and UDP (port 50001). Devices are discovered via multicast on `239.100.0.1:10000` using a QLCP discovery packet. On discovery, the device opens a TCP connection to the server and sends its CONFIG. The device then time-syncs to the server and normal operation begins (streaming, control commands, heartbeats).
 
 For more information on protocol specifications, see [ctl-qlcp-lib](https://github.com/Queens-Rocket-Engineering-Team/ctl-qlcp-lib).
 
