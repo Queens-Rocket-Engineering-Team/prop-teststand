@@ -5,7 +5,7 @@ from prop_teststand.qlcp.config_models import (
     DeviceConfig,
     SensorConfig,
 )
-from prop_teststand.qlcp.enums import ControlState, Unit
+from prop_teststand.qlcp.enums import ControlState, ControlType
 
 
 class QLCPConfigError(ValueError):
@@ -19,24 +19,28 @@ def parse_config(config: dict[str, Any]) -> DeviceConfig:
     current_sensor_id = 0
     sensors_by_id: dict[int, SensorConfig] = {}
 
-    for sensor_type, sensors in config.get("sensor_info", {}).items():
+    for sensor_group, sensors in config.get("sensor_info", {}).items():
         for sensor_name, details in sensors.items():
             sensors_by_id[current_sensor_id] = parse_sensor_config(
                 sensor_id=current_sensor_id,
-                sensor_type=sensor_type,
+                sensor_group=sensor_group,
                 sensor_name=sensor_name,
                 details=details,
             )
             current_sensor_id += 1
 
+    current_control_id = 0
     controls_by_id: dict[int, ControlConfig] = {}
 
-    for control_id, (control_name, details) in enumerate(config.get("controls", {}).items()):
-        controls_by_id[control_id] = parse_control_config(
-            control_id=control_id,
-            control_name=control_name,
-            details=details,
-        )
+    for control_group, controls in config.get("control_info", {}).items():
+        for control_name, details in controls.items():
+            controls_by_id[current_control_id] = parse_control_config(
+                control_id=current_control_id,
+                control_name=control_name,
+                control_group=control_group,
+                details=details,
+            )
+            current_control_id += 1
 
     return DeviceConfig(
         name=name,
@@ -48,31 +52,36 @@ def parse_config(config: dict[str, Any]) -> DeviceConfig:
 
 def parse_sensor_config(
     sensor_id: int,
-    sensor_type: str,
+    sensor_group: str,
     sensor_name: str,
     details: dict[str, Any],
 ) -> SensorConfig:
-    context = f"{sensor_type} sensor {sensor_name!r}"
+    context = f"{sensor_group} sensor {sensor_name!r}"
     return SensorConfig(
         id=sensor_id,
         name=sensor_name,
-        type=sensor_type,
-        unit=cast_unit(require_string_field(details, "unit", context)),
+        group=sensor_group,
+        unit=require_string_field(details, "unit", context),
     )
 
 
 def parse_control_config(
     control_id: int,
     control_name: str,
+    control_group: str,
     details: dict[str, Any],
 ) -> ControlConfig:
     context = f"control {control_name!r}"
 
+    control_type = cast_control_type(require_string_field(details, "type", context))
+    default_state = cast_control_state(control_type, require_string_field(details, "default_state", context))
+
     return ControlConfig(
         id=control_id,
         name=control_name,
-        default=cast_control_state(require_string_field(details, "default_state", context)),
-        control_type=require_string_field(details, "type", context),
+        group=control_group,
+        default=default_state,
+        type=control_type,
     )
 
 
@@ -99,63 +108,22 @@ def require_string_field(details: dict[str, Any], field: str, context: str) -> s
 
     return value
 
-
-def cast_unit(unit_str: str) -> Unit:
-    units = {
-        "v": Unit.VOLTS,
-        "volt": Unit.VOLTS,
-        "volts": Unit.VOLTS,
-        "a": Unit.AMPS,
-        "amp": Unit.AMPS,
-        "amps": Unit.AMPS,
-        "c": Unit.CELSIUS,
-        "celsius": Unit.CELSIUS,
-        "f": Unit.FAHRENHEIT,
-        "fahrenheit": Unit.FAHRENHEIT,
-        "k": Unit.KELVIN,
-        "kelvin": Unit.KELVIN,
-        "psi": Unit.PSI,
-        "bar": Unit.BAR,
-        "pa": Unit.PASCAL,
-        "pascal": Unit.PASCAL,
-        "pascals": Unit.PASCAL,
-        "g": Unit.GRAMS,
-        "gram": Unit.GRAMS,
-        "grams": Unit.GRAMS,
-        "kg": Unit.KILOGRAMS,
-        "kilogram": Unit.KILOGRAMS,
-        "kilograms": Unit.KILOGRAMS,
-        "lb": Unit.POUNDS,
-        "lbs": Unit.POUNDS,
-        "pound": Unit.POUNDS,
-        "pounds": Unit.POUNDS,
-        "n": Unit.NEWTONS,
-        "newton": Unit.NEWTONS,
-        "newtons": Unit.NEWTONS,
-        "s": Unit.SECONDS,
-        "sec": Unit.SECONDS,
-        "second": Unit.SECONDS,
-        "seconds": Unit.SECONDS,
-        "ms": Unit.MILLISECONDS,
-        "millisecond": Unit.MILLISECONDS,
-        "milliseconds": Unit.MILLISECONDS,
-        "hz": Unit.HERTZ,
-        "hertz": Unit.HERTZ,
-        "ohm": Unit.OHMS,
-        "ohms": Unit.OHMS,
-        "unitless": Unit.UNITLESS,
-    }
-
+def cast_control_type(type_str: str) -> ControlType:
     try:
-        return units[unit_str.strip().lower()]
+        return ControlType[type_str.upper()]
     except KeyError as err:
-        message = f"Invalid unit: {unit_str}"
+        message = f"Invalid control type: {type_str}"
         raise QLCPConfigError(message) from err
 
-
-def cast_control_state(state_str: str) -> ControlState:
+def cast_control_state(control_type: ControlType, state_str: str) -> ControlState | int | float:
     try:
-        return ControlState[state_str.upper()]
+        match control_type:
+            case ControlType.BOOL:
+                return ControlState[state_str.upper()]
+            case ControlType.UINT32 | ControlType.INT32:
+                return int(state_str)
+            case ControlType.FLOAT32:
+                return float(state_str)
     except KeyError as err:
         message = f"Invalid control state: {state_str}"
         raise QLCPConfigError(message) from err

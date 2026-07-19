@@ -1,22 +1,23 @@
 from dataclasses import dataclass
 
-from prop_teststand.qlcp.enums import ControlState, Unit
+from prop_teststand.qlcp.enums import ControlState, ControlType
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
 class SensorConfig:
     id: int
     name: str
-    type: str
-    unit: Unit
+    group: str
+    unit: str
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
 class ControlConfig:
     id: int
     name: str
-    default: ControlState
-    control_type: str
+    group: str
+    default: ControlState | int | float
+    type: ControlType
 
 
 @dataclass(slots=True, frozen=True)
