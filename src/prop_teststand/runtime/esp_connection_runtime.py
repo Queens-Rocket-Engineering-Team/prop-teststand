@@ -24,8 +24,6 @@ from prop_teststand.qlcp.packets import (
     StatusPacket,
     StatusRequestPacket,
     StreamStartPacket,
-    StreamStopPacket,
-    TimesyncRequestPacket,
     TimesyncResponsePacket,
 )
 from prop_teststand.runtime.device_registry import DeviceRegistry
@@ -41,17 +39,7 @@ if TYPE_CHECKING:
     from prop_teststand.state import SystemState
 
 
-# Command packets the server sends to a device and tracks for ACK/NACK.
-TrackedCommandPacket = (
-    EstopPacket
-    | HeartbeatPacket
-    | StatusRequestPacket
-    | StreamStopPacket
-    | GetSinglePacket
-    | TimesyncResponsePacket
-    | ControlPacket
-    | StreamStartPacket
-)
+TrackedCommandPacket = SimplePacket | TimesyncResponsePacket | ControlPacket | StreamStartPacket
 
 TCP_PORT = 50000
 CONFIG_HANDSHAKE_TIMEOUT_S = 10.0
@@ -391,17 +379,12 @@ class ESPConnectionRuntime:
         self._emit(self.system_state.record_command_sent(command))
         return command
 
-    async def send_timesync_response(
-        self,
-        session: ESPDeviceSession,
-        *,
-        timesync_request: TimesyncRequestPacket,
-        t2_us: int,
-    ) -> CommandRecord:
+    async def send_timesync_response(self, session: ESPDeviceSession, *, timesync_request: SimplePacket) -> CommandRecord:
         """Send a TIMESYNC_RESP packet in response to a TIMESYNC_REQ packet."""
-        timesync_resp = TimesyncResponsePacket.create(ack_packet=timesync_request,
+        timesync_resp = TimesyncResponsePacket.create(ack_packet_type=timesync_request.packet_type,
+            ack_sequence=timesync_request.header.sequence,
             t1_echo_us=timesync_request.header.timestamp_us,
-            t2_us=t2_us)
+            t2_us=get_timestamp_us())
 
         command = await self.send_tracked_command(session, timesync_resp)
         logger.debug("Sent TIMESYNC_RESP to %s", session.name)
@@ -521,11 +504,9 @@ class ESPConnectionRuntime:
 
         return False
 
-    async def handle_timesync_request(self, session: ESPDeviceSession, packet: TimesyncRequestPacket) -> None:
+    async def handle_timesync_request(self, session: ESPDeviceSession, packet: SimplePacket) -> None:
         """Handle a TIMESYNC_REQ packet from a device session, responding with a TIMESYNC_RESP."""
-        # T2: server receipt time, sampled as early as possible (PROTOCOL_SPECIFICATION 7.7.2).
-        t2_us = get_timestamp_us()
-        await self.send_timesync_response(session, timesync_request=packet, t2_us=t2_us)
+        await self.send_timesync_response(session, timesync_request=packet)
 
     def handle_ack(self, session: ESPDeviceSession, packet: AckPacket) -> CommandRecord | None:
         """Handle an ACK packet from a device session, marking the corresponding command as acknowledged and updating the system state."""
@@ -683,7 +664,7 @@ class ESPConnectionRuntime:
                     "Unexpected DATA packet received over TCP from %s. This should be sent over UDP. Ignoring.",
                     session.name,
                 )
-            case TimesyncRequestPacket():
+            case SimplePacket(packet_type=PacketType.TIMESYNC_REQ):
                 await self.handle_timesync_request(session, packet)
             case StatusPacket():
                 self.handle_status(session, packet)
