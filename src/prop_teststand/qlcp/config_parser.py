@@ -14,7 +14,6 @@ class QLCPConfigError(ValueError):
 
 def parse_config(config: dict[str, Any]) -> DeviceConfig:
     name = require_string_field(config, "device_name", "config")
-    device_type = require_string_field(config, "device_type", "config")
 
     current_sensor_id = 0
     sensors_by_id: dict[int, SensorConfig] = {}
@@ -44,7 +43,6 @@ def parse_config(config: dict[str, Any]) -> DeviceConfig:
 
     return DeviceConfig(
         name=name,
-        device_type=device_type,
         sensors_by_id=sensors_by_id,
         controls_by_id=controls_by_id,
     )

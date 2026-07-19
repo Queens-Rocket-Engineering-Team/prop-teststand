@@ -23,6 +23,5 @@ class ControlConfig:
 @dataclass(slots=True, frozen=True)
 class DeviceConfig:
     name: str
-    device_type: str
     sensors_by_id: dict[int, SensorConfig]
     controls_by_id: dict[int, ControlConfig]
