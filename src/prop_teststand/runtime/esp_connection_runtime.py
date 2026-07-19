@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 import orjson
 
 from prop_teststand.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
-from prop_teststand.qlcp.config_parser import QLCPConfigError, cast_control_state, parse_config
+from prop_teststand.qlcp.config_parser import cast_control_state, parse_config
 from prop_teststand.qlcp.enums import ControlState, PacketType
 from prop_teststand.qlcp.native import get_timestamp_us
 from prop_teststand.qlcp.packets import (
@@ -95,8 +95,6 @@ class ESPDeviceSession:
     @property
     def name(self) -> str:
         return self.qlcp_config.name
-
-
 
     @property
     def sensors(self) -> dict[str, SensorConfig]:
@@ -223,7 +221,7 @@ class ESPConnectionRuntime:
                 client_socket,
                 address,
                 config_dict,
-                packet,
+                packet.header.sequence,
             )
         except Exception as e:
             logger.exception(f"Failed to register device from {address}: {e}. Closing connection.")
@@ -446,10 +444,14 @@ class ESPConnectionRuntime:
             logger.error("Invalid state '%s' for %s control '%s'", control_state, control.type.name, control_name)
             return False
 
+        control_id = session.controls[control_name].id
+        control_type = session.controls[control_name].type
+        state = cast_control_state(control_type, control_state)
+
         return await self._send_or_remove(
             session,
-            ControlPacket.create(control.id, control.type, control_state=state),
-            f"CONTROL command (id={control.id}, {control_name} {control_state})",
+            ControlPacket.create(control_id, control_type, control_state=state),
+            f"CONTROL command (id={control_id}, {control_name} {control_state})",
         )
 
     async def get_status(self, session: ESPDeviceSession) -> bool:
