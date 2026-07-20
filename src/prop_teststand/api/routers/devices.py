@@ -32,7 +32,7 @@ class StreamCommand(BaseModel):
 class ControlCommand(BaseModel):
     command: Literal["CONTROL"]
     control_name: str
-    control_state: Literal["OPEN", "CLOSED"] | int | float
+    control_state: Literal["OPEN", "CLOSED"]
 
 
 CommandRequest = Annotated[
