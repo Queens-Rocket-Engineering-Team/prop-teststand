@@ -21,9 +21,6 @@ from prop_teststand.qlcp.packets import (
     GetSinglePacket,
     HeartbeatPacket,
     NackPacket,
-    PacketHeader,
-    QLCPPacket,
-    SimplePacket,
     StatusPacket,
     StatusRequestPacket,
     StreamStartPacket,
@@ -717,18 +714,14 @@ class ESPConnectionRuntime:
         packet: TrackedCommandPacket,
     ) -> tuple[PacketType, int, int | None, ControlState | int | float | None]:
         """Return the packet type, sequence number, control ID, and requested state for a given command packet."""
-        match packet:
-            case SimplePacket(packet_type=packet_type, header=PacketHeader(sequence=sequence)):
-                return packet_type, sequence, None, None
-            case ControlPacket(header=PacketHeader(sequence=sequence), control_id=control_id, control_state=control_state):
-                return PacketType.CONTROL, sequence, control_id, control_state
-            case StreamStartPacket(header=PacketHeader(sequence=sequence)):
-                return PacketType.STREAM_START, sequence, None, None
-            case TimesyncResponsePacket(header=PacketHeader(sequence=sequence)):
-                return PacketType.TIMESYNC_RESP, sequence, None, None
-            case _:
-                message = f"Unsupported tracked command packet: {type(packet).__name__}"
-                raise TypeError(message)
+        if not isinstance(packet, TrackedCommandPacket):
+            message = f"Unsupported tracked command packet: {type(packet).__name__}"
+            raise TypeError(message)
+
+        # CONTROL packets have additional metadata
+        if isinstance(packet, ControlPacket):
+            return packet.packet_type, packet.header.sequence, packet.control_id, packet.control_state
+        return packet.packet_type, packet.header.sequence, None, None
 
     def _handle_missed_heartbeat(self, session: ESPDeviceSession, command: CommandRecord) -> bool:
         """Handle a missed HEARTBEAT ACK for a device session, recording the miss and potentially removing the session if it exceeds the miss limit. Returns True if the session was removed, False otherwise."""
