@@ -21,8 +21,11 @@ if TYPE_CHECKING:
     from prop_teststand.qlcp.enums import ErrorCode
 
 
-class EncodablePacket(Protocol):
-    """QLCP packet-like object that can be encoded for transport."""
+class QLCPPacket(Protocol):
+    """QLCP packet object that can be encoded for transport."""
+
+    packet_type: ClassVar[PacketType]
+    header: PacketHeader
 
     def encode(self) -> bytes: ...
 
@@ -115,6 +118,8 @@ class ControlStatus:
 class StatusPacket:
     """Device status + batched control states."""
 
+    packet_type: ClassVar[PacketType] = PacketType.STATUS
+
     header: PacketHeader
     ack_packet_type: PacketType
     ack_sequence: int
@@ -123,8 +128,7 @@ class StatusPacket:
     @classmethod
     def create(
         cls,
-        ack_packet_type: PacketType,
-        ack_sequence: int,
+        ack_packet: QLCPPacket,
         control_states: list[ControlStatus] | None = None,
     ) -> StatusPacket:
         return cls(
@@ -132,8 +136,8 @@ class StatusPacket:
                 sequence=next_sequence(),
                 timestamp_us=get_timestamp_us(),
             ),
-            ack_packet_type=ack_packet_type,
-            ack_sequence=ack_sequence,
+            ack_packet_type=ack_packet.packet_type,
+            ack_sequence=ack_packet.header.sequence,
             control_states=control_states or [],
         )
 
@@ -169,6 +173,8 @@ class StatusPacket:
 class StreamStartPacket:
     """Start streaming at the given frequency."""
 
+    packet_type: ClassVar[PacketType] = PacketType.STREAM_START
+
     header: PacketHeader
     frequency_hz: int
 
@@ -202,6 +208,8 @@ class StreamStartPacket:
 @dataclass
 class ControlPacket:
     """Control command."""
+
+    packet_type: ClassVar[PacketType] = PacketType.CONTROL
 
     header: PacketHeader
     control_id: int
@@ -252,19 +260,21 @@ class ControlPacket:
 class AckPacket:
     """ACK packet."""
 
+    packet_type: ClassVar[PacketType] = PacketType.ACK
+
     header: PacketHeader
     ack_packet_type: PacketType
     ack_sequence: int
 
     @classmethod
-    def create(cls, ack_packet_type: PacketType, ack_sequence: int) -> AckPacket:
+    def create(cls, ack_packet: QLCPPacket) -> AckPacket:
         return cls(
             header=PacketHeader(
                 sequence=next_sequence(),
                 timestamp_us=get_timestamp_us(),
             ),
-            ack_packet_type=ack_packet_type,
-            ack_sequence=ack_sequence,
+            ack_packet_type=ack_packet.packet_type,
+            ack_sequence=ack_packet.header.sequence,
         )
 
     def encode(self) -> bytes:
@@ -289,20 +299,22 @@ class AckPacket:
 class NackPacket:
     """NACK packet."""
 
+    packet_type: ClassVar[PacketType] = PacketType.NACK
+
     header: PacketHeader
     nack_packet_type: PacketType
     nack_sequence: int
     error_code: ErrorCode
 
     @classmethod
-    def create(cls, nack_packet_type: PacketType, nack_sequence: int, error_code: ErrorCode) -> NackPacket:
+    def create(cls, nack_packet: QLCPPacket, error_code: ErrorCode) -> NackPacket:
         return cls(
             header=PacketHeader(
                 sequence=next_sequence(),
                 timestamp_us=get_timestamp_us(),
             ),
-            nack_packet_type=nack_packet_type,
-            nack_sequence=nack_sequence,
+            nack_packet_type=nack_packet.packet_type,
+            nack_sequence=nack_packet.header.sequence,
             error_code=error_code,
         )
 
@@ -329,6 +341,8 @@ class NackPacket:
 class TimesyncResponsePacket:
     """Timesync response packet."""
 
+    packet_type: ClassVar[PacketType] = PacketType.TIMESYNC_RESP
+
     header: PacketHeader
     ack_packet_type: PacketType
     ack_sequence: int
@@ -336,14 +350,14 @@ class TimesyncResponsePacket:
     t2_us: int
 
     @classmethod
-    def create(cls, ack_packet_type: PacketType, ack_sequence: int, t1_echo_us: int, t2_us: int) -> TimesyncResponsePacket:
+    def create(cls, ack_packet: TimesyncRequestPacket, t1_echo_us: int, t2_us: int) -> TimesyncResponsePacket:
         return cls(
             header=PacketHeader(
                 sequence=next_sequence(),
                 timestamp_us=get_timestamp_us(),
             ),
-            ack_packet_type=ack_packet_type,
-            ack_sequence=ack_sequence,
+            ack_packet_type=ack_packet.packet_type,
+            ack_sequence=ack_packet.header.sequence,
             t1_echo_us=t1_echo_us,
             t2_us=t2_us,
         )
@@ -378,6 +392,8 @@ class SensorReading:
 @dataclass
 class DataPacket:
     """Batched sensor data."""
+
+    packet_type: ClassVar[PacketType] = PacketType.DATA
 
     header: PacketHeader
     readings: list[SensorReading] = field(default_factory=list)
@@ -420,6 +436,8 @@ class DataPacket:
 @dataclass
 class ConfigPacket:
     """Device configuration (JSON payload)."""
+
+    packet_type: ClassVar[PacketType] = PacketType.CONFIG
 
     header: PacketHeader
     config_json: str

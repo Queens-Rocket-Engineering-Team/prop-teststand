@@ -4,8 +4,7 @@ from typing import Any, cast
 import pytest
 
 from prop_teststand.qlcp.config_parser import parse_config
-from prop_teststand.qlcp.enums import PacketType
-from prop_teststand.qlcp.packets import AckPacket, DataPacket, PacketHeader, SensorReading
+from prop_teststand.qlcp.packets import AckPacket, DataPacket, HeartbeatPacket, PacketHeader, SensorReading
 from prop_teststand.runtime.esp_connection_runtime import ESPDeviceSession
 from prop_teststand.runtime.metrics import Metrics
 from prop_teststand.runtime.telemetry_ingest import (
@@ -172,7 +171,7 @@ def test_non_data_packet_is_logged_and_ignored(monkeypatch: pytest.MonkeyPatch) 
     errors: list[str] = []
     monkeypatch.setattr("prop_teststand.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
     ingest = TelemetryRuntime(devices.get)
-    packet = AckPacket.create(PacketType.HEARTBEAT, ack_sequence=4)
+    packet = AckPacket.create(HeartbeatPacket(header=PacketHeader(sequence=4, timestamp_us=0)))
 
     batch = ingest.handle_datagram(packet.encode(), session.address)
 

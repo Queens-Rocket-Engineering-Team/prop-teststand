@@ -12,6 +12,7 @@ from prop_teststand.qlcp.packets import (
     ConfigPacket,
     ControlStatus,
     EstopPacket,
+    HeartbeatPacket,
     NackPacket,
     PacketHeader,
     StatusPacket,
@@ -61,6 +62,16 @@ def _make_config(name: str = "TEST-DEVICE") -> dict[str, Any]:
             },
         },
     }
+
+
+def _heartbeat(sequence: int) -> HeartbeatPacket:
+    """Build a HEARTBEAT with a fixed sequence, for ACKs with a known ack_sequence."""
+    return HeartbeatPacket(
+        header=PacketHeader(
+            sequence=sequence,
+            timestamp_us=0,
+        ),
+    )
 
 
 def _make_runtime() -> tuple[ESPConnectionRuntime, CommandTracker, SystemState, FakeStateStream]:
@@ -130,11 +141,18 @@ def test_runtime_registers_valid_device() -> None:
         peer_sock.setblocking(False)
 
         try:
+            config = _make_config()
             session = await runtime.register_configured_device(
                 server_sock,
                 "10.0.0.2",
-                _make_config(),
-                config_sequence=12,
+                config,
+                ConfigPacket(
+                    header=PacketHeader(
+                        sequence=12,
+                        timestamp_us=0,
+                    ),
+                    config_json=orjson.dumps(config).decode(),
+                ),
             )
 
             assert isinstance(session, ESPDeviceSession)
@@ -202,7 +220,7 @@ def test_accept_connection_closes_socket_on_non_config_first_packet() -> None:
 
         try:
             # A device-sent, server-decodable packet that is not CONFIG.
-            peer_sock.sendall(AckPacket.create(PacketType.HEARTBEAT, ack_sequence=1).encode())
+            peer_sock.sendall(AckPacket.create(_heartbeat(sequence=1)).encode())
 
             result = await runtime.accept_connection(server_sock, "10.0.0.2")
 
@@ -251,7 +269,7 @@ def test_heartbeat_loop_removes_device_when_expiry_raises() -> None:
         async def _raise(_session: ESPDeviceSession) -> bool:
             raise BrokenPipeError
 
-        runtime.expire_command_timeouts = _raise  # type: ignore[method-assign]
+        runtime.expire_command_timeouts = _raise  # type: ignore[method-assign, assignment]
 
         # Must not raise: the guard removes the device and exits the loop.
         await runtime._heartbeat_session(session)
@@ -607,7 +625,7 @@ def test_runtime_monitor_routes_packets_to_packet_handler() -> None:
 
         try:
             loop = asyncio.get_running_loop()
-            packet = AckPacket.create(PacketType.HEARTBEAT, ack_sequence=7)
+            packet = AckPacket.create(_heartbeat(sequence=7))
             await loop.sock_sendall(peer_sock, packet.encode())
             await asyncio.wait_for(packet_seen.wait(), timeout=1)
 

@@ -9,7 +9,7 @@ from prop_teststand.qlcp.native import HEADER_SIZE, MAGIC_NUM_SIZE, find_magic_n
 if TYPE_CHECKING:
     import socket
 
-    from prop_teststand.qlcp.packets import EncodablePacket
+    from prop_teststand.qlcp.packets import QLCPPacket
 
 
 class ESPDriverError(Exception):
@@ -31,7 +31,7 @@ class ESPDriver:
         self.socket: socket.socket | None = tcp_socket
         self.address = address
 
-    async def send_packet(self, packet: EncodablePacket) -> None:
+    async def send_packet(self, packet: QLCPPacket) -> None:
         """Send a QLCP packet over TCP."""
         assert self.socket is not None
         loop = asyncio.get_running_loop()
