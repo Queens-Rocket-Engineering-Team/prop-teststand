@@ -22,6 +22,7 @@ from prop_teststand.qlcp.packets import (
     HeartbeatPacket,
     NackPacket,
     PacketHeader,
+    QLCPPacket,
     SimplePacket,
     StatusPacket,
     StatusRequestPacket,
@@ -235,7 +236,7 @@ class ESPConnectionRuntime:
                 client_socket,
                 address,
                 config_dict,
-                packet.header.sequence,
+                packet,
             )
         except Exception as e:
             logger.exception(f"Failed to register device from {address}: {e}. Closing connection.")
@@ -399,8 +400,7 @@ class ESPConnectionRuntime:
         t2_us: int,
     ) -> CommandRecord:
         """Send a TIMESYNC_RESP packet in response to a TIMESYNC_REQ packet."""
-        timesync_resp = TimesyncResponsePacket.create(ack_packet_type=timesync_request.packet_type,
-            ack_sequence=timesync_request.header.sequence,
+        timesync_resp = TimesyncResponsePacket.create(ack_packet=timesync_request,
             t1_echo_us=timesync_request.header.timestamp_us,
             t2_us=t2_us)
 
