@@ -13,6 +13,7 @@ from prop_teststand.qlcp.packets import (
     ControlPacket,
     ControlStatus,
     EstopPacket,
+    HeartbeatPacket,
     NackPacket,
     PacketHeader,
     StatusPacket,
@@ -72,11 +73,6 @@ def _heartbeat(sequence: int) -> HeartbeatPacket:
             timestamp_us=0,
         ),
     )
-
-
-def _sent_packets(session: ESPDeviceSession) -> list[object]:
-    """Packets recorded by the FakeDriver a _make_session device was built with."""
-    return cast("FakeDriver", session.driver).sent_packets
 
 
 def _make_runtime() -> tuple[ESPConnectionRuntime, CommandTracker, SystemState, FakeStateStream]:

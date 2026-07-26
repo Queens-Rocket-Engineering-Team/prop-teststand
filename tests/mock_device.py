@@ -52,6 +52,7 @@ from prop_teststand.qlcp.packets import (
     HeartbeatPacket,
     NackPacket,
     PacketHeader,
+    QLCPPacket,
     SensorReading,
     StatusPacket,
     StatusRequestPacket,
@@ -565,7 +566,7 @@ class MockSensorDevice:
                             self.timesync_offset = ((t1_us - t2_us) + (t4_us - t3_us)) // 2
                             logger.info(f"TIMESYNC: locked to server (offset={self.timesync_offset} us)")
 
-                            ack = AckPacket.create(PacketType.TIMESYNC_REQ, packet.header.sequence)
+                            ack = AckPacket.create(ack_packet=packet)
                             await loop.sock_sendall(sock, ack.encode())
 
                             self.timesync_received.set()
@@ -574,7 +575,7 @@ class MockSensorDevice:
                             logger.warning("Received ESTOP — stopping stream and resetting state")
                             self.reset_device_state(announce=True)
                             # Device MUST report control states after ESTOP (PROTOCOL_SPECIFICATION 10.3).
-                            await self.send_status(PacketType.ESTOP, packet.header.sequence)
+                            await self.send_status(packet)
 
                         elif isinstance(packet, ControlPacket):
                             await self.handle_control_command(packet)
@@ -589,10 +590,10 @@ class MockSensorDevice:
                             await self.send_single_reading()
 
                         elif isinstance(packet, StatusRequestPacket):
-                            await self.send_status(packet.packet_type, packet.header.sequence)
+                            await self.send_status(packet)
 
                         elif isinstance(packet, HeartbeatPacket):
-                            ack = AckPacket.create(PacketType.HEARTBEAT, packet.header.sequence)
+                            ack = AckPacket.create(ack_packet=packet)
                             await loop.sock_sendall(sock, ack.encode())
 
                         buffer = buffer[packet_len:]
@@ -650,12 +651,12 @@ class MockSensorDevice:
             self.control_states[control.name] = control_state_str(state)
             logger.info(f"Control: {control.name} → {str(state)}")
 
-            await self.send_status(PacketType.CONTROL, packet.header.sequence)
+            await self.send_status(packet)
 
             self.control_handled.set()
         else:
             logger.error(f"Invalid command_id: {command_id}")
-            nack = NackPacket.create(PacketType.CONTROL, packet.header.sequence, ErrorCode.INVALID_ID)
+            nack = NackPacket.create(nack_packet=packet, error_code=ErrorCode.INVALID_ID)
             await loop.sock_sendall(self.sock, nack.encode())
 
     async def handle_stream_start(self, packet: StreamStartPacket) -> None:
@@ -667,7 +668,7 @@ class MockSensorDevice:
         logger.info(f"Starting stream at {self.stream_frequency} Hz")
 
         loop = asyncio.get_event_loop()
-        ack = AckPacket.create(PacketType.STREAM_START, packet.header.sequence)
+        ack = AckPacket.create(ack_packet=packet)
         await loop.sock_sendall(self.sock, ack.encode())
 
         if self.stream_task:
@@ -687,7 +688,7 @@ class MockSensorDevice:
             self.stream_task = None
 
         loop = asyncio.get_event_loop()
-        ack = AckPacket.create(PacketType.STREAM_STOP, packet.header.sequence)
+        ack = AckPacket.create(ack_packet=packet)
         await loop.sock_sendall(self.sock, ack.encode())
         self.stream_stopped.set()
 
@@ -753,7 +754,7 @@ class MockSensorDevice:
     # Status                                                                   #
     # ---------------------------------------------------------------------- #
 
-    async def send_status(self, ack_packet_type: PacketType, ack_sequence: int) -> None:
+    async def send_status(self, ack_packet: QLCPPacket) -> None:
         if self.sock is None:
             return
 
@@ -766,7 +767,7 @@ class MockSensorDevice:
             for control_id, control in self._device_config.controls_by_id.items()
         ]
 
-        status = StatusPacket.create(ack_packet_type=ack_packet_type, ack_sequence=ack_sequence, control_states=control_states)
+        status = StatusPacket.create(ack_packet=ack_packet, control_states=control_states)
 
         loop = asyncio.get_event_loop()
         await loop.sock_sendall(self.sock, status.encode())
