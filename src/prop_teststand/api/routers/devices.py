@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Iterable
 from typing import Annotated, Literal, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -6,7 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from prop_teststand.api.deps import get_runtime
 from prop_teststand.api.models import CommandResponse
-from prop_teststand.runtime.esp_connection_runtime import normalize_control_name
+from prop_teststand.qlcp.config_parser import QLCPConfigError, cast_control_state
+from prop_teststand.runtime.esp_connection_runtime import ESPDeviceSession, normalize_control_name
 from prop_teststand.runtime.services import RuntimeServices
 
 
@@ -30,7 +32,7 @@ class StreamCommand(BaseModel):
 class ControlCommand(BaseModel):
     command: Literal["CONTROL"]
     control_name: str
-    control_state: Literal["OPEN", "CLOSED"]
+    control_state: Literal["OPEN", "CLOSED"] | int | float
 
 
 CommandRequest = Annotated[
@@ -46,6 +48,28 @@ class AutoDiscoveryConfig(BaseModel):
     interval_seconds: float = Field(alias="intervalSeconds")
 
 
+def _control_targets(cmd: ControlCommand, devices: Iterable[ESPDeviceSession]) -> list[ESPDeviceSession]:
+    """Devices carrying the named control, raising 400 if the state does not fit that control's type."""
+    control_name = normalize_control_name(cmd.control_name)
+    state = str(cmd.control_state)
+    targets: list[ESPDeviceSession] = []
+
+    for device in devices:
+        control = device.controls.get(control_name)
+        if control is None:
+            continue
+        try:
+            cast_control_state(control.type, state)
+        except QLCPConfigError:
+            raise HTTPException(
+                400,
+                f"Invalid state {state!r} for {control.type.name} control {cmd.control_name!r} on {device.name}.",
+            ) from None
+        targets.append(device)
+
+    return targets
+
+
 @router.post(
     "/v1/command",
     summary="Send a command to the devices on the network",
@@ -56,38 +80,33 @@ async def send_device_command(
 ) -> CommandResponse:
     logger.info("Command sent: %r", cmd.command)
 
-    devices = rt.esp_runtime.get_registered_devices()
-    targeted: list[str] = []
-    sent: list[str] = []
+    devices = list(rt.esp_runtime.get_registered_devices().values())
 
-    for device in devices.values():
-        match cmd:
-            case GetSingleCommand():
-                targeted.append(device.name)
-                if await rt.esp_runtime.get_single(device):
-                    sent.append(device.name)
-            case StopCommand():
-                targeted.append(device.name)
-                if await rt.esp_runtime.stop_streaming(device):
-                    sent.append(device.name)
-            case StreamCommand(frequency_hz=freq):
-                targeted.append(device.name)
-                if await rt.esp_runtime.start_streaming(device, freq):
-                    sent.append(device.name)
-            case ControlCommand(control_name=control_name, control_state=control_state):
-                if normalize_control_name(control_name) not in device.controls:
-                    continue
-                targeted.append(device.name)
-                if await rt.esp_runtime.set_control(device, control_name, control_state):
-                    sent.append(device.name)
+    match cmd:
+        case GetSingleCommand():
+            targets = devices
+            sent = [device.name for device in targets if await rt.esp_runtime.get_single(device)]
+        case StopCommand():
+            targets = devices
+            sent = [device.name for device in targets if await rt.esp_runtime.stop_streaming(device)]
+        case StreamCommand(frequency_hz=freq):
+            targets = devices
+            sent = [device.name for device in targets if await rt.esp_runtime.start_streaming(device, freq)]
+        case ControlCommand(control_name=control_name, control_state=control_state):
+            targets = _control_targets(cmd, devices)
+            state = str(control_state)
+            sent = [device.name for device in targets if await rt.esp_runtime.set_control(device, control_name, state)]
 
-    if not targeted:
+    if not targets:
         raise HTTPException(400, "No valid target devices for the command")
     if not sent:
-        raise HTTPException(502, f"Command {cmd.command!r} failed to send to all target devices: {', '.join(targeted)}.")
+        raise HTTPException(
+            502,
+            f"Command {cmd.command!r} failed to send to all target devices: {', '.join(device.name for device in targets)}.",
+        )
 
-    if len(sent) < len(targeted):
-        failed = [name for name in targeted if name not in sent]
+    if len(sent) < len(targets):
+        failed = [device.name for device in targets if device.name not in sent]
         return CommandResponse(
             status="partial",
             message=f"Command {cmd.command!r} sent to {', '.join(sent)}; failed for {', '.join(failed)}.",

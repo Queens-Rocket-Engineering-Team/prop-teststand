@@ -10,6 +10,7 @@ from prop_teststand.qlcp.enums import ControlState, ControlType, ErrorCode, Pack
 from prop_teststand.qlcp.packets import (
     AckPacket,
     ConfigPacket,
+    ControlPacket,
     ControlStatus,
     EstopPacket,
     HeartbeatPacket,
@@ -60,6 +61,18 @@ def _make_config(name: str = "TEST-DEVICE") -> dict[str, Any]:
                     "default_state": "CLOSED",
                 },
             },
+            "heater": {
+                "HEATER1": {
+                    "control_index": "HEATER1",
+                    "type": "UINT32",
+                    "default_state": "0",
+                },
+                "HEATER2": {
+                    "control_index": "HEATER2",
+                    "type": "FLOAT32",
+                    "default_state": "0.0",
+                },
+            },
         },
     }
 
@@ -72,6 +85,11 @@ def _heartbeat(sequence: int) -> HeartbeatPacket:
             timestamp_us=0,
         ),
     )
+
+
+def _sent_packets(session: ESPDeviceSession) -> list[object]:
+    """Packets recorded by the FakeDriver a _make_session device was built with."""
+    return cast("FakeDriver", session.driver).sent_packets
 
 
 def _make_runtime() -> tuple[ESPConnectionRuntime, CommandTracker, SystemState, FakeStateStream]:
@@ -412,6 +430,58 @@ def test_runtime_nack_routes_through_tracker_without_control_update() -> None:
     assert command.state == CommandLifecycle.NACKED
     assert state.snapshot()["devices"][0]["controls"][0]["reported_state"] is None
     assert stream.events[-1]["type"] == "command.nacked"
+
+
+def test_set_control_sends_integer_state_for_variable_control() -> None:
+    async def run() -> None:
+        runtime, _tracker, _state, _stream = _make_runtime()
+        device = _make_session(runtime)
+
+        assert await runtime.set_control(device, "HEATER1", "75") is True
+
+        packet = _sent_packets(device)[-1]
+        assert isinstance(packet, ControlPacket)
+        assert packet.control_type == ControlType.UINT32
+        assert packet.control_state == 75
+
+    asyncio.run(run())
+
+
+def test_set_control_sends_float_state_for_variable_control() -> None:
+    async def run() -> None:
+        runtime, _tracker, _state, _stream = _make_runtime()
+        device = _make_session(runtime)
+
+        assert await runtime.set_control(device, "HEATER2", "62.5") is True
+
+        packet = _sent_packets(device)[-1]
+        assert isinstance(packet, ControlPacket)
+        assert packet.control_type == ControlType.FLOAT32
+        assert packet.control_state == 62.5
+
+    asyncio.run(run())
+
+
+def test_set_control_rejects_non_numeric_state_for_variable_control() -> None:
+    async def run() -> None:
+        runtime, _tracker, _state, _stream = _make_runtime()
+        device = _make_session(runtime)
+
+        assert await runtime.set_control(device, "HEATER1", "OPEN") is False
+        assert _sent_packets(device) == []
+
+    asyncio.run(run())
+
+
+def test_set_control_rejects_numeric_state_for_bool_control() -> None:
+    async def run() -> None:
+        runtime, _tracker, _state, _stream = _make_runtime()
+        device = _make_session(runtime)
+
+        assert await runtime.set_control(device, "VALVE1", "75") is False
+        assert _sent_packets(device) == []
+
+    asyncio.run(run())
 
 
 def test_runtime_status_updates_reported_control_state() -> None:
