@@ -15,12 +15,14 @@ from prop_teststand.runtime.services import RuntimeServices
 
 
 def _bool_control(name: str) -> ControlConfig:
-    return ControlConfig(id=0, name=name, group="valve", default=ControlState.CLOSED, type=ControlType.BOOL)
+    return ControlConfig(
+        id=0, name=name, group="valve", default=ControlState.CLOSED, type=ControlType.BOOL, unit=None
+    )
 
 
 def _variable_control(name: str, control_type: ControlType) -> ControlConfig:
     default = 0 if control_type is ControlType.UINT32 else 0.0
-    return ControlConfig(id=0, name=name, group="heater", default=default, type=control_type)
+    return ControlConfig(id=0, name=name, group="heater", default=default, type=control_type, unit="%")
 
 
 def _make_fake_session(*, name: str = "TEST-DEVICE", controls: dict | None = None) -> MagicMock:
