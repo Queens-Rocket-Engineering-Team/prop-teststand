@@ -73,6 +73,7 @@ def parse_control_config(
 
     control_type = cast_control_type(require_string_field(details, "type", context))
     default_state = cast_control_state(control_type, require_string_field(details, "default_state", context))
+    unit = details.get("unit") # unit is optional
 
     return ControlConfig(
         id=control_id,
@@ -80,6 +81,7 @@ def parse_control_config(
         group=control_group,
         default=default_state,
         type=control_type,
+        unit=unit,
     )
 
 
