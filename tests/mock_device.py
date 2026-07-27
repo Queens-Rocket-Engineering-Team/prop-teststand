@@ -202,7 +202,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
                 "control_index": "HEATER1",
                 "type": "FLOAT32",
                 "default_state": "0",
-                "unit": "%",
+                "unit": "C",
             },
         },
     },

@@ -261,6 +261,7 @@ class SystemState:
             "name": control.name,
             "group": control.group,
             "type": control.type.name,
+            "unit": control.unit,
             "default_state": self._control_state_name(control.default),
             "reported_state": reported_state.state if reported_state is not None else None,
             "reported_timestamp": reported_state.timestamp if reported_state is not None else None,
