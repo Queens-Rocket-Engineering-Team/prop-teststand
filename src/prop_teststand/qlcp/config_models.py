@@ -17,6 +17,7 @@ class ControlConfig:
     group: str
     default: ControlState | int | float
     type: ControlType
+    unit: str | None
 
 
 @dataclass(slots=True, frozen=True)
