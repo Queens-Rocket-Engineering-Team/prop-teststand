@@ -72,7 +72,7 @@ def parse_control_config(
     context = f"control {control_name!r}"
 
     control_type = cast_control_type(require_string_field(details, "type", context))
-    default_state = cast_control_state(control_type, require_string_field(details, "default_state", context))
+    default_state = cast_control_state(control_type, details.get("default_state"))
     unit = details.get("unit") # unit is optional
 
     return ControlConfig(
@@ -115,15 +115,24 @@ def cast_control_type(type_str: str) -> ControlType:
         message = f"Invalid control type: {type_str}"
         raise QLCPConfigError(message) from err
 
-def cast_control_state(control_type: ControlType, state_str: str) -> ControlState | int | float:
+def cast_control_state(control_type: ControlType, state: str | float) -> ControlState | int | float:
     try:
         match control_type:
             case ControlType.BOOL:
-                return ControlState[state_str.upper()]
+                if not isinstance(state, str):
+                    message = f"Invalid control state type: {type(state).__name__}. {ControlType.BOOL.name} control state must be a string."
+                    raise QLCPConfigError(message)
+                return ControlState[state.upper()]
             case ControlType.UINT32 | ControlType.INT32:
-                return int(state_str)
+                if not isinstance(state, int):
+                    message = f"Invalid control state type: {type(state).__name__}. {ControlType.UINT32.name} control state must be an integer."
+                    raise QLCPConfigError(message)
+                return int(state)
             case ControlType.FLOAT32:
-                return float(state_str)
+                if not isinstance(state, (int, float)):
+                    message = f"Invalid control state type: {type(state).__name__}. {ControlType.FLOAT32.name} control state must be a number."
+                    raise QLCPConfigError(message)
+                return float(state)
     except (KeyError, ValueError) as err:
-        message = f"Invalid control state: {state_str}"
+        message = f"Invalid control state: {state}"
         raise QLCPConfigError(message) from err
