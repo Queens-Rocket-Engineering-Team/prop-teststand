@@ -124,14 +124,8 @@ def cast_control_state(control_type: ControlType, state: str | float) -> Control
                     raise QLCPConfigError(message)
                 return ControlState[state.upper()]
             case ControlType.UINT32 | ControlType.INT32:
-                if not isinstance(state, int):
-                    message = f"Invalid control state type: {type(state).__name__}. {ControlType.UINT32.name} control state must be an integer."
-                    raise QLCPConfigError(message)
                 return int(state)
             case ControlType.FLOAT32:
-                if not isinstance(state, (int, float)):
-                    message = f"Invalid control state type: {type(state).__name__}. {ControlType.FLOAT32.name} control state must be a number."
-                    raise QLCPConfigError(message)
                 return float(state)
     except (KeyError, ValueError) as err:
         message = f"Invalid control state: {state}"
