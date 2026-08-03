@@ -34,6 +34,7 @@ from prop_teststand.qlcp.config_models import SensorConfig
 from prop_teststand.qlcp.config_parser import cast_control_state, cast_control_type, parse_config
 from prop_teststand.qlcp.decoding import TimesyncResponsePacket, decode_packet_client
 from prop_teststand.qlcp.enums import (
+    ControlConfirmStatus,
     ControlState,
     ErrorCode,
     PacketType,
@@ -753,20 +754,23 @@ class MockSensorDevice:
     # Status                                                                   #
     # ---------------------------------------------------------------------- #
 
-    async def send_status(self, ack_packet: QLCPPacket) -> None:
-        if self.sock is None:
-            return
-
-        control_states = [
+    def _current_control_states(self) -> list[ControlStatus]:
+        return [
             ControlStatus(
                 id=control_id,
                 type=control.type,
                 state=cast_control_state(control.type, self.control_states.get(control.name, control_state_str(control.default))),
+                status=ControlConfirmStatus.CONFIRMED,
             )
             for control_id, control in self._device_config.controls_by_id.items()
         ]
 
-        status = StatusPacket.create(ack_packet=ack_packet, control_states=control_states)
+    async def send_status(self, ack_packet: QLCPPacket) -> None:
+        """Send STATUS in response to a CONTROL or STATUS_REQUEST packet."""
+        if self.sock is None:
+            return
+
+        status = StatusPacket.create(ack_packet=ack_packet, control_states=self._current_control_states())
 
         loop = asyncio.get_event_loop()
         await loop.sock_sendall(self.sock, status.encode())
@@ -776,6 +780,18 @@ class MockSensorDevice:
             "Control states: "
             + ", ".join(f"{c.name}={self.control_states.get(c.name, 'UNKNOWN')}" for c in self._device_config.controls_by_id.values())
         )
+
+    async def send_unsolicited_status(self) -> None:
+        """Send a device-initiated STATUS update, not in response to any server request."""
+        if self.sock is None:
+            return
+
+        status = StatusPacket.create_unsolicited(control_states=self._current_control_states())
+
+        loop = asyncio.get_event_loop()
+        await loop.sock_sendall(self.sock, status.encode())
+
+        logger.info("Sent unsolicited STATUS")
 
     # ---------------------------------------------------------------------- #
     # CLI run loop                                                             #

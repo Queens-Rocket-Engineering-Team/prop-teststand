@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol, Self
 
 from prop_teststand.qlcp._bindings import ffi as _ffi
 from prop_teststand.qlcp._bindings import lib as _lib
-from prop_teststand.qlcp.enums import ControlState, ControlType, PacketType
+from prop_teststand.qlcp.enums import ControlConfirmStatus, ControlState, ControlType, PacketType
 from prop_teststand.qlcp.native import (
     ENCODE_BUF_SIZE,
     MAX_CONFIG,
@@ -112,7 +112,9 @@ class TimesyncRequestPacket(SimplePacket):
 class ControlStatus:
     id: int
     type: ControlType
-    state: ControlState | int | float
+    # None when status is ERROR: the protocol leaves the state bytes undefined in that case.
+    state: ControlState | int | float | None
+    status: ControlConfirmStatus = ControlConfirmStatus.CONFIRMED
 
 @dataclass
 class StatusPacket:
@@ -141,17 +143,39 @@ class StatusPacket:
             control_states=control_states or [],
         )
 
+    @classmethod
+    def create_unsolicited(
+        cls,
+        control_states: list[ControlStatus] | None = None,
+    ) -> StatusPacket:
+        """Build a device-initiated STATUS update, not sent in response to CONTROL/STATUS_REQUEST.
+
+        Sets ack_packet_type to NO_ACK per protocol so the server skips command-response tracking.
+        """
+        return cls(
+            header=PacketHeader(
+                sequence=next_sequence(),
+                timestamp_us=get_timestamp_us(),
+            ),
+            ack_packet_type=PacketType.NO_ACK,
+            ack_sequence=0,
+            control_states=control_states or [],
+        )
+
     def encode(self) -> bytes:
         buf, buf_len = _encode_buf()
 
-        control_arr = _ffi.new(f"qlcp_control_data[{MAX_CONTROLS}]")
+        control_arr = _ffi.new(f"qlcp_status_data[{MAX_CONTROLS}]")
         for i, ctrl in enumerate(self.control_states):
             if i >= MAX_CONTROLS:
                 message = f"too many controls in status packet: {len(self.control_states)} (max {MAX_CONTROLS})"
                 raise QLCPError(message)
             control_arr[i].id = ctrl.id
             control_arr[i].type = ctrl.type
-            _assign_control_state(control_arr[i], ctrl.type, ctrl.state)
+            control_arr[i].status = ctrl.status
+            # State bytes are left zeroed (undefined per spec) when status is ERROR and no state is given.
+            if ctrl.state is not None:
+                _assign_control_state(control_arr[i], ctrl.type, ctrl.state)
 
         pkt = _ffi.new(
             "qlcp_status_packet *",
@@ -478,7 +502,7 @@ class ConfigPacket:
         return bytes(_ffi.buffer(buf, buf_len[0]))
 
 def _assign_control_state(
-    control_data,  # cffi qlcp_control_data*
+    control_data,  # cffi qlcp_control_data* or qlcp_status_data*
     control_type: ControlType,
     state: ControlState | int | float,
 ) -> None:

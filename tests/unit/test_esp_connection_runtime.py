@@ -6,7 +6,7 @@ from typing import Any, cast
 import orjson
 
 from prop_teststand.qlcp.config_parser import parse_config
-from prop_teststand.qlcp.enums import ControlState, ControlType, ErrorCode, PacketType
+from prop_teststand.qlcp.enums import ControlConfirmStatus, ControlState, ControlType, ErrorCode, PacketType
 from prop_teststand.qlcp.packets import (
     AckPacket,
     ConfigPacket,
@@ -505,6 +505,95 @@ def test_runtime_status_updates_reported_control_state() -> None:
 
     assert state.snapshot()["devices"][0]["controls"][0]["reported_state"] == "OPEN"
     assert stream.events[-1]["type"] == "control.updated"
+    assert state.snapshot()["devices"][0]["controls"][0]["reported_status"] == "confirmed"
+    assert state.snapshot()["devices"][0]["controls"][0]["settled"] is True
+
+
+def test_runtime_unsolicited_status_skips_ack_tracking() -> None:
+    """An unsolicited STATUS (ack_packet_type=NO_ACK) must not resolve a pending command."""
+    runtime, tracker, state, stream = _make_runtime()
+    device = _make_session(runtime)
+    runtime.devices.register(device)
+    state.register_device(device)
+
+    pending = tracker.mark_sent(
+        connection_key=device.connection_key,
+        device_name=device.name,
+        device_address=device.address,
+        packet_type=PacketType.CONTROL,
+        packet_sequence=1,
+        now=0.0,
+    )
+
+    runtime.handle_status(
+        device,
+        StatusPacket(
+            header=PacketHeader(sequence=2, timestamp_us=0),
+            ack_packet_type=PacketType.NO_ACK,
+            ack_sequence=1,  # deliberately matches the pending command's sequence
+            control_states=[ControlStatus(id=0, type=ControlType.BOOL, state=ControlState.OPEN)],
+        ),
+    )
+
+    assert tracker.pending == (pending,)
+    assert state.snapshot()["devices"][0]["controls"][0]["reported_state"] == "OPEN"
+    assert not any(event["type"] == "command.acked" for event in stream.events)
+
+
+def test_runtime_status_error_preserves_last_known_state() -> None:
+    runtime, _tracker, state, stream = _make_runtime()
+    device = _make_session(runtime)
+    runtime.devices.register(device)
+    state.register_device(device)
+
+    runtime.handle_status(
+        device,
+        StatusPacket(
+            header=PacketHeader(sequence=1, timestamp_us=0),
+            ack_packet_type=PacketType.STATUS_REQUEST,
+            ack_sequence=1,
+            control_states=[ControlStatus(id=0, type=ControlType.BOOL, state=ControlState.OPEN)],
+        ),
+    )
+    runtime.handle_status(
+        device,
+        StatusPacket(
+            header=PacketHeader(sequence=2, timestamp_us=0),
+            ack_packet_type=PacketType.STATUS_REQUEST,
+            ack_sequence=2,
+            control_states=[ControlStatus(id=0, type=ControlType.BOOL, state=None, status=ControlConfirmStatus.ERROR)],
+        ),
+    )
+
+    control = state.snapshot()["devices"][0]["controls"][0]
+    assert control["reported_state"] == "OPEN"  # preserved, not clobbered by the undefined error state
+    assert control["reported_status"] == "error"
+    # "settled" only reflects the pending/waiting concept; error is a distinct fault signal
+    # surfaced via reported_status, not folded into the same spinner semantics.
+    assert control["settled"] is True
+    assert stream.events[-1]["type"] == "control.error"
+
+
+def test_runtime_status_pending_control_is_not_settled() -> None:
+    runtime, _tracker, state, _stream = _make_runtime()
+    device = _make_session(runtime)
+    runtime.devices.register(device)
+    state.register_device(device)
+
+    runtime.handle_status(
+        device,
+        StatusPacket(
+            header=PacketHeader(sequence=1, timestamp_us=0),
+            ack_packet_type=PacketType.STATUS_REQUEST,
+            ack_sequence=1,
+            control_states=[ControlStatus(id=0, type=ControlType.BOOL, state=ControlState.OPEN, status=ControlConfirmStatus.PENDING)],
+        ),
+    )
+
+    control = state.snapshot()["devices"][0]["controls"][0]
+    assert control["reported_state"] == "OPEN"
+    assert control["reported_status"] == "pending"
+    assert control["settled"] is False
 
 
 def test_runtime_command_visibility_policy_for_status_request_and_estop() -> None:

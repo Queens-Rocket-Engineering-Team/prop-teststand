@@ -3,7 +3,7 @@ from typing import Any, cast
 
 from prop_teststand.qlcp._bindings import ffi as _ffi
 from prop_teststand.qlcp._bindings import lib as _lib
-from prop_teststand.qlcp.enums import ControlState, ControlType, ErrorCode, PacketType
+from prop_teststand.qlcp.enums import ControlConfirmStatus, ControlState, ControlType, ErrorCode, PacketType
 from prop_teststand.qlcp.native import HEADER_SIZE, MAX_CONFIG, MAX_CONTROLS, MAX_SENSORS, QLCPError, check_qlcp_error
 from prop_teststand.qlcp.packets import (
     AckPacket,
@@ -29,7 +29,7 @@ from prop_teststand.qlcp.packets import (
 
 # Reuse buffers for client->server decoding to avoid unncessary allocations on the critical data packet path
 # These are only used in a single thread so it's safe to reuse
-_ctrl_arr = _ffi.new(f"qlcp_control_data[{MAX_CONTROLS}]")
+_ctrl_arr = _ffi.new(f"qlcp_status_data[{MAX_CONTROLS}]")
 _sens_arr = _ffi.new(f"qlcp_sensor_data[{MAX_SENSORS}]")
 _conf_buf = _ffi.new(f"char[{MAX_CONFIG}]")
 _buffers = _ffi.new(
@@ -118,13 +118,21 @@ def _server_payload_to_python(payload: Any) -> ServerReceivedPacket:
         control_states = []
         for i in range(payload_data.status.control_count):
             control_type = ControlType(payload_data.status.control_data[i].type)
-            control_state = parse_control_state(control_type, payload_data.status.control_data[i].state)
+            control_status = ControlConfirmStatus(payload_data.status.control_data[i].status)
+
+            # Per spec, state bytes are undefined when status is ERROR; don't interpret them.
+            control_state = (
+                None
+                if control_status == ControlConfirmStatus.ERROR
+                else parse_control_state(control_type, payload_data.status.control_data[i].state)
+            )
 
             control_states.append(
                 ControlStatus(
                     id=payload_data.status.control_data[i].id,
                     type=control_type,
                     state=control_state,
+                    status=control_status,
                 ),
             )
 

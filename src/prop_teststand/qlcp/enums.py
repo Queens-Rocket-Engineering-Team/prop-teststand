@@ -21,6 +21,9 @@ PacketType = IntEnum(
         "STATUS": _lib.QLCP_PT_STATUS,
         "ACK": _lib.QLCP_PT_ACK,
         "NACK": _lib.QLCP_PT_NACK,
+        # Sentinel ack_packet_type for unsolicited STATUS packets. Never appears as a
+        # header packet_type.
+        "NO_ACK": _lib.QLCP_PT_NO_ACK,
     },
 )
 
@@ -39,7 +42,16 @@ ControlState = IntEnum(
     {
         "CLOSED": _lib.QLCP_CS_CLOSED,
         "OPEN": _lib.QLCP_CS_OPEN,
-        "ERROR": _lib.QLCP_CS_ERROR,
+    },
+)
+
+# Per-control confirmation status carried on STATUS packets (protocol v3.1+).
+ControlConfirmStatus = IntEnum(
+    "ControlConfirmStatus",
+    {
+        "CONFIRMED": _lib.QLCP_CONTROL_STATUS_CONFIRMED,
+        "PENDING": _lib.QLCP_CONTROL_STATUS_PENDING,
+        "ERROR": _lib.QLCP_CONTROL_STATUS_ERROR,
     },
 )
 

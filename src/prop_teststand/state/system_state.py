@@ -3,7 +3,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from prop_teststand.qlcp.enums import ControlState, PacketType
+from prop_teststand.qlcp.enums import ControlConfirmStatus, ControlState, PacketType
 from prop_teststand.runtime.command_tracker import (
     CommandRecord,
     CommandTracker,
@@ -31,9 +31,14 @@ class _KasaState:
 
 @dataclass(slots=True)
 class _ControlStateRecord:
-    """Timestamped control state value: either device-reported or server-accepted."""
-    state: str
+    """Timestamped control state value: either device-reported or server-accepted.
+
+    `status` is the device's confirmation status for reported records (confirmed/pending/error);
+    unset (None) for accepted records, which have no such concept.
+    """
+    state: str | None
     timestamp: float
+    status: str | None = None
 
 
 @dataclass(slots=True)
@@ -96,11 +101,17 @@ class SystemState:
         self,
         device: ESPDeviceSession,
         control_id: int,
-        state: ControlState | int | float,
+        state: ControlState | int | float | None,
         *,
+        status: ControlConfirmStatus = ControlConfirmStatus.CONFIRMED,
         now: float | None = None,
     ) -> StateEvent | None:
-        """Record a control's reported state and return a state event if the device/control is known."""
+        """Record a control's reported state and return a state event if the device/control is known.
+
+        On ControlConfirmStatus.ERROR, `state` is undefined per protocol and ignored; the control's
+        last-known reported value is preserved and only its status is updated. Emits a distinct
+        "control.error" event in that case so error onset is visible to consumers.
+        """
 
         device_state = self._devices_by_name.get(device.name)
         if device_state is None:
@@ -112,12 +123,20 @@ class SystemState:
         if control is None:
             return None
 
+        existing = device_state.reported_controls.get(control_id)
+        if status == ControlConfirmStatus.ERROR:
+            state_name = existing.state if existing is not None else None
+        else:
+            state_name = self._control_state_name(state)
+
         device_state.reported_controls[control_id] = _ControlStateRecord(
-            state=self._control_state_name(state),
+            state=state_name,
             timestamp=time.monotonic() if now is None else now,
+            status=status.name.lower(),
         )
+        event_type = "control.error" if status == ControlConfirmStatus.ERROR else "control.updated"
         return self._make_event(
-            "control.updated",
+            event_type,
             device_name=device_state.device_name,
             control=self._snapshot_control(device_state, control),
         )
@@ -255,6 +274,8 @@ class SystemState:
     ) -> dict[str, Any]:
         reported_state = device_state.reported_controls.get(control.id)
         accepted_state = device_state.accepted_controls.get(control.id)
+        pending_command_id = self._pending_command_id(device_state, control.id)
+        reported_status = reported_state.status if reported_state is not None else None
 
         return {
             "id": control.id,
@@ -264,10 +285,15 @@ class SystemState:
             "unit": control.unit,
             "default_state": self._control_state_name(control.default),
             "reported_state": reported_state.state if reported_state is not None else None,
+            "reported_status": reported_status,
             "reported_timestamp": reported_state.timestamp if reported_state is not None else None,
             "accepted_state": accepted_state.state if accepted_state is not None else None,
             "accepted_timestamp": accepted_state.timestamp if accepted_state is not None else None,
-            "pending_command_id": self._pending_command_id(device_state, control.id),
+            "pending_command_id": pending_command_id,
+            # False while a CONTROL command is outstanding OR the device's last STATUS report
+            # was "pending" (still actuating). One flag drives the existing pending UI treatment
+            # regardless of which of those two sources is the cause.
+            "settled": pending_command_id is None and reported_status != "pending",
         }
 
     def _pending_command_id(self, device_state: _DeviceState, control_id: int) -> int | None:
