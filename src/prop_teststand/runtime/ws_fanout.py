@@ -44,11 +44,20 @@ class BoundedWebSocketFanout:
         return len(self._clients)
 
     def publish_message(self, message: JsonMessage) -> None:
-        """Queue *message* to every connected client without blocking."""
+        """Queue *message* to every connected client without blocking.
+
+        When a client's queue is full the *oldest* queued message is evicted to
+        make room, so a slow client always converges to fresh data instead of
+        draining an ever-stale backlog (latest-wins semantics for live streams).
+        """
         for queue in self._clients.values():
             try:
                 queue.put_nowait(message)
             except asyncio.QueueFull:
+                with contextlib.suppress(asyncio.QueueEmpty):
+                    queue.get_nowait()
+                with contextlib.suppress(asyncio.QueueFull):
+                    queue.put_nowait(message)
                 self.metrics.record_telemetry_dropped_batch(self._stream_metric_label)
 
     async def connect_client(self, websocket: WebSocket) -> None:
