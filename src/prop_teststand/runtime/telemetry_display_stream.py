@@ -68,7 +68,9 @@ class TelemetryDisplayStream(BoundedWebSocketFanout):
         *,
         target_hz: float = DISPLAY_TARGET_HZ,
         points_per_bucket: int = DISPLAY_POINTS_PER_BUCKET,
-        max_queue: int = 128,
+        # A live display gains nothing from deep buffering: 16 messages is ~0.5 s
+        # of production, which bounds worst-case staleness for a stalled client.
+        max_queue: int = 16,
         metrics: Metrics | None = None,
     ) -> None:
         super().__init__(
