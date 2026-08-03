@@ -754,20 +754,23 @@ class MockSensorDevice:
     # Status                                                                   #
     # ---------------------------------------------------------------------- #
 
-    async def send_status(self, ack_packet: QLCPPacket) -> None:
-        if self.sock is None:
-            return
-
-        control_states = [
+    def _current_control_states(self) -> list[ControlStatus]:
+        return [
             ControlStatus(
                 id=control_id,
                 type=control.type,
                 state=cast_control_state(control.type, self.control_states.get(control.name, control_state_str(control.default))),
+                status=ControlConfirmStatus.CONFIRMED,
             )
             for control_id, control in self._device_config.controls_by_id.items()
         ]
 
-        status = StatusPacket.create(ack_packet=ack_packet, control_states=control_states)
+    async def send_status(self, ack_packet: QLCPPacket) -> None:
+        """Send STATUS in response to a CONTROL or STATUS_REQUEST packet."""
+        if self.sock is None:
+            return
+
+        status = StatusPacket.create(ack_packet=ack_packet, control_states=self._current_control_states())
 
         loop = asyncio.get_event_loop()
         await loop.sock_sendall(self.sock, status.encode())

@@ -101,7 +101,7 @@ class SystemState:
         self,
         device: ESPDeviceSession,
         control_id: int,
-        state: ControlState | int | float,
+        state: ControlState | int | float | None,
         *,
         status: ControlConfirmStatus = ControlConfirmStatus.CONFIRMED,
         now: float | None = None,
