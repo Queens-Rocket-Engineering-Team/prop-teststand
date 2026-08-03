@@ -45,6 +45,16 @@ ControlState = IntEnum(
     },
 )
 
+# Per-control confirmation status carried on STATUS packets (protocol v3.1+).
+ControlConfirmStatus = IntEnum(
+    "ControlConfirmStatus",
+    {
+        "CONFIRMED": _lib.QLCP_CONTROL_STATUS_CONFIRMED,
+        "PENDING": _lib.QLCP_CONTROL_STATUS_PENDING,
+        "ERROR": _lib.QLCP_CONTROL_STATUS_ERROR,
+    },
+)
+
 ErrorCode = IntEnum(
     "ErrorCode",
     {
