@@ -713,12 +713,18 @@ class MockSensorDevice:
         except asyncio.CancelledError:
             pass
 
+    def _sensor_value(self, sensor_id: int, sensor: SensorConfig, elapsed_s: float) -> float:
+        """Compute the simulated sample for one sensor. Subclasses override this
+        to swap the default test sine for a different simulation (e.g. the
+        Chimera GPS flight profile in chimera_mock_device.py)."""
+        return sensor_signal_value(sensor, elapsed_s, sensor_id)
+
     async def send_sensor_data(self) -> None:
         """Build and send a DATA packet over UDP with one reading per configured sensor."""
         readings: list[SensorReading] = []
         elapsed_s = time.monotonic() - self._signal_start_monotonic
         for sensor_id, sensor in self._device_config.sensors_by_id.items():
-            self._sensor_values[sensor_id] = sensor_signal_value(sensor, elapsed_s, sensor_id)
+            self._sensor_values[sensor_id] = self._sensor_value(sensor_id, sensor, elapsed_s)
             readings.append(
                 SensorReading(
                     sensor_id=sensor_id,
