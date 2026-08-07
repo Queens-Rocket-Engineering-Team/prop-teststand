@@ -123,6 +123,7 @@ ESP32 devices configure themselves — each device sends a JSON CONFIG packet on
 |---------|-------------|
 | `uv run -m prop_teststand` | Start the main server |
 | `uv run -m tests.mock_device` | Simulate an ESP32 device for testing |
+| `uv run -m tests.chimera_mock_device` | Simulate a GPS tracker looping a full flight (pad → 13 000 ft → drogue → main) |
 
 Once the server is running, an interactive CLI provides commands like `discover`, `list`, `stream <device> <Hz>`, `control <device> <name> <state>`, and `estop`.
 
