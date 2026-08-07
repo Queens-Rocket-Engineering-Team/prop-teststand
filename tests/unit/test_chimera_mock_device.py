@@ -1,3 +1,7 @@
+# SLF001: these tests drive the device's internals (_sensor_value, the parsed
+# config) on purpose — that override hook is the whole contract under test.
+# ruff: noqa: SLF001
+
 import math
 
 from prop_teststand.qlcp.config_parser import parse_config

@@ -11,9 +11,9 @@ default test sine:
 
 Launch site: 47 deg 57' 56.4" N, 81 deg 52' 22.4" W (47.965667, -81.872889).
 
-Usage:
+Usage (either form works):
     uv run -m tests.chimera_mock_device                    # Auto-discover server
-    uv run -m tests.chimera_mock_device --server 127.0.0.1 # Connect directly
+    uv run tests/chimera_mock_device.py --server 127.0.0.1 # Connect directly
 """
 
 import argparse
@@ -24,7 +24,16 @@ import random
 from typing import Any
 
 from prop_teststand.qlcp.config_models import SensorConfig
-from tests.mock_device import MockSensorDevice, _ColoredFormatter
+
+
+try:
+    from tests.mock_device import MockSensorDevice, _ColoredFormatter
+except ModuleNotFoundError:
+    # Running this file by path (`uv run tests/chimera_mock_device.py`) puts
+    # tests/ on sys.path instead of the repo root, so the sibling is a
+    # top-level module rather than tests.mock_device. mock_device.py itself
+    # needs no such fallback — it only imports the installed package.
+    from mock_device import MockSensorDevice, _ColoredFormatter
 
 logger = logging.getLogger("ChimeraMock")
 
@@ -120,19 +129,19 @@ class FlightSim:
                 self.alt = 0.0
                 self.vv = 0.0
                 self._enter("landed")
-        elif self.phase == "landed":
-            if self.phase_t >= self.LANDED_HOLD_S:
-                landing_lap = self.laps + 1
-                self.reset()
-                self.laps = landing_lap
+        elif self.phase == "landed" and self.phase_t >= self.LANDED_HOLD_S:
+            landing_lap = self.laps + 1
+            self.reset()
+            self.laps = landing_lap
 
     def _enter(self, phase: str) -> None:
         self.phase = phase
         self.phase_t = 0.0
 
     def fix(self) -> tuple[float, float, float]:
-        """Current (lat, lon, alt) with ~0.5 m of GPS noise."""
-        noise = lambda: (random.random() - 0.5) * 1.0  # noqa: E731
+        """Return the current (lat, lon, alt) with ~0.5 m of GPS noise."""
+        # S311: simulated receiver jitter, not a security context.
+        noise = lambda: (random.random() - 0.5) * 1.0  # noqa: E731, S311
         north = (self.downrange + noise()) * math.cos(self.AZIMUTH_RAD)
         east = (self.downrange + noise()) * math.sin(self.AZIMUTH_RAD) + self.crosswind
         lat = self.pad_lat + north / 111_320.0
@@ -169,14 +178,15 @@ class ChimeraMockDevice(MockSensorDevice):
             self._sim_t += dt
         self._epoch = epoch
         self._epoch_fix = self._sim.fix()
-        # 8-14 sats: slow wander plus a little jitter.
-        sats = 11 + 2.0 * math.sin(epoch / 17.0) + random.choice((-1, 0, 0, 1))
+        # 8-14 sats: slow wander plus a little jitter (S311: simulated, not security).
+        sats = 11 + 2.0 * math.sin(epoch / 17.0) + random.choice((-1, 0, 0, 1))  # noqa: S311
         self._epoch_sats = max(8, min(14, round(sats)))
         if self._sim.phase != self._last_logged_phase:
             logger.info(f"Flight phase: {self._last_logged_phase} -> {self._sim.phase} (alt {self._sim.alt:.0f} m)")
             self._last_logged_phase = self._sim.phase
 
-    def _sensor_value(self, sensor_id: int, sensor: SensorConfig, elapsed_s: float) -> float:
+    # sensor_id is part of the overridden signature; this device keys off the name.
+    def _sensor_value(self, sensor_id: int, sensor: SensorConfig, elapsed_s: float) -> float:  # noqa: ARG002
         self._advance_to(elapsed_s)
         lat, lon, alt = self._epoch_fix
         match sensor.name:
@@ -203,7 +213,7 @@ async def async_main() -> None:
         _ColoredFormatter(
             fmt="%(asctime)s [%(name)s] %(message)s",
             datefmt="%H:%M:%S",
-        )
+        ),
     )
     for name in ("MockDevice", "ChimeraMock"):
         log = logging.getLogger(name)
