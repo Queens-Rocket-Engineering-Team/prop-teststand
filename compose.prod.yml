@@ -64,9 +64,11 @@ services:
       # which is what you want when it runs alongside the server.
       - PROP_SERVER_IP=${PROP_SERVER_IP:-}
 
-    depends_on:
-      - server
-
+    # Deliberately no depends_on. This container only serves static files — the
+    # browser reaches the API itself — so it has nothing to wait for, and a
+    # dependency would force the `server` service to start even when the server
+    # is being run some other way (from source, or on another host). It would
+    # then contend for port 8000 with the one actually in use.
     restart: always
 
 volumes:
