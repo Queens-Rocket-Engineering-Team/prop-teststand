@@ -121,6 +121,7 @@ def build_runtime(config: ServerConfig) -> RuntimeServices:
         esp_runtime.get_device_by_address,
         telemetry_stream,
         telemetry_display_stream,
+        tare_for=system_state.tare_for,
         metrics=metrics,
     )
     mediamtx_config = config["services"]["mediamtx"]

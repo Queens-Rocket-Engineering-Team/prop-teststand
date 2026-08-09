@@ -124,7 +124,13 @@ ESP32 devices configure themselves — each device sends a JSON CONFIG packet on
 | `uv run -m prop_teststand` | Start the main server |
 | `uv run -m tests.mock_device` | Simulate an ESP32 device for testing |
 
-Once the server is running, an interactive CLI provides commands like `discover`, `list`, `stream <device> <Hz>`, `control <device> <name> <state>`, and `estop`.
+Once the server is running, an interactive CLI provides commands like `discover`, `list`, `stream <device> <Hz>`, `control <device> <name> <state>`, `tare <sensor>`, and `estop`.
+
+### Taring
+
+Sensor zeroing is applied server-side so every connected GUI sees the same numbers. `POST /v1/tares` with a sensor name zeroes that sensor from the mean of its most recent raw readings; `DELETE /v1/tares?sensor_name=...` removes the offset. Tares are keyed by sensor **name** rather than by device, so an offset set before a flight handoff still applies once the flight device takes over the same sensor name. They are held in memory only and are cleared when the server restarts.
+
+Readings on `/ws/telemetry/raw` carry both the tared `value` and the `tare` that was subtracted, so the untared reading is always recoverable as `value + tare`. The current offsets are also in the `/ws/state` snapshot under `tares`, with `tare.updated` / `tare.cleared` deltas as they change.
 
 ## Protocol
 

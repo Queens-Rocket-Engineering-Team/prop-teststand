@@ -3,8 +3,9 @@ import asyncio
 import logging
 import socket
 import time
+from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Protocol
 
 from prop_teststand.qlcp.decoding import decode_packet_server
@@ -23,14 +24,52 @@ UDP_PORT = 50001  # Distinct from the TCP port; a different number is useful for
 
 MICROSECONDS_PER_SECOND = 1_000_000
 
+# Raw samples retained per (device, sensor) so a tare can be captured from recent history.
+TARE_SAMPLE_CAPACITY = 256
+TARE_DEFAULT_SAMPLES = 16
+# Samples older than this are treated as absent, so a disconnected device's last readings
+# can never be used to capture a tare.
+TARE_SAMPLE_MAX_AGE_S = 2.0
+
+
+class TareCaptureError(Exception):
+    """A tare could not be captured from recent samples.
+
+    ``candidates`` lists the devices currently reporting the sensor when the failure was
+    caused by an ambiguous name rather than by missing samples.
+    """
+
+    def __init__(self, message: str, *, candidates: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.candidates = candidates
+
 
 @dataclass(frozen=True, slots=True)
 class TelemetryReading:
+    """A single sensor reading after server-side taring.
+
+    ``value`` is the tared value and ``tare`` is the offset that was subtracted, so the
+    raw reading is recoverable as ``value + tare``.
+    """
+
     sensor_id: int
     sensor_name: str
     value: float
     unit_name: str
     sensor_type: str
+    tare: float = 0.0
+
+
+@dataclass(slots=True)
+class _SampleBuffer:
+    """Recent raw (pre-tare) values for one device's sensor.
+
+    Raw rather than tared, so re-taring an already-tared sensor computes a fresh absolute
+    offset instead of compounding onto the previous one.
+    """
+
+    values: deque[float] = field(default_factory=lambda: deque(maxlen=TARE_SAMPLE_CAPACITY))
+    last_updated_monotonic: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +85,10 @@ class TelemetryBatch:
     timestamp_synced: bool
 
 
+def _no_tare(sensor_name: str) -> float:  # noqa: ARG001
+    return 0.0
+
+
 class TelemetryPublisher(Protocol):
     """A telemetry fan-out target that accepts decoded batches synchronously."""
 
@@ -59,11 +102,14 @@ class TelemetryRuntime:
         self,
         device_for_address: Callable[[str], ESPDeviceSession | None],
         *publishers: TelemetryPublisher,
+        tare_for: Callable[[str], float] | None = None,
         metrics: Metrics | None = None,
     ) -> None:
         self._device_for_address = device_for_address
+        self._tare_for = tare_for if tare_for is not None else _no_tare
         self.publishers = publishers
         self.metrics = metrics or Metrics()
+        self._samples: dict[tuple[str, str], _SampleBuffer] = {}
 
     def handle_datagram(self, data: bytes, address: str) -> TelemetryBatch | None:
         session = self._session_for_udp_address(address)
@@ -93,6 +139,7 @@ class TelemetryRuntime:
         self.metrics.record_telemetry_data_packet(session.name)
         timestamp_s, timestamp_source, timestamp_synced = self._batch_timestamp(packet, session)
         readings: list[TelemetryReading] = []
+        now = time.monotonic()
 
         for reading in packet.readings:
             sensor = session.qlcp_config.sensors_by_id.get(reading.sensor_id)
@@ -105,13 +152,16 @@ class TelemetryRuntime:
                 )
                 continue
 
+            self._record_sample(session.name, sensor.name, reading.value, now)
+            tare = self._tare_for(sensor.name)
             readings.append(
                 TelemetryReading(
                     sensor_id=reading.sensor_id,
                     sensor_name=sensor.name,
-                    value=reading.value,
+                    value=reading.value - tare,
                     unit_name=sensor.unit,
                     sensor_type=sensor.group,
+                    tare=tare,
                 ),
             )
 
@@ -126,6 +176,52 @@ class TelemetryRuntime:
         )
         self.metrics.record_telemetry_readings(session.name, len(batch.readings))
         return batch
+
+    def _record_sample(self, device_name: str, sensor_name: str, raw_value: float, now: float) -> None:
+        """Append a raw reading to the tare capture history. Runs per reading in the UDP loop."""
+        key = (device_name, sensor_name)
+        buffer = self._samples.get(key)
+        if buffer is None:
+            buffer = _SampleBuffer()
+            self._samples[key] = buffer
+        buffer.values.append(raw_value)
+        buffer.last_updated_monotonic = now
+
+    def capture_tare_offset(
+        self,
+        sensor_name: str,
+        *,
+        device_name: str | None = None,
+        samples: int = TARE_DEFAULT_SAMPLES,
+    ) -> tuple[float, str, int]:
+        """Mean of the most recent raw readings for *sensor_name*, as ``(offset, device, count)``.
+
+        Raises TareCaptureError when no device is currently reporting the sensor, or when
+        more than one is and *device_name* does not say which to sample from.
+        """
+        now = time.monotonic()
+        candidates = {
+            key[0]: buffer
+            for key, buffer in self._samples.items()
+            if key[1] == sensor_name
+            and (device_name is None or key[0] == device_name)
+            and buffer.values
+            and now - buffer.last_updated_monotonic <= TARE_SAMPLE_MAX_AGE_S
+        }
+
+        if not candidates:
+            scope = f" on {device_name}" if device_name is not None else ""
+            message = f"No telemetry received for sensor {sensor_name!r}{scope} in the last {TARE_SAMPLE_MAX_AGE_S}s."
+            raise TareCaptureError(message)
+
+        if len(candidates) > 1:
+            names = tuple(sorted(candidates))
+            message = f"Sensor {sensor_name!r} is reported by multiple devices ({', '.join(names)}); specify which to sample from."
+            raise TareCaptureError(message, candidates=names)
+
+        sampled_device, buffer = next(iter(candidates.items()))
+        window = list(buffer.values)[-samples:]
+        return sum(window) / len(window), sampled_device, len(window)
 
     def _session_for_udp_address(self, address: str) -> ESPDeviceSession | None:
         return self._device_for_address(address)

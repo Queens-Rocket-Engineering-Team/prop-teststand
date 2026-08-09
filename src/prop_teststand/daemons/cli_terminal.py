@@ -6,6 +6,12 @@ from typing import TYPE_CHECKING
 
 import aioconsole
 
+from prop_teststand.runtime.telemetry_ingest import (
+    TARE_DEFAULT_SAMPLES,
+    TARE_SAMPLE_CAPACITY,
+    TareCaptureError,
+)
+
 
 if TYPE_CHECKING:
     from prop_teststand.runtime.esp_connection_runtime import ESPDeviceSession
@@ -33,6 +39,7 @@ SERVER_COMMANDS = [
     "INFO",
     "REMOVE",
     "ESTOP",
+    "TARE",
 ]
 
 DEVICE_COMMANDS = [
@@ -44,6 +51,51 @@ DEVICE_COMMANDS = [
     "CLOSE",
     "STATUS",
 ]
+
+
+async def _handle_tare_command(runtime: RuntimeServices, args: list) -> None:
+    """Handle `tare`, `tare <sensor> [samples]`, and `tare <sensor> clear`."""
+    if not args:
+        tares = runtime.system_state.tares()
+        if not tares:
+            logger.info("No sensors are tared.")
+            logger.info("  Try: tare <sensor_name>")
+            return
+        logger.info(f"Tared sensors ({len(tares)}):")
+        for sensor_name, offset in tares.items():
+            logger.info(f"  {sensor_name} - {offset}")
+        return
+
+    sensor_name = args[0]
+
+    if len(args) > 1 and args[1].lower() in ("clear", "reset", "off"):
+        event = runtime.system_state.clear_tare(sensor_name)
+        if event is None:
+            logger.info(f"Sensor '{sensor_name}' is not tared")
+            return
+        runtime.state_stream.publish(event)
+        logger.info(f"Cleared tare for '{sensor_name}'")
+        return
+
+    samples = TARE_DEFAULT_SAMPLES
+    if len(args) > 1:
+        try:
+            samples = int(args[1])
+        except ValueError:
+            logger.info(f"Invalid sample count: {args[1]!r}. Usage: tare <sensor> [samples|clear]")
+            return
+        if not 1 <= samples <= TARE_SAMPLE_CAPACITY:
+            logger.info(f"Sample count must be between 1 and {TARE_SAMPLE_CAPACITY}")
+            return
+
+    try:
+        offset, device_name, count = runtime.telemetry_runtime.capture_tare_offset(sensor_name, samples=samples)
+    except TareCaptureError as exc:
+        logger.info(str(exc))
+        return
+
+    runtime.state_stream.publish(runtime.system_state.set_tare(sensor_name, offset))
+    logger.info(f"Tared '{sensor_name}' to {offset} from {count} readings on {device_name}")
 
 
 async def handle_server_command(runtime: RuntimeServices, command: str, args: list) -> None:
@@ -132,6 +184,8 @@ async def handle_server_command(runtime: RuntimeServices, command: str, args: li
         logger.info(f"  Controls ({len(device.controls)}):")
         for idx, name in enumerate(device.controls.keys()):
             logger.info(f"    [{idx}] {name}")
+    elif cmd == "TARE":
+        await _handle_tare_command(runtime, args)
     elif cmd == "HELP":
         logger.info("Available commands:")
         logger.info("  discover           - Discover devices")
@@ -146,6 +200,9 @@ async def handle_server_command(runtime: RuntimeServices, command: str, args: li
         logger.info("  open <dev> <ctrl>  - Open valve/control")
         logger.info("  close <dev> <ctrl> - Close valve/control")
         logger.info("  status <device>    - Get device status / control states")
+        logger.info("  tare               - Show applied sensor tares")
+        logger.info("  tare <sensor> [n]  - Zero a sensor using its last n readings")
+        logger.info("  tare <sensor> clear - Remove a sensor's tare")
         logger.info("  quit               - Exit")
     elif cmd == "ESTOP":
         devices = runtime.esp_runtime.get_registered_devices()

@@ -42,6 +42,9 @@ class TelemetryStreamRuntime(BoundedWebSocketFanout):
                     "sensor_id": reading.sensor_id,
                     "sensor_name": reading.sensor_name,
                     "value": reading.value,
+                    # Server-applied tare offset. The untared reading is `value + tare`,
+                    # so recordings taken from this stream stay reversible.
+                    "tare": reading.tare,
                     "unit": reading.unit_name,
                     "sensor_type": reading.sensor_type,
                 }

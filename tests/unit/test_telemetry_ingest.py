@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -8,6 +9,8 @@ from prop_teststand.qlcp.packets import AckPacket, DataPacket, HeartbeatPacket, 
 from prop_teststand.runtime.esp_connection_runtime import ESPDeviceSession
 from prop_teststand.runtime.metrics import Metrics
 from prop_teststand.runtime.telemetry_ingest import (
+    TARE_SAMPLE_MAX_AGE_S,
+    TareCaptureError,
     TelemetryReading,
     TelemetryRuntime,
 )
@@ -17,9 +20,9 @@ def _metrics_snapshot(metrics: Metrics) -> dict[str, Any]:
     return cast("dict[str, Any]", metrics.to_dict())
 
 
-def _make_config() -> dict[str, Any]:
+def _make_config(device_name: str = "PANDA") -> dict[str, Any]:
     return {
-        "device_name": "PANDA",
+        "device_name": device_name,
         "device_type": "Sensor Monitor",
         "sensors": {
             "thermocouple": {
@@ -39,16 +42,38 @@ def _make_config() -> dict[str, Any]:
     }
 
 
-def _make_session(*, address: str = "10.0.0.2", last_sync_time: float | None = 1.0) -> ESPDeviceSession:
-    config = parse_config(_make_config())
+def _make_session(
+    *,
+    address: str = "10.0.0.2",
+    last_sync_time: float | None = 1.0,
+    device_name: str = "PANDA",
+    connection_key: str = "conn-a",
+) -> ESPDeviceSession:
+    config = parse_config(_make_config(device_name))
     session = SimpleNamespace(
         name=config.name,
         address=address,
-        connection_key="conn-a",
+        connection_key=connection_key,
         qlcp_config=config,
         last_sync_time=last_sync_time,
     )
     return cast("ESPDeviceSession", session)
+
+
+def _tare_lookup(tares: dict[str, float]) -> Callable[[str], float]:
+    """Stand-in for SystemState.tare_for: 0.0 for sensors with no tare set."""
+
+    def tare_for(sensor_name: str) -> float:
+        return tares.get(sensor_name, 0.0)
+
+    return tare_for
+
+
+def _data_packet(*readings: tuple[int, float], sequence: int = 1) -> DataPacket:
+    return DataPacket(
+        header=PacketHeader(sequence=sequence, timestamp_us=12345),
+        readings=[SensorReading(sensor_id=sensor_id, value=value) for sensor_id, value in readings],
+    )
 
 
 def test_data_packet_from_registered_session_produces_batch() -> None:
@@ -198,3 +223,93 @@ def test_unknown_sensor_id_is_logged_and_dropped(monkeypatch: pytest.MonkeyPatch
     assert batch is not None
     assert batch.readings == ()
     assert errors == ["Received DATA reading for unknown sensor id 99 from PANDA. Ignoring."]
+
+
+def test_tare_is_subtracted_and_reported_per_reading() -> None:
+    session = _make_session()
+    ingest = TelemetryRuntime({session.address: session}.get, tare_for=_tare_lookup({"TC1": 10.0}))
+
+    batch = ingest.handle_packet(_data_packet((0, 12.5), (1, 30.0)), session)
+
+    tc1, tc2 = batch.readings
+    assert (tc1.value, tc1.tare) == pytest.approx((2.5, 10.0))
+    # Untared sensors are unchanged, and the raw reading stays recoverable for both.
+    assert (tc2.value, tc2.tare) == pytest.approx((30.0, 0.0))
+    assert tc1.value + tc1.tare == pytest.approx(12.5)
+
+
+def test_capture_tare_offset_averages_recent_raw_readings() -> None:
+    session = _make_session()
+    ingest = TelemetryRuntime({session.address: session}.get)
+    for value in (1.0, 2.0, 3.0, 100.0):
+        ingest.handle_packet(_data_packet((0, value)), session)
+
+    offset, device_name, count = ingest.capture_tare_offset("TC1", samples=3)
+
+    assert offset == pytest.approx(35.0)  # mean of the last three, not all four
+    assert device_name == "PANDA"
+    assert count == 3
+
+
+def test_capture_tare_offset_samples_raw_values_not_tared_ones() -> None:
+    """A second tare must recompute an absolute offset rather than compound onto the first."""
+    session = _make_session()
+    ingest = TelemetryRuntime({session.address: session}.get, tare_for=_tare_lookup({"TC1": 10.0}))
+    for value in (20.0, 22.0):
+        ingest.handle_packet(_data_packet((0, value)), session)
+
+    offset, _device_name, _count = ingest.capture_tare_offset("TC1", samples=2)
+
+    assert offset == pytest.approx(21.0)
+
+
+def test_capture_tare_offset_uses_every_available_sample_when_fewer_than_requested() -> None:
+    session = _make_session()
+    ingest = TelemetryRuntime({session.address: session}.get)
+    ingest.handle_packet(_data_packet((0, 4.0)), session)
+
+    offset, _device_name, count = ingest.capture_tare_offset("TC1", samples=64)
+
+    assert offset == pytest.approx(4.0)
+    assert count == 1
+
+
+def test_capture_tare_offset_without_samples_raises() -> None:
+    session = _make_session()
+    ingest = TelemetryRuntime({session.address: session}.get)
+
+    with pytest.raises(TareCaptureError) as excinfo:
+        ingest.capture_tare_offset("TC1")
+
+    assert excinfo.value.candidates == ()
+    assert "No telemetry received" in str(excinfo.value)
+
+
+def test_capture_tare_offset_ignores_stale_samples(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A disconnected device's last readings must never be used to capture a tare."""
+    session = _make_session()
+    ingest = TelemetryRuntime({session.address: session}.get)
+    monkeypatch.setattr("prop_teststand.runtime.telemetry_ingest.time.monotonic", lambda: 100.0)
+    ingest.handle_packet(_data_packet((0, 4.0)), session)
+
+    monkeypatch.setattr("prop_teststand.runtime.telemetry_ingest.time.monotonic", lambda: 100.0 + TARE_SAMPLE_MAX_AGE_S + 0.1)
+    with pytest.raises(TareCaptureError):
+        ingest.capture_tare_offset("TC1")
+
+
+def test_capture_tare_offset_reports_candidates_when_name_is_ambiguous() -> None:
+    """Two devices carrying the same sensor name is the flight handoff case."""
+    ground = _make_session(address="10.0.0.2", device_name="GROUND")
+    flight = _make_session(address="10.0.0.3", device_name="FLIGHT", connection_key="conn-b")
+    ingest = TelemetryRuntime({ground.address: ground, flight.address: flight}.get)
+    ingest.handle_packet(_data_packet((0, 4.0)), ground)
+    ingest.handle_packet(_data_packet((0, 90.0)), flight)
+
+    with pytest.raises(TareCaptureError) as excinfo:
+        ingest.capture_tare_offset("TC1")
+
+    assert excinfo.value.candidates == ("FLIGHT", "GROUND")
+
+    offset, device_name, _count = ingest.capture_tare_offset("TC1", device_name="FLIGHT")
+    assert offset == pytest.approx(90.0)
+    assert device_name == "FLIGHT"
