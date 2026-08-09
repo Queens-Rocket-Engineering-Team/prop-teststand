@@ -10,8 +10,7 @@ from prop_teststand.state.system_state import SystemState
 def _make_config(name: str = "TEST-DEVICE") -> dict[str, Any]:
     return {
         "device_name": name,
-        "device_type": "Sensor Monitor",
-        "sensor_info": {
+        "sensors": {
             "thermocouple": {
                 "TC1": {
                     "sensor_index": "TC1",
@@ -21,10 +20,12 @@ def _make_config(name: str = "TEST-DEVICE") -> dict[str, Any]:
             },
         },
         "controls": {
-            "VALVE1": {
-                "control_index": "VALVE1",
-                "type": "solenoid",
-                "default_state": "CLOSED",
+            "valve": {
+                "VALVE1": {
+                    "control_index": "VALVE1",
+                    "type": "BOOL",
+                    "default_state": "CLOSED",
+                },
             },
         },
     }
@@ -42,7 +43,6 @@ def _make_device(
         address=address,
         connection_key=connection_key,
         name=config.name,
-        type=config.device_type,
         qlcp_config=config,
         last_sync_time=None,
         missed_heartbeat_count=heartbeat_misses,
@@ -95,11 +95,10 @@ def test_register_device_produces_expected_snapshot() -> None:
 
     device_snapshot = snapshot["devices"][0]
     assert device_snapshot["name"] == "TEST-DEVICE"
-    assert device_snapshot["device_type"] == "Sensor Monitor"
     assert device_snapshot["connected"] is True
     assert device_snapshot["address"] == "10.0.0.2"
     assert device_snapshot["sensors"][0]["name"] == "TC1"
-    assert device_snapshot["sensors"][0]["unit"] == "CELSIUS"
+    assert device_snapshot["sensors"][0]["unit"] == "C"
     assert device_snapshot["controls"][0]["name"] == "VALVE1"
     assert device_snapshot["controls"][0]["reported_state"] is None
     assert device_snapshot["heartbeat"]["state"] == "ok"

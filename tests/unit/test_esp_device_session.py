@@ -25,7 +25,7 @@ def _make_config() -> dict[str, Any]:
     return {
         "device_name": "TEST-DEVICE",
         "device_type": "Sensor Monitor",
-        "sensor_info": {},
+        "sensors": {},
         "controls": {},
     }
 
@@ -52,26 +52,6 @@ def _make_runtime() -> tuple[ESPConnectionRuntime, CommandTracker, FakeStateStre
         state_stream=state_stream,
     )
     return runtime, tracker, state_stream
-
-
-def test_resync_state_transitions() -> None:
-    session, peer_sock = _make_session()
-    try:
-        assert session.needs_resync() is False
-
-        session.last_sync_time = time.monotonic() - session.RESYNC_INTERVAL_S - 1.0
-        assert session.needs_resync() is True
-
-        session.mark_resync_sent()
-        assert session.needs_resync() is False
-
-        session.last_sync_time = time.monotonic()
-        session.mark_synced()
-        assert session.needs_resync() is False
-    finally:
-        session.close()
-        peer_sock.close()
-
 
 def test_heartbeat_ack_resets_missed_heartbeat_state() -> None:
     session, peer_sock = _make_session()
@@ -174,39 +154,6 @@ def test_expired_control_command_emits_timed_out_event(monkeypatch: pytest.Monke
             assert removed is False
             assert command.state == CommandLifecycle.TIMED_OUT
             assert stream.events[-1]["type"] == "command.timed_out"
-        finally:
-            session.close()
-            peer_sock.close()
-
-    asyncio.run(run())
-
-
-def test_expired_timesync_retries_and_rearms_resync(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A timed-out TIMESYNC must retry (resend) and re-arm resync, not disable it permanently."""
-
-    async def run() -> None:
-        session, peer_sock = _make_session()
-        runtime, tracker, _stream = _make_runtime()
-        monkeypatch.setattr(session, "COMMAND_ACK_TIMEOUT_S", 0.0)
-        try:
-            session.mark_resync_sent()
-            tracker.mark_sent(
-                connection_key=session.connection_key,
-                device_name=session.name,
-                device_address=session.address,
-                packet_type=PacketType.TIMESYNC,
-                packet_sequence=7,
-                now=0.0,
-            )
-
-            removed = await runtime.expire_command_timeouts(session)
-
-            assert removed is False
-            assert any(record.packet_type == PacketType.TIMESYNC for record in tracker.pending)
-
-            loop = asyncio.get_running_loop()
-            resent_bytes = await loop.sock_recv(peer_sock, 4096)
-            assert len(resent_bytes) > 0
         finally:
             session.close()
             peer_sock.close()

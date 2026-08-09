@@ -35,7 +35,7 @@ COMMAND_POLICIES: dict[PacketType, CommandPolicy] = {
     PacketType.GET_SINGLE: CommandPolicy(ack_expected=False, operator_visible=True),
     PacketType.STATUS_REQUEST: CommandPolicy(ack_expected=False, operator_visible=False),
     PacketType.HEARTBEAT: CommandPolicy(ack_expected=True, operator_visible=False),
-    PacketType.TIMESYNC: CommandPolicy(ack_expected=True, operator_visible=False),
+    PacketType.TIMESYNC_RESP: CommandPolicy(ack_expected=True, operator_visible=False),
 }
 
 def command_policy(packet_type: PacketType) -> CommandPolicy:
@@ -85,7 +85,7 @@ class CommandRecord:
     nack_error_code: ErrorCode | None = None
     control_id: int | None = None
     control_name: str | None = None
-    requested_state: ControlState | None = None
+    requested_state: ControlState | int | float | None = None
 
     @property
     def key(self) -> CommandKey:
@@ -131,7 +131,7 @@ class CommandTracker:
         now: float | None = None,
         control_id: int | None = None,
         control_name: str | None = None,
-        requested_state: ControlState | None = None,
+        requested_state: ControlState | float | int | None = None,
         ack_expected: bool | None = None,
     ) -> CommandRecord:
         record = CommandRecord(

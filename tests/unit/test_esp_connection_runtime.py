@@ -6,14 +6,18 @@ from typing import Any, cast
 import orjson
 
 from prop_teststand.qlcp.config_parser import parse_config
-from prop_teststand.qlcp.enums import ControlState, DeviceStatus, ErrorCode, PacketType
+from prop_teststand.qlcp.enums import ControlConfirmStatus, ControlState, ControlType, ErrorCode, PacketType
 from prop_teststand.qlcp.packets import (
     AckPacket,
     ConfigPacket,
+    ControlPacket,
     ControlStatus,
+    EstopPacket,
+    HeartbeatPacket,
     NackPacket,
-    SimplePacket,
+    PacketHeader,
     StatusPacket,
+    StatusRequestPacket,
 )
 from prop_teststand.runtime.command_tracker import CommandLifecycle, CommandTracker
 from prop_teststand.runtime.esp_connection_runtime import ESPConnectionRuntime, ESPDeviceSession
@@ -40,8 +44,7 @@ class FakeDriver:
 def _make_config(name: str = "TEST-DEVICE") -> dict[str, Any]:
     return {
         "device_name": name,
-        "device_type": "Sensor Monitor",
-        "sensor_info": {
+        "sensors": {
             "thermocouple": {
                 "TC1": {
                     "sensor_index": "TC1",
@@ -51,13 +54,42 @@ def _make_config(name: str = "TEST-DEVICE") -> dict[str, Any]:
             },
         },
         "controls": {
-            "VALVE1": {
-                "control_index": "VALVE1",
-                "type": "solenoid",
-                "default_state": "CLOSED",
+            "valve": {
+                "VALVE1": {
+                    "control_index": "VALVE1",
+                    "type": "BOOL",
+                    "default_state": "CLOSED",
+                },
+            },
+            "heater": {
+                "HEATER1": {
+                    "control_index": "HEATER1",
+                    "type": "UINT32",
+                    "default_state": "0",
+                },
+                "HEATER2": {
+                    "control_index": "HEATER2",
+                    "type": "FLOAT32",
+                    "default_state": "0.0",
+                },
             },
         },
     }
+
+
+def _heartbeat(sequence: int) -> HeartbeatPacket:
+    """Build a HEARTBEAT with a fixed sequence, for ACKs with a known ack_sequence."""
+    return HeartbeatPacket(
+        header=PacketHeader(
+            sequence=sequence,
+            timestamp_us=0,
+        ),
+    )
+
+
+def _sent_packets(session: ESPDeviceSession) -> list[object]:
+    """Packets recorded by the FakeDriver a _make_session device was built with."""
+    return cast("FakeDriver", session.driver).sent_packets
 
 
 def _make_runtime() -> tuple[ESPConnectionRuntime, CommandTracker, SystemState, FakeStateStream]:
@@ -84,7 +116,6 @@ def _make_session(
         address=address,
         connection_key=connection_key,
         name=config.name,
-        type=config.device_type,
         qlcp_config=config,
         controls={control.name.upper(): control for control in config.controls_by_id.values()},
         monitor_task=None,
@@ -128,11 +159,18 @@ def test_runtime_registers_valid_device() -> None:
         peer_sock.setblocking(False)
 
         try:
+            config = _make_config()
             session = await runtime.register_configured_device(
                 server_sock,
                 "10.0.0.2",
-                _make_config(),
-                config_sequence=12,
+                config,
+                ConfigPacket(
+                    header=PacketHeader(
+                        sequence=12,
+                        timestamp_us=0,
+                    ),
+                    config_json=orjson.dumps(config).decode(),
+                ),
             )
 
             assert isinstance(session, ESPDeviceSession)
@@ -200,7 +238,7 @@ def test_accept_connection_closes_socket_on_non_config_first_packet() -> None:
 
         try:
             # A device-sent, server-decodable packet that is not CONFIG.
-            peer_sock.sendall(AckPacket.create(PacketType.HEARTBEAT, ack_sequence=1).encode())
+            peer_sock.sendall(AckPacket.create(_heartbeat(sequence=1)).encode())
 
             result = await runtime.accept_connection(server_sock, "10.0.0.2")
 
@@ -249,7 +287,7 @@ def test_heartbeat_loop_removes_device_when_expiry_raises() -> None:
         async def _raise(_session: ESPDeviceSession) -> bool:
             raise BrokenPipeError
 
-        runtime.expire_command_timeouts = _raise  # type: ignore[method-assign]
+        runtime.expire_command_timeouts = _raise  # type: ignore[method-assign, assignment]
 
         # Must not raise: the guard removes the device and exits the loop.
         await runtime._heartbeat_session(session)
@@ -343,8 +381,10 @@ def test_runtime_ack_routes_through_tracker_and_records_accepted_control_state()
     runtime.handle_ack(
         device,
         AckPacket(
-            sequence=20,
-            timestamp=0,
+            header=PacketHeader(
+                sequence=20,
+                timestamp_us=0,
+            ),
             ack_packet_type=PacketType.CONTROL,
             ack_sequence=12,
         ),
@@ -377,8 +417,10 @@ def test_runtime_nack_routes_through_tracker_without_control_update() -> None:
     runtime.handle_nack(
         device,
         NackPacket(
-            sequence=20,
-            timestamp=0,
+            header=PacketHeader(
+                sequence=12,
+                timestamp_us=0,
+            ),
             nack_packet_type=PacketType.CONTROL,
             nack_sequence=12,
             error_code=ErrorCode.INVALID_PARAM,
@@ -390,6 +432,58 @@ def test_runtime_nack_routes_through_tracker_without_control_update() -> None:
     assert stream.events[-1]["type"] == "command.nacked"
 
 
+def test_set_control_sends_integer_state_for_variable_control() -> None:
+    async def run() -> None:
+        runtime, _tracker, _state, _stream = _make_runtime()
+        device = _make_session(runtime)
+
+        assert await runtime.set_control(device, "HEATER1", "75") is True
+
+        packet = _sent_packets(device)[-1]
+        assert isinstance(packet, ControlPacket)
+        assert packet.control_type == ControlType.UINT32
+        assert packet.control_state == 75
+
+    asyncio.run(run())
+
+
+def test_set_control_sends_float_state_for_variable_control() -> None:
+    async def run() -> None:
+        runtime, _tracker, _state, _stream = _make_runtime()
+        device = _make_session(runtime)
+
+        assert await runtime.set_control(device, "HEATER2", "62.5") is True
+
+        packet = _sent_packets(device)[-1]
+        assert isinstance(packet, ControlPacket)
+        assert packet.control_type == ControlType.FLOAT32
+        assert packet.control_state == 62.5
+
+    asyncio.run(run())
+
+
+def test_set_control_rejects_non_numeric_state_for_variable_control() -> None:
+    async def run() -> None:
+        runtime, _tracker, _state, _stream = _make_runtime()
+        device = _make_session(runtime)
+
+        assert await runtime.set_control(device, "HEATER1", "OPEN") is False
+        assert _sent_packets(device) == []
+
+    asyncio.run(run())
+
+
+def test_set_control_rejects_numeric_state_for_bool_control() -> None:
+    async def run() -> None:
+        runtime, _tracker, _state, _stream = _make_runtime()
+        device = _make_session(runtime)
+
+        assert await runtime.set_control(device, "VALVE1", "75") is False
+        assert _sent_packets(device) == []
+
+    asyncio.run(run())
+
+
 def test_runtime_status_updates_reported_control_state() -> None:
     runtime, _tracker, state, stream = _make_runtime()
     device = _make_session(runtime)
@@ -399,15 +493,107 @@ def test_runtime_status_updates_reported_control_state() -> None:
     runtime.handle_status(
         device,
         StatusPacket(
-            sequence=1,
-            timestamp=0,
-            status=DeviceStatus.ACTIVE,
-            control_states=[ControlStatus(id=0, state=ControlState.OPEN)],
+            header=PacketHeader(
+                sequence=1,
+                timestamp_us=0,
+            ),
+            ack_packet_type=PacketType.STATUS_REQUEST,
+            ack_sequence=1,
+            control_states=[ControlStatus(id=0, type=ControlType.BOOL, state=ControlState.OPEN)],
         ),
     )
 
     assert state.snapshot()["devices"][0]["controls"][0]["reported_state"] == "OPEN"
     assert stream.events[-1]["type"] == "control.updated"
+    assert state.snapshot()["devices"][0]["controls"][0]["reported_status"] == "confirmed"
+    assert state.snapshot()["devices"][0]["controls"][0]["settled"] is True
+
+
+def test_runtime_unsolicited_status_skips_ack_tracking() -> None:
+    """An unsolicited STATUS (ack_packet_type=NO_ACK) must not resolve a pending command."""
+    runtime, tracker, state, stream = _make_runtime()
+    device = _make_session(runtime)
+    runtime.devices.register(device)
+    state.register_device(device)
+
+    pending = tracker.mark_sent(
+        connection_key=device.connection_key,
+        device_name=device.name,
+        device_address=device.address,
+        packet_type=PacketType.CONTROL,
+        packet_sequence=1,
+        now=0.0,
+    )
+
+    runtime.handle_status(
+        device,
+        StatusPacket(
+            header=PacketHeader(sequence=2, timestamp_us=0),
+            ack_packet_type=PacketType.NO_ACK,
+            ack_sequence=1,  # deliberately matches the pending command's sequence
+            control_states=[ControlStatus(id=0, type=ControlType.BOOL, state=ControlState.OPEN)],
+        ),
+    )
+
+    assert tracker.pending == (pending,)
+    assert state.snapshot()["devices"][0]["controls"][0]["reported_state"] == "OPEN"
+    assert not any(event["type"] == "command.acked" for event in stream.events)
+
+
+def test_runtime_status_error_preserves_last_known_state() -> None:
+    runtime, _tracker, state, stream = _make_runtime()
+    device = _make_session(runtime)
+    runtime.devices.register(device)
+    state.register_device(device)
+
+    runtime.handle_status(
+        device,
+        StatusPacket(
+            header=PacketHeader(sequence=1, timestamp_us=0),
+            ack_packet_type=PacketType.STATUS_REQUEST,
+            ack_sequence=1,
+            control_states=[ControlStatus(id=0, type=ControlType.BOOL, state=ControlState.OPEN)],
+        ),
+    )
+    runtime.handle_status(
+        device,
+        StatusPacket(
+            header=PacketHeader(sequence=2, timestamp_us=0),
+            ack_packet_type=PacketType.STATUS_REQUEST,
+            ack_sequence=2,
+            control_states=[ControlStatus(id=0, type=ControlType.BOOL, state=None, status=ControlConfirmStatus.ERROR)],
+        ),
+    )
+
+    control = state.snapshot()["devices"][0]["controls"][0]
+    assert control["reported_state"] == "OPEN"  # preserved, not clobbered by the undefined error state
+    assert control["reported_status"] == "error"
+    # "settled" only reflects the pending/waiting concept; error is a distinct fault signal
+    # surfaced via reported_status, not folded into the same spinner semantics.
+    assert control["settled"] is True
+    assert stream.events[-1]["type"] == "control.error"
+
+
+def test_runtime_status_pending_control_is_not_settled() -> None:
+    runtime, _tracker, state, _stream = _make_runtime()
+    device = _make_session(runtime)
+    runtime.devices.register(device)
+    state.register_device(device)
+
+    runtime.handle_status(
+        device,
+        StatusPacket(
+            header=PacketHeader(sequence=1, timestamp_us=0),
+            ack_packet_type=PacketType.STATUS_REQUEST,
+            ack_sequence=1,
+            control_states=[ControlStatus(id=0, type=ControlType.BOOL, state=ControlState.OPEN, status=ControlConfirmStatus.PENDING)],
+        ),
+    )
+
+    control = state.snapshot()["devices"][0]["controls"][0]
+    assert control["reported_state"] == "OPEN"
+    assert control["reported_status"] == "pending"
+    assert control["settled"] is False
 
 
 def test_runtime_command_visibility_policy_for_status_request_and_estop() -> None:
@@ -417,11 +603,21 @@ def test_runtime_command_visibility_policy_for_status_request_and_estop() -> Non
 
         status_request = await runtime.send_tracked_command(
             device,
-            SimplePacket(packet_type=PacketType.STATUS_REQUEST, sequence=30, timestamp=0),
+            StatusRequestPacket(
+                header=PacketHeader(
+                    sequence=30,
+                    timestamp_us=0,
+                ),
+            ),
         )
         estop = await runtime.send_tracked_command(
             device,
-            SimplePacket(packet_type=PacketType.ESTOP, sequence=31, timestamp=0),
+            EstopPacket(
+                header=PacketHeader(
+                    sequence=31,
+                    timestamp_us=0,
+                ),
+            ),
         )
 
         assert status_request.ack_expected is False
@@ -465,9 +661,12 @@ def test_status_packet_with_no_controls_does_not_error(caplog: Any) -> None:
     state.register_device(device)
 
     empty_status = StatusPacket(
-        sequence=1,
-        timestamp=0,
-        status=DeviceStatus.ACTIVE,
+        header=PacketHeader(
+            sequence=1,
+            timestamp_us=0,
+        ),
+        ack_packet_type=PacketType.STATUS_REQUEST,
+        ack_sequence=1,
         control_states=[],  # sensors-only board
     )
 
@@ -585,7 +784,7 @@ def test_runtime_monitor_routes_packets_to_packet_handler() -> None:
 
         try:
             loop = asyncio.get_running_loop()
-            packet = AckPacket.create(PacketType.HEARTBEAT, ack_sequence=7)
+            packet = AckPacket.create(_heartbeat(sequence=7))
             await loop.sock_sendall(peer_sock, packet.encode())
             await asyncio.wait_for(packet_seen.wait(), timeout=1)
 

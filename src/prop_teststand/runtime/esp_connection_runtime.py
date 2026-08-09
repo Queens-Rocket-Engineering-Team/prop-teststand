@@ -9,17 +9,24 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 import orjson
 
 from prop_teststand.drivers.esp import ESPDriver, ESPDriverConnectionClosedError
-from prop_teststand.qlcp.config_parser import parse_config
+from prop_teststand.qlcp.config_parser import QLCPConfigError, cast_control_state, parse_config
 from prop_teststand.qlcp.enums import ControlState, PacketType
+from prop_teststand.qlcp.native import get_timestamp_us
 from prop_teststand.qlcp.packets import (
     AckPacket,
     ConfigPacket,
     ControlPacket,
     DataPacket,
+    EstopPacket,
+    GetSinglePacket,
+    HeartbeatPacket,
     NackPacket,
-    SimplePacket,
     StatusPacket,
+    StatusRequestPacket,
     StreamStartPacket,
+    StreamStopPacket,
+    TimesyncRequestPacket,
+    TimesyncResponsePacket,
 )
 from prop_teststand.runtime.device_registry import DeviceRegistry
 from prop_teststand.runtime.metrics import Metrics
@@ -34,7 +41,17 @@ if TYPE_CHECKING:
     from prop_teststand.state import SystemState
 
 
-TrackedCommandPacket = SimplePacket | ControlPacket | StreamStartPacket
+# Command packets the server sends to a device and tracks for ACK/NACK.
+TrackedCommandPacket = (
+    EstopPacket
+    | HeartbeatPacket
+    | StatusRequestPacket
+    | StreamStopPacket
+    | GetSinglePacket
+    | TimesyncResponsePacket
+    | ControlPacket
+    | StreamStartPacket
+)
 
 TCP_PORT = 50000
 CONFIG_HANDSHAKE_TIMEOUT_S = 10.0
@@ -52,7 +69,6 @@ class _StatePublisher(Protocol):
 class ESPDeviceSession:
     """One active configured TCP connection for a QLCP/ESP device."""
 
-    RESYNC_INTERVAL_S: ClassVar[float] = 600.0
     COMMAND_ACK_TIMEOUT_S: ClassVar[float] = 10.0
     HEARTBEAT_INTERVAL_S: ClassVar[float] = 5.0
     HEARTBEAT_ACK_MISS_LIMIT: ClassVar[int] = 3
@@ -71,7 +87,6 @@ class ESPDeviceSession:
         self.driver = ESPDriver(tcp_socket, address)
 
         self.last_sync_time: float | None = None
-        self._resync_pending = False
         self._missed_heartbeat_acks = 0
 
         self.monitor_task: asyncio.Task[Any] | None = None
@@ -94,10 +109,6 @@ class ESPDeviceSession:
         return self.qlcp_config.name
 
     @property
-    def type(self) -> str:
-        return self.qlcp_config.device_type
-
-    @property
     def sensors(self) -> dict[str, SensorConfig]:
         return {sensor.name: sensor for sensor in self.qlcp_config.sensors_by_id.values()}
 
@@ -105,18 +116,6 @@ class ESPDeviceSession:
     def controls(self) -> dict[str, ControlConfig]:
         """Controls keyed by uppercased name; look up with normalize_control_name()."""
         return {control.name.upper(): control for control in self.qlcp_config.controls_by_id.values()}
-
-    def needs_resync(self) -> bool:
-        """Return True when a TIMESYNC is due for this session."""
-        return not self._resync_pending and self.last_sync_time is not None and time.monotonic() - self.last_sync_time > self.RESYNC_INTERVAL_S
-
-    def mark_resync_sent(self) -> None:
-        """Mark that a TIMESYNC has been sent and is awaiting an ACK."""
-        self._resync_pending = True
-
-    def mark_synced(self) -> None:
-        """Mark that a TIMESYNC has been acknowledged and the session is now in sync."""
-        self._resync_pending = False
 
     def register_missed_heartbeat(self) -> bool:
         """Increment the missed heartbeat count and return True if the session has exceeded the miss limit."""
@@ -135,8 +134,7 @@ class ESPDeviceSession:
         """Record that a TIMESYNC ACK was received, updating the last sync time and marking the session as synced."""
         if command is None:
             return
-        self.last_sync_time = time.monotonic()
-        self.mark_synced()
+        self.last_sync_time = get_timestamp_us()
 
     def record_heartbeat_ack(self, command: CommandRecord | None) -> None:
         """Record that a HEARTBEAT ACK was received, resetting the missed heartbeat count."""
@@ -235,7 +233,7 @@ class ESPConnectionRuntime:
                 client_socket,
                 address,
                 config_dict,
-                packet.sequence,
+                packet,
             )
         except Exception as e:
             logger.exception(f"Failed to register device from {address}: {e}. Closing connection.")
@@ -260,7 +258,7 @@ class ESPConnectionRuntime:
         tcp_socket: socket.socket,
         address: str,
         config: dict[str, Any],
-        config_sequence: int,
+        config_packet: ConfigPacket,
     ) -> ESPDeviceSession:
         """Register a new device session after receiving a CONFIG packet."""
         new_session = ESPDeviceSession(
@@ -293,14 +291,11 @@ class ESPConnectionRuntime:
 
         try:
             # ACK the CONFIG packet
-            ack = AckPacket.create(PacketType.CONFIG, config_sequence)
+            ack = AckPacket.create(ack_packet=config_packet)
             await new_session.driver.send_packet(ack)
 
-            # Initial TIMESYNC
-            await self.send_timesync(new_session, initial=True)
-
             # Initial STATUS_REQUEST for the device to report its control states
-            status_request = SimplePacket.create(PacketType.STATUS_REQUEST)
+            status_request = StatusRequestPacket.create()
             await self.send_tracked_command(new_session, status_request)
             logger.debug("Sent initial STATUS_REQUEST to %s", new_session.name)
         except Exception:
@@ -333,11 +328,6 @@ class ESPConnectionRuntime:
 
                 logger.debug("Decoded %s from %s", type(packet).__name__, session.name)
                 await self.handle_packet(session, packet)
-
-                # Runs at least every HEARTBEAT_INTERVAL_S: HEARTBEAT ACKs guarantee inbound traffic.
-                if session.needs_resync():
-                    session.mark_resync_sent()
-                    await self.send_timesync(session)
 
         except asyncio.CancelledError:
             logger.info("Stopped monitoring %s", session.name)
@@ -399,16 +389,25 @@ class ESPConnectionRuntime:
         self._emit(self.system_state.record_command_sent(command))
         return command
 
-    async def send_timesync(self, session: ESPDeviceSession, *, initial: bool = False) -> CommandRecord:
-        timesync = SimplePacket.create(PacketType.TIMESYNC)
-        command = await self.send_tracked_command(session, timesync)
-        prefix = "initial " if initial else ""
-        logger.debug("Sent %sTIMESYNC to %s", prefix, session.name)
+    async def send_timesync_response(
+        self,
+        session: ESPDeviceSession,
+        *,
+        timesync_request: TimesyncRequestPacket,
+        t2_us: int,
+    ) -> CommandRecord:
+        """Send a TIMESYNC_RESP packet in response to a TIMESYNC_REQ packet."""
+        timesync_resp = TimesyncResponsePacket.create(ack_packet=timesync_request,
+            t1_echo_us=timesync_request.header.timestamp_us,
+            t2_us=t2_us)
+
+        command = await self.send_tracked_command(session, timesync_resp)
+        logger.debug("Sent TIMESYNC_RESP to %s", session.name)
         return command
 
     async def send_heartbeat(self, session: ESPDeviceSession) -> bool:
         try:
-            packet = SimplePacket.create(PacketType.HEARTBEAT)
+            packet = HeartbeatPacket.create()
             await self.send_tracked_command(session, packet)
             return True
         except (BrokenPipeError, ConnectionResetError, OSError):
@@ -422,7 +421,7 @@ class ESPConnectionRuntime:
 
     async def get_single(self, session: ESPDeviceSession) -> bool:
         """Request a single data sample from the device. Returns True if the command was sent."""
-        return await self._send_or_remove(session, SimplePacket.create(PacketType.GET_SINGLE), "GET_SINGLE command")
+        return await self._send_or_remove(session, GetSinglePacket.create(), "GET_SINGLE command")
 
     async def start_streaming(self, session: ESPDeviceSession, frequency_hz: int) -> bool:
         """Request the device to start streaming data at the given frequency. Returns True if sent."""
@@ -437,7 +436,7 @@ class ESPConnectionRuntime:
 
     async def stop_streaming(self, session: ESPDeviceSession) -> bool:
         """Request the device to stop streaming data. Returns True if sent."""
-        return await self._send_or_remove(session, SimplePacket.create(PacketType.STREAM_STOP), "STREAM_STOP command")
+        return await self._send_or_remove(session, StreamStopPacket.create(), "STREAM_STOP command")
 
     async def set_control(
         self,
@@ -445,32 +444,36 @@ class ESPConnectionRuntime:
         control_name: str,
         control_state: str,
     ) -> bool:
-        """Request the device to set a control to a given state (OPEN or CLOSE). Returns True if sent."""
+        """Request the device to set a control to a given state. Returns True if sent.
+
+        BOOL controls take OPEN or CLOSED; numeric controls take a number.
+        """
         control_name = normalize_control_name(control_name)
-        control_state = control_state.upper()
 
         if control_name not in session.controls:
             logger.error("Invalid control name '%s'. Valid: %s", control_name, list(session.controls.keys()))
             return False
-        if control_state not in ["OPEN", "CLOSE"]:
-            logger.error("Invalid state '%s'. Valid: OPEN, CLOSE", control_state)
+
+        control = session.controls[control_name]
+        try:
+            state = cast_control_state(control.type, control_state)
+        except QLCPConfigError:
+            logger.error("Invalid state '%s' for %s control '%s'", control_state, control.type.name, control_name)
             return False
 
-        command_id = session.controls[control_name].id
-        state = ControlState.OPEN if control_state == "OPEN" else ControlState.CLOSED
         return await self._send_or_remove(
             session,
-            ControlPacket.create(command_id=command_id, command_state=state),
-            f"CONTROL command (id={command_id}, {control_name} {control_state})",
+            ControlPacket.create(control.id, control.type, control_state=state),
+            f"CONTROL command (id={control.id}, {control_name} {control_state})",
         )
 
     async def get_status(self, session: ESPDeviceSession) -> bool:
         """Request the device to report its current control states. Returns True if sent."""
-        return await self._send_or_remove(session, SimplePacket.create(PacketType.STATUS_REQUEST), "STATUS_REQUEST command")
+        return await self._send_or_remove(session, StatusRequestPacket.create(), "STATUS_REQUEST command")
 
     async def emergency_stop(self, session: ESPDeviceSession) -> bool:
         """Request the device to perform an emergency stop. Returns True if sent."""
-        return await self._send_or_remove(session, SimplePacket.create(PacketType.ESTOP), "EMERGENCY STOP command")
+        return await self._send_or_remove(session, EstopPacket.create(), "EMERGENCY STOP command")
 
     async def _send_or_remove(
         self,
@@ -514,17 +517,13 @@ class ESPConnectionRuntime:
             )
             self._emit(self.system_state.record_command_timed_out(expired))
 
-            if expired.packet_type == PacketType.TIMESYNC:
-                await self._retry_timesync_after_timeout(session)
-
         return False
 
-    async def _retry_timesync_after_timeout(self, session: ESPDeviceSession) -> None:
-        """Clear resync-pending and resend TIMESYNC after a timeout (also covers a lost initial sync)."""
-        session.mark_synced()
-        if session.is_connected:
-            await self.send_timesync(session)
-            session.mark_resync_sent()
+    async def handle_timesync_request(self, session: ESPDeviceSession, packet: TimesyncRequestPacket) -> None:
+        """Handle a TIMESYNC_REQ packet from a device session, responding with a TIMESYNC_RESP."""
+        # T2: server receipt time, sampled as early as possible (PROTOCOL_SPECIFICATION 7.7.2).
+        t2_us = get_timestamp_us()
+        await self.send_timesync_response(session, timesync_request=packet, t2_us=t2_us)
 
     def handle_ack(self, session: ESPDeviceSession, packet: AckPacket) -> CommandRecord | None:
         """Handle an ACK packet from a device session, marking the corresponding command as acknowledged and updating the system state."""
@@ -541,12 +540,11 @@ class ESPConnectionRuntime:
                 packet.ack_packet_type.name,
                 packet.ack_sequence,
             )
-
-        if packet.ack_packet_type == PacketType.TIMESYNC:
+        if packet.ack_packet_type == PacketType.TIMESYNC_RESP:
             session.record_timesync_ack(command)
             if command is not None:
                 self._emit(self.system_state.record_command_acked(command))
-            logger.debug("%s TIMESYNC ACK seq=%d", session.name, packet.ack_sequence)
+            logger.debug("%s TIMESYNC_RESP ACK seq=%d", session.name, packet.ack_sequence)
         elif packet.ack_packet_type == PacketType.HEARTBEAT:
             session.record_heartbeat_ack(command)
             if command is not None:
@@ -589,9 +587,32 @@ class ESPConnectionRuntime:
         return command
 
     def handle_status(self, session: ESPDeviceSession, packet: StatusPacket) -> None:
-        """Handle a STATUS packet from a device session, updating the system state with the reported control states."""
+        """Handle a STATUS packet from a device session.
+
+        STATUS is either the response to CONTROL and STATUS_REQUEST (in which case it
+        acknowledges the correlated command), or an unsolicited device-initiated update
+        (ack_packet_type == NO_ACK), in which case command-response tracking is skipped
+        entirely. Either way the reported control states are applied as normal.
+        """
+        if packet.ack_packet_type != PacketType.NO_ACK:
+            command = self.command_tracker.mark_acked(
+                connection_key=session.connection_key,
+                packet_type=packet.ack_packet_type,
+                packet_sequence=packet.ack_sequence,
+                now=time.monotonic(),
+            )
+            if command is not None:
+                self._emit(self.system_state.record_command_acked(command))
+
         for control_state in packet.control_states:
-            self._emit(self.system_state.record_reported_control_state(session, control_state.id, control_state.state))
+            self._emit(
+                self.system_state.record_reported_control_state(
+                    session,
+                    control_state.id,
+                    control_state.state,
+                    status=control_state.status,
+                ),
+            )
 
     def cleanup_device(
         self,
@@ -660,6 +681,8 @@ class ESPConnectionRuntime:
                     "Unexpected DATA packet received over TCP from %s. This should be sent over UDP. Ignoring.",
                     session.name,
                 )
+            case TimesyncRequestPacket():
+                await self.handle_timesync_request(session, packet)
             case StatusPacket():
                 self.handle_status(session, packet)
             case AckPacket():
@@ -692,18 +715,16 @@ class ESPConnectionRuntime:
     @staticmethod
     def _command_packet_metadata(
         packet: TrackedCommandPacket,
-    ) -> tuple[PacketType, int, int | None, ControlState | None]:
+    ) -> tuple[PacketType, int, int | None, ControlState | int | float | None]:
         """Return the packet type, sequence number, control ID, and requested state for a given command packet."""
-        match packet:
-            case SimplePacket(packet_type=packet_type, sequence=sequence):
-                return packet_type, sequence, None, None
-            case ControlPacket(sequence=sequence, command_id=command_id, command_state=command_state):
-                return PacketType.CONTROL, sequence, command_id, command_state
-            case StreamStartPacket(sequence=sequence):
-                return PacketType.STREAM_START, sequence, None, None
-            case _:
-                message = f"Unsupported tracked command packet: {type(packet).__name__}"
-                raise TypeError(message)
+        if not isinstance(packet, TrackedCommandPacket):
+            message = f"Unsupported tracked command packet: {type(packet).__name__}"
+            raise TypeError(message)
+
+        # CONTROL packets have additional metadata
+        if isinstance(packet, ControlPacket):
+            return packet.packet_type, packet.header.sequence, packet.control_id, packet.control_state
+        return packet.packet_type, packet.header.sequence, None, None
 
     def _handle_missed_heartbeat(self, session: ESPDeviceSession, command: CommandRecord) -> bool:
         """Handle a missed HEARTBEAT ACK for a device session, recording the miss and potentially removing the session if it exceeds the miss limit. Returns True if the session was removed, False otherwise."""

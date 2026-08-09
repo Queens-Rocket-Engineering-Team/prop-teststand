@@ -3,7 +3,7 @@ from typing import Any, cast
 
 from prop_teststand.qlcp._bindings import ffi as _ffi
 from prop_teststand.qlcp._bindings import lib as _lib
-from prop_teststand.qlcp.enums import ControlState, DeviceStatus, ErrorCode, PacketType, Unit
+from prop_teststand.qlcp.enums import ControlConfirmStatus, ControlState, ControlType, ErrorCode, PacketType
 from prop_teststand.qlcp.native import HEADER_SIZE, MAX_CONFIG, MAX_CONTROLS, MAX_SENSORS, QLCPError, check_qlcp_error
 from prop_teststand.qlcp.packets import (
     AckPacket,
@@ -11,17 +11,25 @@ from prop_teststand.qlcp.packets import (
     ControlPacket,
     ControlStatus,
     DataPacket,
+    DiscoveryPacket,
+    EstopPacket,
+    GetSinglePacket,
+    HeartbeatPacket,
     NackPacket,
+    PacketHeader,
     SensorReading,
-    SimplePacket,
     StatusPacket,
+    StatusRequestPacket,
     StreamStartPacket,
+    StreamStopPacket,
+    TimesyncRequestPacket,
+    TimesyncResponsePacket,
 )
 
 
 # Reuse buffers for client->server decoding to avoid unncessary allocations on the critical data packet path
 # These are only used in a single thread so it's safe to reuse
-_ctrl_arr = _ffi.new(f"qlcp_control_data[{MAX_CONTROLS}]")
+_ctrl_arr = _ffi.new(f"qlcp_status_data[{MAX_CONTROLS}]")
 _sens_arr = _ffi.new(f"qlcp_sensor_data[{MAX_SENSORS}]")
 _conf_buf = _ffi.new(f"char[{MAX_CONFIG}]")
 _buffers = _ffi.new(
@@ -37,11 +45,38 @@ _buffers = _ffi.new(
 )
 _payload = _ffi.new("qlcp_server_payload *")
 
-# Cache for converting unit integers to enums without constructing a new enum for every sensor reading
-_unit_cache: dict[int, Unit] = {u.value: u for u in Unit}
+# Header-only packets the server may receive over TCP (Device -> Server): only TIMESYNC_REQ.
+ServerReceivedPacket = (
+    TimesyncRequestPacket | StatusPacket | DataPacket | ConfigPacket | AckPacket | NackPacket
+)
 
-ServerReceivedPacket = StatusPacket | DataPacket | ConfigPacket | AckPacket | NackPacket
-ClientReceivedPacket = SimplePacket | ControlPacket | StreamStartPacket | AckPacket | NackPacket
+# Header-only packets a client/device may receive (Server -> Device).
+ClientHeaderOnlyPacket = (
+    EstopPacket
+    | DiscoveryPacket
+    | HeartbeatPacket
+    | StatusRequestPacket
+    | StreamStopPacket
+    | GetSinglePacket
+)
+ClientReceivedPacket = (
+    ClientHeaderOnlyPacket
+    | TimesyncResponsePacket
+    | ControlPacket
+    | StreamStartPacket
+    | AckPacket
+    | NackPacket
+)
+
+# Maps a decoded header-only packet type to its concrete class (Server -> Device direction).
+_CLIENT_HEADER_ONLY: dict[int, type[ClientHeaderOnlyPacket]] = {
+    _lib.QLCP_PT_ESTOP: EstopPacket,
+    _lib.QLCP_PT_DISCOVERY: DiscoveryPacket,
+    _lib.QLCP_PT_HEARTBEAT: HeartbeatPacket,
+    _lib.QLCP_PT_STATUS_REQUEST: StatusRequestPacket,
+    _lib.QLCP_PT_STREAM_STOP: StreamStopPacket,
+    _lib.QLCP_PT_GET_SINGLE: GetSinglePacket,
+}
 
 
 def decode_packet_server(data: bytes) -> ServerReceivedPacket:
@@ -59,6 +94,17 @@ def decode_packet_server(data: bytes) -> ServerReceivedPacket:
 
     return _server_payload_to_python(_payload)
 
+def parse_control_state(control_type: ControlType, state: Any) -> ControlState | int | float:
+    """Parse a control state from a C data struct based on the control type."""
+    match control_type:
+        case ControlType.BOOL:
+            return ControlState(state.control_bool)
+        case ControlType.UINT32:
+            return int(state.control_uint32)
+        case ControlType.INT32:
+            return int(state.control_int32)
+        case ControlType.FLOAT32:
+            return float(state.control_float32)
 
 def _server_payload_to_python(payload: Any) -> ServerReceivedPacket:
     """Convert a decoded C payload struct into a Python dataclass based on the packet type.
@@ -69,35 +115,56 @@ def _server_payload_to_python(payload: Any) -> ServerReceivedPacket:
     payload_data = payload.payload_data
 
     if payload_type == _lib.QLCP_PT_STATUS:
-        return StatusPacket(
-            sequence=payload_data.status.header.sequence,
-            timestamp=payload_data.status.header.timestamp,
-            status=DeviceStatus(payload_data.status.device_status),
-            control_states=[
+        control_states = []
+        for i in range(payload_data.status.control_count):
+            control_type = ControlType(payload_data.status.control_data[i].type)
+            control_status = ControlConfirmStatus(payload_data.status.control_data[i].status)
+
+            # Per spec, state bytes are undefined when status is ERROR; don't interpret them.
+            control_state = (
+                None
+                if control_status == ControlConfirmStatus.ERROR
+                else parse_control_state(control_type, payload_data.status.control_data[i].state)
+            )
+
+            control_states.append(
                 ControlStatus(
-                    id=payload_data.status.control_data[i].control_id,
-                    state=ControlState(payload_data.status.control_data[i].control_state),
-                )
-                for i in range(payload_data.status.control_count)
-            ],
+                    id=payload_data.status.control_data[i].id,
+                    type=control_type,
+                    state=control_state,
+                    status=control_status,
+                ),
+            )
+
+        return StatusPacket(
+            header=PacketHeader(
+                sequence=payload_data.status.header.sequence,
+                timestamp_us=payload_data.status.header.timestamp_us,
+            ),
+            ack_packet_type=PacketType(payload_data.status.ack_packet_type),
+            ack_sequence=payload_data.status.ack_sequence,
+            control_states=control_states,
         )
     if payload_type == _lib.QLCP_PT_DATA:
         return DataPacket(
-            sequence=payload_data.data.header.sequence,
-            timestamp=payload_data.data.header.timestamp,
+            header=PacketHeader(
+                sequence=payload_data.data.header.sequence,
+                timestamp_us=payload_data.data.header.timestamp_us,
+            ),
             readings=[
                 SensorReading(
-                    sensor_id=payload_data.data.sensor_data[i].sensor_id,
+                    sensor_id=payload_data.data.sensor_data[i].id,
                     value=payload_data.data.sensor_data[i].value,
-                    unit=_unit_cache[payload_data.data.sensor_data[i].unit],
                 )
                 for i in range(payload_data.data.sensor_count)
             ],
         )
     if payload_type == _lib.QLCP_PT_CONFIG:
         return ConfigPacket(
-            sequence=payload_data.config.header.sequence,
-            timestamp=payload_data.config.header.timestamp,
+            header=PacketHeader(
+                sequence=payload_data.config.header.sequence,
+                timestamp_us=payload_data.config.header.timestamp_us,
+            ),
             config_json=cast(
                 "bytes",
                 _ffi.string(
@@ -108,18 +175,29 @@ def _server_payload_to_python(payload: Any) -> ServerReceivedPacket:
         )
     if payload_type == _lib.QLCP_PT_ACK:
         return AckPacket(
-            sequence=payload_data.ack.header.sequence,
-            timestamp=payload_data.ack.header.timestamp,
+            header=PacketHeader(
+                sequence=payload_data.ack.header.sequence,
+                timestamp_us=payload_data.ack.header.timestamp_us,
+            ),
             ack_packet_type=PacketType(payload_data.ack.ack_packet_type),
             ack_sequence=payload_data.ack.ack_sequence,
         )
     if payload_type == _lib.QLCP_PT_NACK:
         return NackPacket(
-            sequence=payload_data.nack.header.sequence,
-            timestamp=payload_data.nack.header.timestamp,
+            header=PacketHeader(
+                sequence=payload_data.nack.header.sequence,
+                timestamp_us=payload_data.nack.header.timestamp_us,
+            ),
             nack_packet_type=PacketType(payload_data.nack.nack_packet_type),
             nack_sequence=payload_data.nack.nack_sequence,
             error_code=ErrorCode(payload_data.nack.nack_error_code),
+        )
+    if payload_type == _lib.QLCP_PT_TIMESYNC_REQ:
+        return TimesyncRequestPacket(
+            header=PacketHeader(
+                sequence=payload_data.header_only.header.sequence,
+                timestamp_us=payload_data.header_only.header.timestamp_us,
+            ),
         )
 
     message = f"unknown packet type: {payload_type}"
@@ -151,44 +229,61 @@ def _client_payload_to_python(payload: Any) -> ClientReceivedPacket:
     payload_type = payload.packet_type
     payload_data = payload.payload_data
 
-    if payload_type in (
-        _lib.QLCP_PT_ESTOP,
-        _lib.QLCP_PT_DISCOVERY,
-        _lib.QLCP_PT_TIMESYNC,
-        _lib.QLCP_PT_STREAM_STOP,
-        _lib.QLCP_PT_GET_SINGLE,
-        _lib.QLCP_PT_HEARTBEAT,
-        _lib.QLCP_PT_STATUS_REQUEST,
-    ):
-        return SimplePacket(
-            packet_type=PacketType(payload_type),
-            sequence=payload_data.header_only.sequence,
-            timestamp=payload_data.header_only.timestamp,
+    header_only_cls = _CLIENT_HEADER_ONLY.get(payload_type)
+    if header_only_cls is not None:
+        return header_only_cls(
+            header=PacketHeader(
+                sequence=payload_data.header_only.header.sequence,
+                timestamp_us=payload_data.header_only.header.timestamp_us,
+            ),
+        )
+    if payload_type == _lib.QLCP_PT_TIMESYNC_RESP:
+        return TimesyncResponsePacket(
+            header=PacketHeader(
+                sequence=payload_data.timesync_resp.header.sequence,
+                timestamp_us=payload_data.timesync_resp.header.timestamp_us,
+            ),
+            ack_packet_type=PacketType(payload_data.timesync_resp.ack_packet_type),
+            ack_sequence=payload_data.timesync_resp.ack_sequence,
+            t1_echo_us=payload_data.timesync_resp.t1_echo_us,
+            t2_us=payload_data.timesync_resp.t2_us,
         )
     if payload_type == _lib.QLCP_PT_CONTROL:
+        control_type = ControlType(payload_data.control.control_data.type)
+        control_state = parse_control_state(control_type, payload_data.control.control_data.state)
+
         return ControlPacket(
-            sequence=payload_data.control.header.sequence,
-            timestamp=payload_data.control.header.timestamp,
-            command_id=payload_data.control.command_id,
-            command_state=ControlState(payload_data.control.command_state),
+            header=PacketHeader(
+                sequence=payload_data.control.header.sequence,
+                timestamp_us=payload_data.control.header.timestamp_us,
+            ),
+            control_id=payload_data.control.control_data.id,
+            control_type=control_type,
+            control_state=control_state,
         )
     if payload_type == _lib.QLCP_PT_STREAM_START:
         return StreamStartPacket(
-            sequence=payload_data.stream_start.header.sequence,
-            timestamp=payload_data.stream_start.header.timestamp,
+            header=PacketHeader(
+                sequence=payload_data.stream_start.header.sequence,
+                timestamp_us=payload_data.stream_start.header.timestamp_us,
+            ),
             frequency_hz=payload_data.stream_start.stream_frequency,
         )
     if payload_type == _lib.QLCP_PT_ACK:
         return AckPacket(
-            sequence=payload_data.ack.header.sequence,
-            timestamp=payload_data.ack.header.timestamp,
+            header=PacketHeader(
+                sequence=payload_data.ack.header.sequence,
+                timestamp_us=payload_data.ack.header.timestamp_us,
+            ),
             ack_packet_type=PacketType(payload_data.ack.ack_packet_type),
             ack_sequence=payload_data.ack.ack_sequence,
         )
     if payload_type == _lib.QLCP_PT_NACK:
         return NackPacket(
-            sequence=payload_data.nack.header.sequence,
-            timestamp=payload_data.nack.header.timestamp,
+            header=PacketHeader(
+                sequence=payload_data.nack.header.sequence,
+                timestamp_us=payload_data.nack.header.timestamp_us,
+            ),
             nack_packet_type=PacketType(payload_data.nack.nack_packet_type),
             nack_sequence=payload_data.nack.nack_sequence,
             error_code=ErrorCode(payload_data.nack.nack_error_code),

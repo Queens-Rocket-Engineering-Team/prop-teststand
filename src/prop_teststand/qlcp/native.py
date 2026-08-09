@@ -18,6 +18,9 @@ if not hasattr(_lib, "QLCP_HEADER_SIZE"):
     )
 HEADER_SIZE = int(_lib.QLCP_HEADER_SIZE)
 
+# The QLCP magic number ("QLCP") is a fixed 4-byte prefix on every header.
+MAGIC_NUM_SIZE = 4
+
 _sequence_counter = 0
 
 
@@ -34,7 +37,10 @@ def check_qlcp_error(ret: Any, context: str) -> None:
         _lib.QLCP_NO_MEM: "buffer too small",
         _lib.QLCP_LEN_MISMATCH: "length mismatch",
         _lib.QLCP_VERSION_MISMATCH: "protocol version mismatch",
+        _lib.QLCP_NO_MAGIC_NUM: "magic number not found",
+        _lib.QLCP_INVALID_HEADER: "invalid header",
         _lib.QLCP_INVALID_PACKET_TYPE: "invalid packet type",
+        _lib.QLCP_INVALID_PACKET: "invalid packet",
     }
     error_name = names.get(ret, f"unknown error {ret}")
     message = f"{context}: {error_name}"
@@ -49,12 +55,24 @@ def get_packet_len(data: bytes) -> int:
     return int(data_len[0])
 
 
+def find_magic_num(data: bytes) -> int | None:
+    """Return the index of the QLCP magic number in data, or None if not present."""
+    buf = _ffi.from_buffer(data)
+    index = _ffi.new("size_t *")
+    ret = _lib.qlcp_find_magic_num(index, buf, len(data))
+    if ret == _lib.QLCP_NO_MAGIC_NUM:
+        return None
+    check_qlcp_error(ret, "find_magic_num")
+    return int(index[0])
+
+
 def next_sequence() -> int:
     global _sequence_counter  # noqa: PLW0603 - Intentional module-level protocol sequence counter.
     seq = _sequence_counter
-    _sequence_counter = (_sequence_counter + 1) & 0xFF
+    _sequence_counter = (_sequence_counter + 1) & 0xFF # 8-bit wraparound
     return seq
 
+NANOSECONDS_PER_MICROSECOND = 1000
 
-def get_timestamp_ms() -> int:
-    return (int(time.monotonic() * 1000)) & 0xFFFFFFFF
+def get_timestamp_us() -> int:
+    return (time.monotonic_ns() // NANOSECONDS_PER_MICROSECOND) & 0xFFFFFFFFFFFFFFFF # 64-bit wraparound

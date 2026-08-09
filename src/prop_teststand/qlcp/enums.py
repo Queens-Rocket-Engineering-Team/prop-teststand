@@ -8,7 +8,8 @@ PacketType = IntEnum(
     {
         "ESTOP": _lib.QLCP_PT_ESTOP,
         "DISCOVERY": _lib.QLCP_PT_DISCOVERY,
-        "TIMESYNC": _lib.QLCP_PT_TIMESYNC,
+        "TIMESYNC_REQ": _lib.QLCP_PT_TIMESYNC_REQ,
+        "TIMESYNC_RESP": _lib.QLCP_PT_TIMESYNC_RESP,
         "CONTROL": _lib.QLCP_PT_CONTROL,
         "STATUS_REQUEST": _lib.QLCP_PT_STATUS_REQUEST,
         "STREAM_START": _lib.QLCP_PT_STREAM_START,
@@ -20,16 +21,19 @@ PacketType = IntEnum(
         "STATUS": _lib.QLCP_PT_STATUS,
         "ACK": _lib.QLCP_PT_ACK,
         "NACK": _lib.QLCP_PT_NACK,
+        # Sentinel ack_packet_type for unsolicited STATUS packets. Never appears as a
+        # header packet_type.
+        "NO_ACK": _lib.QLCP_PT_NO_ACK,
     },
 )
 
-DeviceStatus = IntEnum(
-    "DeviceStatus",
+ControlType = IntEnum(
+    "ControlType",
     {
-        "INACTIVE": _lib.QLCP_DS_INACTIVE,
-        "ACTIVE": _lib.QLCP_DS_ACTIVE,
-        "ERROR": _lib.QLCP_DS_ERROR,
-        "CALIBRATING": _lib.QLCP_DS_CALIBRATING,
+        "BOOL": _lib.QLCP_CONTROL_BOOL,
+        "UINT32": _lib.QLCP_CONTROL_UINT32,
+        "INT32": _lib.QLCP_CONTROL_INT32,
+        "FLOAT32": _lib.QLCP_CONTROL_FLOAT32,
     },
 )
 
@@ -38,30 +42,16 @@ ControlState = IntEnum(
     {
         "CLOSED": _lib.QLCP_CS_CLOSED,
         "OPEN": _lib.QLCP_CS_OPEN,
-        "ERROR": _lib.QLCP_CS_ERROR,
     },
 )
 
-Unit = IntEnum(
-    "Unit",
+# Per-control confirmation status carried on STATUS packets (protocol v3.1+).
+ControlConfirmStatus = IntEnum(
+    "ControlConfirmStatus",
     {
-        "VOLTS": _lib.QLCP_UNIT_VOLTS,
-        "AMPS": _lib.QLCP_UNIT_AMPS,
-        "CELSIUS": _lib.QLCP_UNIT_CELSIUS,
-        "FAHRENHEIT": _lib.QLCP_UNIT_FAHRENHEIT,
-        "KELVIN": _lib.QLCP_UNIT_KELVIN,
-        "PSI": _lib.QLCP_UNIT_PSI,
-        "BAR": _lib.QLCP_UNIT_BAR,
-        "PASCAL": _lib.QLCP_UNIT_PASCAL,
-        "GRAMS": _lib.QLCP_UNIT_GRAMS,
-        "KILOGRAMS": _lib.QLCP_UNIT_KILOGRAMS,
-        "POUNDS": _lib.QLCP_UNIT_POUNDS,
-        "NEWTONS": _lib.QLCP_UNIT_NEWTONS,
-        "SECONDS": _lib.QLCP_UNIT_SECONDS,
-        "MILLISECONDS": _lib.QLCP_UNIT_MILLISECONDS,
-        "HERTZ": _lib.QLCP_UNIT_HERTZ,
-        "OHMS": _lib.QLCP_UNIT_OHMS,
-        "UNITLESS": _lib.QLCP_UNIT_UNITLESS,
+        "CONFIRMED": _lib.QLCP_CONTROL_STATUS_CONFIRMED,
+        "PENDING": _lib.QLCP_CONTROL_STATUS_PENDING,
+        "ERROR": _lib.QLCP_CONTROL_STATUS_ERROR,
     },
 )
 

@@ -3,6 +3,9 @@ import asyncio
 
 import pytest
 
+from prop_teststand.qlcp.decoding import decode_packet_client
+from prop_teststand.qlcp.enums import PacketType
+from prop_teststand.qlcp.packets import DiscoveryPacket
 from prop_teststand.runtime.discovery import DiscoveryService
 
 
@@ -35,7 +38,7 @@ def test_default_config_is_periodic_discovery() -> None:
 
 
 def test_discover_lazily_creates_socket_once_and_sends_request(monkeypatch: pytest.MonkeyPatch) -> None:
-    service = DiscoveryService(multicast_address="239.255.255.250", multicast_port=1900)
+    service = DiscoveryService(multicast_address="239.100.0.1", multicast_port=10000)
     fake = FakeSocket()
     created = 0
 
@@ -52,10 +55,11 @@ def test_discover_lazily_creates_socket_once_and_sends_request(monkeypatch: pyte
     assert created == 1  # socket created once and reused
     assert len(fake.sent) == 2
     payload, address = fake.sent[0]
-    assert address == ("239.255.255.250", 1900)
-    assert b"M-SEARCH" in payload
-    assert b"ST: urn:qretprop:espdevice:1" in payload
+    assert address == ("239.100.0.1", 10000)
 
+    packet = decode_packet_client(payload)
+    assert isinstance(packet, DiscoveryPacket)
+    assert packet.packet_type == PacketType.DISCOVERY
 
 def test_run_issues_discovery_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     async def run() -> None:

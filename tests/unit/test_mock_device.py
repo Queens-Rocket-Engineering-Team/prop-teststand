@@ -3,7 +3,6 @@ from itertools import pairwise
 import pytest
 
 from prop_teststand.qlcp.config_models import SensorConfig
-from prop_teststand.qlcp.enums import Unit
 from tests.mock_device import (
     MOCK_SIGNAL_AMPLITUDE,
     MOCK_SIGNAL_FREQUENCY_HZ,
@@ -13,7 +12,7 @@ from tests.mock_device import (
 
 
 def test_mock_signal_is_time_based_not_sample_based() -> None:
-    sensor = SensorConfig(id=0, name="TC101", type="thermocouple", unit=Unit.CELSIUS)
+    sensor = SensorConfig(id=0, name="TC101", group="thermocouple", unit="C")
 
     slow_sample_period_s = 1.0 / 120.0
     fast_sample_period_s = 1.0 / 240.0
@@ -33,7 +32,7 @@ def test_mock_signal_is_time_based_not_sample_based() -> None:
 
 
 def test_mock_signal_frequency_is_fixed_at_0_25_hz_with_20_unit_amplitude() -> None:
-    sensor = SensorConfig(id=0, name="TC101", type="thermocouple", unit=Unit.CELSIUS)
+    sensor = SensorConfig(id=0, name="TC101", group="thermocouple", unit="C")
     period_s = 1.0 / MOCK_SIGNAL_FREQUENCY_HZ
     center, amplitude = sensor_signal_center_amplitude(sensor)
 

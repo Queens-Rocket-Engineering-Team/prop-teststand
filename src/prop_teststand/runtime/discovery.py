@@ -4,10 +4,14 @@ import contextlib
 import logging
 import socket
 
+from prop_teststand.qlcp.packets import DiscoveryPacket
+
 
 logger = logging.getLogger(__name__)
-MULTICAST_ADDRESS = "239.255.255.250"
-MULTICAST_PORT = 1900
+
+# Defined in QLCP spec
+MULTICAST_ADDRESS = "239.100.0.1"
+MULTICAST_PORT = 10000
 
 # How long the periodic loop sleeps between checks while periodic discovery is disabled.
 _DISABLED_POLL_INTERVAL_S = 0.5
@@ -37,17 +41,8 @@ class DiscoveryService:
 
         logger.debug("Sending discovery request.")
 
-        request = (
-            "M-SEARCH * HTTP/1.1\r\n"
-            f"HOST: {self.multicast_address}:{self.multicast_port}\r\n"
-            'MAN: "ssdp:discover"\r\n'
-            "MX: 2\r\n"
-            "ST: urn:qretprop:espdevice:1\r\n"
-            "USER-AGENT: QRET/1.0\r\n"
-            "\r\n"
-        )
-
-        self._socket.sendto(request.encode(), (self.multicast_address, self.multicast_port))
+        packet = DiscoveryPacket.create().encode()
+        self._socket.sendto(packet, (self.multicast_address, self.multicast_port))
 
     async def run(self) -> None:
         """Periodically issue discovery requests while periodic discovery is enabled."""

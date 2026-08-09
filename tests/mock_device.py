@@ -31,49 +31,59 @@ from typing import Any
 import orjson
 
 from prop_teststand.qlcp.config_models import SensorConfig
-from prop_teststand.qlcp.config_parser import parse_config
-from prop_teststand.qlcp.decoding import decode_packet_client
+from prop_teststand.qlcp.config_parser import cast_control_state, cast_control_type, parse_config
+from prop_teststand.qlcp.decoding import TimesyncResponsePacket, decode_packet_client
 from prop_teststand.qlcp.enums import (
+    ControlConfirmStatus,
     ControlState,
-    DeviceStatus,
     ErrorCode,
     PacketType,
-    Unit,
 )
-from prop_teststand.qlcp.native import HEADER_SIZE, get_packet_len, next_sequence
+from prop_teststand.qlcp.native import HEADER_SIZE, MAGIC_NUM_SIZE, find_magic_num, get_packet_len, next_sequence
 from prop_teststand.qlcp.packets import (
     AckPacket,
     ConfigPacket,
     ControlPacket,
     ControlStatus,
     DataPacket,
+    DiscoveryPacket,
+    EstopPacket,
+    GetSinglePacket,
+    HeartbeatPacket,
     NackPacket,
+    PacketHeader,
+    QLCPPacket,
     SensorReading,
-    SimplePacket,
     StatusPacket,
+    StatusRequestPacket,
     StreamStartPacket,
+    StreamStopPacket,
+    TimesyncRequestPacket,
 )
 
 
 logger = logging.getLogger("MockDevice")
 
+# Re-run TIMESYNC at least this often to bound clock drift (PROTOCOL_SPECIFICATION 7.7.4).
+TIMESYNC_RESYNC_INTERVAL_S = 5.0
+
 MOCK_SIGNAL_FREQUENCY_HZ = 0.25
 MOCK_SIGNAL_AMPLITUDE = 20.0
 MOCK_SIGNAL_PHASE_STEP_RAD = math.pi / 4.0
 
-_SIGNAL_CENTER_BY_UNIT: dict[Unit, float] = {
-    Unit.CELSIUS: 25.0,
-    Unit.FAHRENHEIT: 77.0,
-    Unit.KELVIN: 298.0,
-    Unit.PSI: 15.0,
-    Unit.BAR: 1.0,
-    Unit.PASCAL: 100000.0,
-    Unit.VOLTS: 3.3,
-    Unit.AMPS: 0.25,
-    Unit.OHMS: 100.0,
+_SIGNAL_CENTER_BY_UNIT: dict[str, float] = {
+    "C": 25.0,
+    "F": 77.0,
+    "K": 298.0,
+    "PSI": 15.0,
+    "BAR": 1.0,
+    "PASCAL": 100000.0,
+    "VOLTS": 3.3,
+    "AMPS": 0.25,
+    "OHMS": 100.0,
 }
 
-_POSITIVE_SIGNAL_UNITS = frozenset((Unit.KILOGRAMS, Unit.GRAMS, Unit.POUNDS, Unit.NEWTONS))
+_POSITIVE_SIGNAL_UNITS = frozenset(("KG", "G", "LB", "N"))
 
 
 def sensor_signal_center_amplitude(sensor: SensorConfig) -> tuple[float, float]:
@@ -83,17 +93,22 @@ def sensor_signal_center_amplitude(sensor: SensorConfig) -> tuple[float, float]:
     return _SIGNAL_CENTER_BY_UNIT.get(sensor.unit, 0.0), MOCK_SIGNAL_AMPLITUDE
 
 
+def control_state_str(state: ControlState | int | float) -> str:
+    """Render a control state as a string that cast_control_state can parse back."""
+    return state.name if isinstance(state, ControlState) else str(state)
+
+
 def sensor_signal_value(sensor: SensorConfig, elapsed_s: float, sensor_id: int) -> float:
     center, amplitude = sensor_signal_center_amplitude(sensor)
     phase = sensor_id * MOCK_SIGNAL_PHASE_STEP_RAD
     return center + amplitude * math.sin((2.0 * math.pi * MOCK_SIGNAL_FREQUENCY_HZ * elapsed_s) + phase)
 
 # Default device config: 2 thermocouples (ids 0-1, CELSIUS) + 2 pressure transducers (ids 2-3, PSI).
-# Sensor ordering in sensor_info determines the ids assigned by parse_config.
+# Sensor ordering in sensors determines the ids assigned by parse_config.
 _DEFAULT_CONFIG: dict[str, Any] = {
     "device_name": "MockDevice",
     "device_type": "Sensor Monitor",
-    "sensor_info": {
+    "sensors": {
         "thermocouple": {
             "TC101": {
                 "sensor_index": "TC1",
@@ -134,50 +149,62 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         },
     },
     "controls": {
-        "AV101": {
-            "control_index": "AV4",
-            "type": "valve",
-            "default_state": "OPEN",
+        "valve": {
+            "AV101": {
+                "control_index": "AV4",
+                "type": "BOOL",
+                "default_state": "OPEN",
+            },
+            "AV201": {
+                "control_index": "AV_FILL",
+                "type": "BOOL",
+                "default_state": "CLOSED",
+            },
+            "AV202": {
+                "control_index": "AV1",
+                "type": "BOOL",
+                "default_state": "OPEN",
+            },
+            "AV203": {
+                "control_index": "AV2",
+                "type": "BOOL",
+                "default_state": "OPEN",
+            },
+            "AV204": {
+                "control_index": "AV3",
+                "type": "BOOL",
+                "default_state": "OPEN",
+            },
+            "AV205": {
+                "control_index": "AV_RUN",
+                "type": "BOOL",
+                "default_state": "CLOSED",
+            },
         },
-        "AV201": {
-            "control_index": "AV_FILL",
-            "type": "valve",
-            "default_state": "CLOSED",
+        "relay": {
+            "SAFE24": {
+                "control_index": "SAFE_24V_CTL",
+                "type": "BOOL",
+                "default_state": "OPEN",
+            },
+            "IGNPRIME": {
+                "control_index": "IGNITOR_PRIME_CTL",
+                "type": "BOOL",
+                "default_state": "OPEN",
+            },
+            "IGNRUN": {
+                "control_index": "IGNITOR_RUN_CTL",
+                "type": "BOOL",
+                "default_state": "OPEN",
+            },
         },
-        "AV202": {
-            "control_index": "AV1",
-            "type": "valve",
-            "default_state": "OPEN",
-        },
-        "AV203": {
-            "control_index": "AV2",
-            "type": "valve",
-            "default_state": "OPEN",
-        },
-        "AV204": {
-            "control_index": "AV3",
-            "type": "valve",
-            "default_state": "OPEN",
-        },
-        "AV205": {
-            "control_index": "AV_RUN",
-            "type": "valve",
-            "default_state": "CLOSED",
-        },
-        "SAFE24": {
-            "control_index": "SAFE_24V_CTL",
-            "type": "relay",
-            "default_state": "OPEN",
-        },
-        "IGNPRIME": {
-            "control_index": "IGNITOR_PRIME_CTL",
-            "type": "relay",
-            "default_state": "OPEN",
-        },
-        "IGNRUN": {
-            "control_index": "IGNITOR_RUN_CTL",
-            "type": "relay",
-            "default_state": "OPEN",
+        "heater": {
+            "HEATER1": {
+                "control_index": "HEATER1",
+                "type": "FLOAT32",
+                "default_state": 0,
+                "unit": "C",
+            },
         },
     },
 }
@@ -216,16 +243,18 @@ class MockSensorDevice:
 
         # Per-sensor simulated state (keyed by sensor_id).
         self._sensor_values: dict[int, float] = {sid: self._initial_value(s) for sid, s in self._device_config.sensors_by_id.items()}
+        # Seconds axis, matching send_sensor_data's `time.monotonic() - _signal_start_monotonic`.
         self._signal_start_monotonic = time.monotonic()
 
         # Control states (keyed by control name), initialised from config defaults.
-        self.valve_states: dict[str, str] = {c.name: c.default.name for c in self._device_config.controls_by_id.values()}
+        self.control_states: dict[str, str] = {c.name: control_state_str(c.default) for c in self._device_config.controls_by_id.values()}
 
         # Streaming state
         self.streaming = False
         self.stream_frequency = 10
         self.stream_task: asyncio.Task[None] | None = None
         self.command_task: asyncio.Task[None] | None = None
+        self.timesync_task: asyncio.Task[None] | None = None
         self.ssdp_task: asyncio.Task[None] | None = None
 
         # Timesync offset: added to local monotonic ms to produce server-scale timestamps.
@@ -281,7 +310,7 @@ class MockSensorDevice:
 
         self._sensor_values = {sid: self._initial_value(s) for sid, s in self._device_config.sensors_by_id.items()}
         self._signal_start_monotonic = time.monotonic()
-        self.valve_states = {c.name: c.default.name for c in self._device_config.controls_by_id.values()}
+        self.control_states = {c.name: control_state_str(c.default) for c in self._device_config.controls_by_id.values()}
         self.timesync_offset = 0
 
         # Clear observability events so test code can re-await them after a reset.
@@ -320,6 +349,12 @@ class MockSensorDevice:
                 await self.command_task
             self.command_task = None
 
+        if self.timesync_task:
+            self.timesync_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.timesync_task
+            self.timesync_task = None
+
         if self.ssdp_task:
             self.ssdp_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -353,8 +388,12 @@ class MockSensorDevice:
     # ---------------------------------------------------------------------- #
 
     def _get_adjusted_ts(self) -> int:
-        """Return a server-scale timestamp (ms) by applying the TIMESYNC offset."""
-        return (int(time.monotonic() * 1000) + self.timesync_offset) & 0xFFFFFFFF
+        """Return a server-scale timestamp (microseconds) by applying the TIMESYNC offset.
+
+        Per PROTOCOL_SPECIFICATION 7.7.3, after sync all outgoing timestamps are
+        ``device_time_us() - ts_offset``.
+        """
+        return (int(time.monotonic_ns() // 1000) - self.timesync_offset) & 0xFFFFFFFFFFFFFFFF
 
     # ---------------------------------------------------------------------- #
     # SSDP discovery                                                           #
@@ -380,7 +419,7 @@ class MockSensorDevice:
 
     async def start_ssdp_listener(self) -> None:
         """Listen for SSDP M-SEARCH broadcasts and initiate connection on discovery."""
-        logger.info("Starting SSDP listener on 239.255.255.250:1900")
+        logger.info("Starting QLCP discovery listener on 239.100.0.1:10000")
 
         if self.ssdp_sock:
             with contextlib.suppress(Exception):
@@ -391,21 +430,21 @@ class MockSensorDevice:
         self.ssdp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         with contextlib.suppress(AttributeError):
             self.ssdp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        self.ssdp_sock.bind(("", 1900))
+        self.ssdp_sock.bind(("", 10000))
 
-        membership = struct.pack("4sL", socket.inet_aton("239.255.255.250"), socket.INADDR_ANY)
+        membership = struct.pack("4sL", socket.inet_aton("239.100.0.1"), socket.INADDR_ANY)
         self.ssdp_sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membership)
         self.ssdp_sock.setblocking(False)
 
         loop = asyncio.get_event_loop()
-        logger.info("Waiting for SSDP discovery broadcast…")
+        logger.info("Waiting for QLCP discovery broadcast…")
 
         while True:
             try:
                 data, addr = await loop.sock_recvfrom(self.ssdp_sock, 1024)
-                message = data.decode("utf-8", errors="ignore")
+                packet = decode_packet_client(data)
 
-                if "M-SEARCH" in message and "urn:qretprop:espdevice:1" in message:
+                if isinstance(packet, DiscoveryPacket):
                     logger.info(f"Received discovery from {addr[0]}")
                     if self.server_ip is None:
                         self.server_ip = addr[0]
@@ -439,7 +478,9 @@ class MockSensorDevice:
             logger.info("TCP connection established")
 
             await self.send_config()
+
             self.command_task = asyncio.create_task(self.handle_commands())
+            self.timesync_task = asyncio.create_task(self.periodic_timesync())
 
         except Exception as e:
             logger.error(f"Connection failed: {e}")
@@ -469,13 +510,17 @@ class MockSensorDevice:
     # ---------------------------------------------------------------------- #
 
     async def handle_commands(self) -> None:
-        """Listen for and handle commands from the server using length-based framing."""
+        """Listen for and handle commands from the server, framing on the magic number."""
         sock = self.sock
         if sock is None:
             return
 
         loop = asyncio.get_event_loop()
         buffer = b""
+
+        # Initial timesync request
+        timesync_req = TimesyncRequestPacket.create()
+        await loop.sock_sendall(sock, timesync_req.encode())
 
         logger.info("Listening for commands…")
 
@@ -489,6 +534,19 @@ class MockSensorDevice:
                 buffer += data
 
                 while len(buffer) >= HEADER_SIZE:
+                    # Frame on the magic number, discarding any leading bytes
+                    # before it to resynchronize (PROTOCOL_SPECIFICATION 5.1).
+                    magic_index = find_magic_num(buffer)
+                    if magic_index is None:
+                        # Keep a possible partial magic number at the tail for
+                        # the next read; the rest is garbage.
+                        buffer = buffer[-(MAGIC_NUM_SIZE - 1):]
+                        break
+                    if magic_index > 0:
+                        buffer = buffer[magic_index:]
+                        if len(buffer) < HEADER_SIZE:
+                            break
+
                     try:
                         packet_len = get_packet_len(buffer)
                         if len(buffer) < packet_len:
@@ -499,22 +557,25 @@ class MockSensorDevice:
 
                         logger.debug(f"Decoded {packet.__class__.__name__} ({packet_len} bytes)")
 
-                        if isinstance(packet, SimplePacket) and packet.packet_type == PacketType.TIMESYNC:
-                            server_ts = packet.timestamp
-                            device_ts = int(time.monotonic() * 1000) & 0xFFFFFFFF
-                            self.timesync_offset = server_ts - device_ts
-                            logger.info(f"TIMESYNC: locked to server (offset={self.timesync_offset} ms)")
+                        if isinstance(packet, TimesyncResponsePacket):
+                            t1_us = packet.t1_echo_us
+                            t2_us = packet.t2_us
+                            t3_us = packet.header.timestamp_us
+                            t4_us = int(time.monotonic_ns() // 1000) & 0xFFFFFFFFFFFFFFFF
 
-                            ack = AckPacket.create(PacketType.TIMESYNC, packet.sequence)
-                            ack.timestamp = self._get_adjusted_ts()
+                            self.timesync_offset = ((t1_us - t2_us) + (t4_us - t3_us)) // 2
+                            logger.info(f"TIMESYNC: locked to server (offset={self.timesync_offset} us)")
+
+                            ack = AckPacket.create(ack_packet=packet)
                             await loop.sock_sendall(sock, ack.encode())
 
                             self.timesync_received.set()
 
-                        elif isinstance(packet, SimplePacket) and packet.packet_type == PacketType.ESTOP:
+                        elif isinstance(packet, EstopPacket):
                             logger.warning("Received ESTOP — stopping stream and resetting state")
-                            await self.handle_stream_stop()
                             self.reset_device_state(announce=True)
+                            # Device MUST report control states after ESTOP (PROTOCOL_SPECIFICATION 10.3).
+                            await self.send_status(packet)
 
                         elif isinstance(packet, ControlPacket):
                             await self.handle_control_command(packet)
@@ -522,18 +583,17 @@ class MockSensorDevice:
                         elif isinstance(packet, StreamStartPacket):
                             await self.handle_stream_start(packet)
 
-                        elif isinstance(packet, SimplePacket) and packet.packet_type == PacketType.STREAM_STOP:
+                        elif isinstance(packet, StreamStopPacket):
                             await self.handle_stream_stop(packet)
 
-                        elif isinstance(packet, SimplePacket) and packet.packet_type == PacketType.GET_SINGLE:
+                        elif isinstance(packet, GetSinglePacket):
                             await self.send_single_reading()
 
-                        elif isinstance(packet, SimplePacket) and packet.packet_type == PacketType.STATUS_REQUEST:
-                            await self.send_status()
+                        elif isinstance(packet, StatusRequestPacket):
+                            await self.send_status(packet)
 
-                        elif isinstance(packet, SimplePacket) and packet.packet_type == PacketType.HEARTBEAT:
-                            ack = AckPacket.create(PacketType.HEARTBEAT, packet.sequence)
-                            ack.timestamp = self._get_adjusted_ts()
+                        elif isinstance(packet, HeartbeatPacket):
+                            ack = AckPacket.create(ack_packet=packet)
                             await loop.sock_sendall(sock, ack.encode())
 
                         buffer = buffer[packet_len:]
@@ -555,6 +615,25 @@ class MockSensorDevice:
             if self.sock is not None and not (task and task.cancelled()):
                 await self.handle_server_disconnect()
 
+    async def periodic_timesync(self) -> None:
+        """Re-issue TIMESYNC_REQ at least every 60s to bound clock drift (PROTOCOL_SPECIFICATION 7.7.4)."""
+        loop = asyncio.get_event_loop()
+        try:
+            while True:
+                await asyncio.sleep(TIMESYNC_RESYNC_INTERVAL_S)
+                sock = self.sock
+                if sock is None:
+                    break
+                try:
+                    timesync_req = TimesyncRequestPacket.create()
+                    await loop.sock_sendall(sock, timesync_req.encode())
+                    logger.debug("Sent periodic TIMESYNC_REQ")
+                except Exception as e:
+                    logger.error(f"Periodic timesync failed: {e}")
+                    break
+        except asyncio.CancelledError:
+            raise
+
     # ---------------------------------------------------------------------- #
     # Command handlers                                                         #
     # ---------------------------------------------------------------------- #
@@ -564,29 +643,20 @@ class MockSensorDevice:
             return
 
         loop = asyncio.get_event_loop()
-        command_id = packet.command_id
-        state = packet.command_state
+        command_id = packet.control_id
+        state = packet.control_state
 
         control = self._device_config.controls_by_id.get(command_id)
         if control is not None:
-            state_str = "OPEN" if state == ControlState.OPEN else "CLOSED"
-            self.valve_states[control.name] = state_str
-            logger.info(f"Control: {control.name} → {state_str}")
+            self.control_states[control.name] = control_state_str(state)
+            logger.info(f"Control: {control.name} → {str(state)}")
 
-            ack = AckPacket.create(PacketType.CONTROL, packet.sequence)
-            ack.timestamp = self._get_adjusted_ts()
-            await loop.sock_sendall(self.sock, ack.encode())
+            await self.send_status(packet)
 
             self.control_handled.set()
         else:
             logger.error(f"Invalid command_id: {command_id}")
-            nack = NackPacket(
-                sequence=next_sequence(),
-                timestamp=self._get_adjusted_ts(),
-                nack_packet_type=PacketType.CONTROL,
-                nack_sequence=packet.sequence,
-                error_code=ErrorCode.INVALID_ID,
-            )
+            nack = NackPacket.create(nack_packet=packet, error_code=ErrorCode.INVALID_ID)
             await loop.sock_sendall(self.sock, nack.encode())
 
     async def handle_stream_start(self, packet: StreamStartPacket) -> None:
@@ -598,8 +668,7 @@ class MockSensorDevice:
         logger.info(f"Starting stream at {self.stream_frequency} Hz")
 
         loop = asyncio.get_event_loop()
-        ack = AckPacket.create(PacketType.STREAM_START, packet.sequence)
-        ack.timestamp = self._get_adjusted_ts()
+        ack = AckPacket.create(ack_packet=packet)
         await loop.sock_sendall(self.sock, ack.encode())
 
         if self.stream_task:
@@ -607,7 +676,7 @@ class MockSensorDevice:
         self.stream_task = asyncio.create_task(self.stream_data())
         self.stream_started.set()
 
-    async def handle_stream_stop(self, packet: SimplePacket | None = None) -> None:
+    async def handle_stream_stop(self, packet: StreamStopPacket) -> None:
         if self.sock is None:
             return
 
@@ -619,9 +688,7 @@ class MockSensorDevice:
             self.stream_task = None
 
         loop = asyncio.get_event_loop()
-        seq = packet.sequence if packet else 0
-        ack = AckPacket.create(PacketType.STREAM_STOP, seq)
-        ack.timestamp = self._get_adjusted_ts()
+        ack = AckPacket.create(ack_packet=packet)
         await loop.sock_sendall(self.sock, ack.encode())
         self.stream_stopped.set()
 
@@ -655,13 +722,15 @@ class MockSensorDevice:
             readings.append(
                 SensorReading(
                     sensor_id=sensor_id,
-                    unit=sensor.unit,
                     value=self._sensor_values[sensor_id],
                 ),
             )
 
-        packet = DataPacket.create(readings)
-        packet.timestamp = self._get_adjusted_ts()
+        # Stamp with server-base time (device_time - ts_offset) per PROTOCOL_SPECIFICATION 7.7.3.
+        packet = DataPacket(
+            header=PacketHeader(sequence=next_sequence(), timestamp_us=self._get_adjusted_ts()),
+            readings=readings,
+        )
 
         loop = asyncio.get_event_loop()
         await loop.sock_sendto(self.udp_sock, packet.encode(), (self.server_ip, self.server_udp_port))
@@ -671,7 +740,7 @@ class MockSensorDevice:
 
         if logger.isEnabledFor(logging.DEBUG):
             summary = " ".join(
-                f"{s.name}={self._sensor_values[sid]:.1f}{s.unit.name}"
+                f"{s.name}={self._sensor_values[sid]:.1f}{s.unit}"
                 for sid, s in self._device_config.sensors_by_id.items()
             )
             logger.debug("Data: %s", summary)
@@ -685,26 +754,23 @@ class MockSensorDevice:
     # Status                                                                   #
     # ---------------------------------------------------------------------- #
 
-    async def send_status(self) -> None:
-        if self.sock is None:
-            return
-
-        control_states = [
+    def _current_control_states(self) -> list[ControlStatus]:
+        return [
             ControlStatus(
                 id=control_id,
-                state=(
-                    ControlState.OPEN
-                    if self.valve_states.get(control.name) == "OPEN"
-                    else ControlState.CLOSED
-                    if self.valve_states.get(control.name) == "CLOSED"
-                    else ControlState.ERROR
-                ),
+                type=control.type,
+                state=cast_control_state(control.type, self.control_states.get(control.name, control_state_str(control.default))),
+                status=ControlConfirmStatus.CONFIRMED,
             )
             for control_id, control in self._device_config.controls_by_id.items()
         ]
 
-        status = StatusPacket.create(DeviceStatus.ACTIVE, control_states=control_states)
-        status.timestamp = self._get_adjusted_ts()
+    async def send_status(self, ack_packet: QLCPPacket) -> None:
+        """Send STATUS in response to a CONTROL or STATUS_REQUEST packet."""
+        if self.sock is None:
+            return
+
+        status = StatusPacket.create(ack_packet=ack_packet, control_states=self._current_control_states())
 
         loop = asyncio.get_event_loop()
         await loop.sock_sendall(self.sock, status.encode())
@@ -712,8 +778,20 @@ class MockSensorDevice:
         logger.info("Sent STATUS: ACTIVE")
         logger.info(
             "Control states: "
-            + ", ".join(f"{c.name}={self.valve_states.get(c.name, 'UNKNOWN')}" for c in self._device_config.controls_by_id.values())
+            + ", ".join(f"{c.name}={self.control_states.get(c.name, 'UNKNOWN')}" for c in self._device_config.controls_by_id.values())
         )
+
+    async def send_unsolicited_status(self) -> None:
+        """Send a device-initiated STATUS update, not in response to any server request."""
+        if self.sock is None:
+            return
+
+        status = StatusPacket.create_unsolicited(control_states=self._current_control_states())
+
+        loop = asyncio.get_event_loop()
+        await loop.sock_sendall(self.sock, status.encode())
+
+        logger.info("Sent unsolicited STATUS")
 
     # ---------------------------------------------------------------------- #
     # CLI run loop                                                             #
@@ -727,7 +805,7 @@ class MockSensorDevice:
         """
         logger.info("=== Mock Sensor Device Started ===")
         logger.info(f"Device name: {self.device_name}")
-        logger.info("Sensors: " + ", ".join(f"{s.name} ({s.unit.name})" for s in self._device_config.sensors_by_id.values()))
+        logger.info("Sensors: " + ", ".join(f"{s.name} ({s.unit})" for s in self._device_config.sensors_by_id.values()))
         logger.info("Controls: " + ", ".join(c.name for c in self._device_config.controls_by_id.values()))
 
         if self.server_ip:

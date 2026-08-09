@@ -47,10 +47,30 @@ class LogFormatter(stdlib_logging.Formatter):
     def format(self, record: stdlib_logging.LogRecord) -> str:
         message = record.getMessage()
         timestamp_text = f"[{_timestamp()}]"
+
         if self._color:
             timestamp_text = _apply_color(timestamp_text, TIMESTAMP_COLOR)
             message = _apply_color(message, LEVEL_COLORS.get(record.levelno, ""))
-        return f"{timestamp_text} {message}"
+
+        # 1. Base log string
+        log_line = f"{timestamp_text} {message}"
+
+        # 2. Extract and append traceback if record.exc_info is present
+        if record.exc_info:
+            # Avoid re-rendering if it was already formatted elsewhere
+            if not record.exc_text:
+                record.exc_text = self.formatException(record.exc_info)
+
+            if record.exc_text:
+                # Optional: You can apply a color to the traceback string here if desired
+                traceback_text = record.exc_text
+                if self._color:
+                    traceback_text = _apply_color(traceback_text, LEVEL_COLORS.get(stdlib_logging.ERROR, ""))
+
+                # Append the traceback on a new line
+                log_line = f"{log_line}\n{traceback_text}"
+
+        return log_line
 
 
 class WebSocketLogHandler(stdlib_logging.Handler):
