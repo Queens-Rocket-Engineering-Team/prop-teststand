@@ -46,17 +46,16 @@ services:
 
     restart: always
 
-  # Optional view-only GUI for engineers at the pad, reachable at :8080.
-  # Serves static files only — it issues no commands and the server is unaware
-  # of it. Off unless explicitly enabled:
+  # View-only GUI for engineers at the pad, reachable at :8080. Serves static
+  # files only — it issues no commands and the server is unaware of it.
   #
-  #   COMPOSE_PROFILES=gui in .env, or `docker compose --profile gui up -d`
-  #
-  # GUI_TAG pins which published GUI version is served; leaving it at latest
-  # means a redeploy can change what pad tablets load.
+  # GUI_TAG must be set explicitly (no default) to the published GUI version
+  # this release was tested against — e.g. GUI_TAG=v2.4.0. This is required
+  # rather than falling back to `latest` so that a server release keeps
+  # serving the same GUI build regardless of what the GUI repo publishes
+  # afterward.
   gui:
-    profiles: ["gui"]
-    image: ghcr.io/queens-rocket-engineering-team/prop-new-control-gui-web:${GUI_TAG:-latest}
+    image: ghcr.io/queens-rocket-engineering-team/prop-new-control-gui-web:${GUI_TAG:?Set GUI_TAG to a released GUI version, e.g. GUI_TAG=v2.4.0}
     network_mode: "host" # Matches the server service; nginx listens on 8080
 
     environment:

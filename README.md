@@ -37,6 +37,7 @@ flowchart LR
 |---------|-------------|
 | **server** | Main application — device discovery (SSDP), TCP listener, FastAPI, CLI, in-process log stream |
 | **media** | [MediaMTX](https://github.com/bluenviron/mediamtx) RTSP/WebRTC relay for camera streams |
+| **gui** | View-only web GUI for engineers at the pad, served at `:8080` (static files only — issues no commands) |
 
 ## Setup
 
@@ -63,10 +64,13 @@ docker compose -f compose.dev.yml logs -f server
 ### Production (Docker)
 
 ```bash
-docker compose -f compose.prod.yml up -d
+GUI_TAG=v2.4.0 docker compose -f compose.prod.yml up -d
 ```
 
-Pulls pre-built images from `ghcr.io/queens-rocket-engineering-team/`.
+Pulls pre-built images from `ghcr.io/queens-rocket-engineering-team/`. `GUI_TAG`
+must be set to a published [prop-new-control-gui](https://github.com/queens-rocket-engineering-team/prop-new-control-gui)
+release tag — there's no `latest` fallback in prod, so pin it to whatever GUI
+version this server release was tested against.
 
 ### Local (No Docker)
 
