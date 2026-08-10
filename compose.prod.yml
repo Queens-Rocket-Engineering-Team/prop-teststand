@@ -46,5 +46,28 @@ services:
 
     restart: always
 
+  # View-only GUI for engineers at the pad, reachable at :8080. Serves static
+  # files only — it issues no commands and the server is unaware of it.
+  #
+  # GUI_TAG is pinned here to the published GUI version tested against this
+  # release — bump it by hand as part of cutting each release. run-tests.yml
+  # prints a (non-blocking) warning if it hasn't changed since the previous
+  # release, as a nudge to double check it.
+  gui:
+    image: ghcr.io/queens-rocket-engineering-team/prop-new-control-gui-web:${GUI_TAG:-v1.0.0}
+    network_mode: "host" # Matches the server service; nginx listens on 8080
+
+    environment:
+      # Optional. Unset means the GUI targets whichever host served the page,
+      # which is what you want when it runs alongside the server.
+      - PROP_SERVER_IP=${PROP_SERVER_IP:-}
+
+    # Deliberately no depends_on. This container only serves static files — the
+    # browser reaches the API itself — so it has nothing to wait for, and a
+    # dependency would force the `server` service to start even when the server
+    # is being run some other way (from source, or on another host). It would
+    # then contend for port 8000 with the one actually in use.
+    restart: always
+
 volumes:
   murmur-data:

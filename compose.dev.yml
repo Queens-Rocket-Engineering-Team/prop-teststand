@@ -66,5 +66,23 @@ services:
       - ./murmur.ini:/etc/mumble/murmur.ini
       - murmur-data:/data
 
+  # View-only GUI for engineers at the pad, reachable at :8080.
+  #
+  # Pulled rather than built: the GUI lives in prop-new-control-gui and is
+  # published by its own CI, so there is no local build context here. GUI_TAG
+  # defaults to `dev`, which that repo republishes on every push — pin it to a
+  # commit sha when you need certainty about what is running.
+  #
+  # No depends_on: this only serves static files, the browser reaches the API
+  # itself, so it has nothing to wait for and must not force `server` to start.
+  gui:
+    image: ghcr.io/queens-rocket-engineering-team/prop-new-control-gui-web:${GUI_TAG:-dev}
+    network_mode: "host" # Matches the server service; nginx listens on 8080
+
+    environment:
+      # Unset means the GUI targets whichever host served the page, which is
+      # what you want when it runs alongside the server.
+      - PROP_SERVER_IP=${PROP_SERVER_IP:-}
+
 volumes:
   murmur-data:
