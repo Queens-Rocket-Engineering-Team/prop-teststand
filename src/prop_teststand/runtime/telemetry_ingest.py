@@ -199,6 +199,8 @@ class TelemetryRuntime:
         Raises TareCaptureError when no device is currently reporting the sensor, or when
         more than one is and *device_name* does not say which to sample from.
         """
+        if samples < 1:
+            raise TareCaptureError("samples must be >= 1.")
         now = time.monotonic()
         candidates = {
             key[0]: buffer

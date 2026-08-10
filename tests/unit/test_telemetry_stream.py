@@ -96,7 +96,7 @@ def test_serialized_readings_keep_the_untared_value_recoverable() -> None:
 
     reading = runtime.serialize_batch(_make_batch())["readings"][0]
 
-    assert reading["value"] + reading["tare"] == 130.0
+    assert abs((reading["value"] + reading["tare"]) - 130.0) < 1e-9
 
 
 def test_connect_client_accepts_and_registers() -> None:

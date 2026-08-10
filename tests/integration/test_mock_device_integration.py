@@ -209,7 +209,7 @@ def test_control_command_closed() -> None:
 
     async def run() -> None:
         async with (
-            _runtime_harness() as (runtime, _tracker, _state, _runtime_harnesspublisher, _telemetry_runtime, tcp_port, udp_port),
+            _runtime_harness() as (runtime, _tracker, _state, _publisher, _telemetry_runtime, tcp_port, udp_port),
             MockSensorDevice(
                 server_ip="127.0.0.1",
                 server_port=tcp_port,
