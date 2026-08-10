@@ -55,11 +55,17 @@ class _DeviceState:
 
 
 class SystemState:
-    """Read-only projection keyed by operational device identity. Heartbeat/sync/pending-command fields are sampled live and not covered by state_version."""
+    """Projection keyed by operational device identity. Heartbeat/sync/pending-command fields are sampled live and not covered by state_version.
+
+    Device and Kasa state here is a projection of state owned elsewhere. Sensor tares are
+    the exception: this class is their authoritative store, because taring is server-local
+    state with no device-side counterpart and it needs the versioned event stream.
+    """
 
     def __init__(self, *, command_tracker: CommandTracker) -> None:
         self._devices_by_name: dict[str, _DeviceState] = {}
         self._kasa_by_host: dict[str, _KasaState] = {}
+        self._tares: dict[str, float] = {}
         self._command_tracker = command_tracker
         self._state_version = 0
 
@@ -208,6 +214,33 @@ class SystemState:
             kasa=self._snapshot_kasa(kasa_state),
         )
 
+    def tares(self) -> dict[str, float]:
+        """Return every applied tare offset, keyed by sensor name and sorted for determinism."""
+        return dict(sorted(self._tares.items()))
+
+    def tare_for(self, sensor_name: str) -> float:
+        """Return the offset subtracted from *sensor_name* readings, or 0.0 if untared.
+
+        Called once per reading from the UDP ingest loop, so it must stay a plain lookup.
+        """
+        return self._tares.get(sensor_name, 0.0)
+
+    def set_tare(self, sensor_name: str, offset: float) -> StateEvent:
+        """Set a sensor's tare offset and return a state event.
+
+        Tares are keyed by sensor name alone, deliberately: during flight handoff the same
+        sensor name is carried by more than one device and the tare must apply to all of
+        them. For the same reason they are never cleared on device disconnect.
+        """
+        self._tares[sensor_name] = offset
+        return self._make_event("tare.updated", sensor_name=sensor_name, offset=offset)
+
+    def clear_tare(self, sensor_name: str) -> StateEvent | None:
+        """Remove a sensor's tare offset, returning None if it had none."""
+        if self._tares.pop(sensor_name, None) is None:
+            return None
+        return self._make_event("tare.cleared", sensor_name=sensor_name)
+
     def record_command_sent(self, command: CommandRecord) -> StateEvent | None:
         return self._command_event("command.sent", command)
 
@@ -230,6 +263,7 @@ class SystemState:
             "devices": devices,
             "kasa": kasa,
             "commands": commands,
+            "tares": self.tares(),
         }
 
     @staticmethod

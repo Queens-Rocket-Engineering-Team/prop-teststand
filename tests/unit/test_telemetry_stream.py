@@ -56,6 +56,7 @@ def _make_batch() -> TelemetryBatch:
                 value=123.4,
                 unit_name="PSI",
                 sensor_type="pressure_transducer",
+                tare=6.6,
             ),
         ),
         timestamp_source="device_synced",
@@ -81,11 +82,21 @@ def test_serialize_batch_matches_wire_format() -> None:
                 "sensor_id": 0,
                 "sensor_name": "PT101",
                 "value": 123.4,
+                "tare": 6.6,
                 "unit": "PSI",
                 "sensor_type": "pressure_transducer",
             },
         ],
     }
+
+
+def test_serialized_readings_keep_the_untared_value_recoverable() -> None:
+    """Recordings are taken from this stream, so a tare must not destroy the raw reading."""
+    runtime = TelemetryStreamRuntime()
+
+    reading = runtime.serialize_batch(_make_batch())["readings"][0]
+
+    assert abs((reading["value"] + reading["tare"]) - 130.0) < 1e-9
 
 
 def test_connect_client_accepts_and_registers() -> None:

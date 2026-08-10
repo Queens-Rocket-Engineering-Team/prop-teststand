@@ -69,12 +69,12 @@ def _free_udp_port() -> int:
 
 @contextlib.asynccontextmanager
 async def _runtime_harness() -> AsyncGenerator[
-    tuple[ESPConnectionRuntime, CommandTracker, SystemState, _CollectingPublisher, int, int],
+    tuple[ESPConnectionRuntime, CommandTracker, SystemState, _CollectingPublisher, TelemetryRuntime, int, int],
     None,
 ]:
     """Spin up TCP + UDP listeners on ephemeral ports and yield runtime handles.
 
-    Yields: (runtime, tracker, system_state, telemetry_publisher, tcp_port, udp_port)
+    Yields: (runtime, tracker, system_state, telemetry_publisher, telemetry_runtime, tcp_port, udp_port)
     """
     tcp_port = _free_tcp_port()
     udp_port = _free_udp_port()
@@ -89,7 +89,7 @@ async def _runtime_harness() -> AsyncGenerator[
     )
 
     publisher = _CollectingPublisher()
-    telemetry_runtime = TelemetryRuntime(runtime.get_device_by_address, publisher)
+    telemetry_runtime = TelemetryRuntime(runtime.get_device_by_address, publisher, tare_for=state.tare_for)
 
     tasks = [
         asyncio.create_task(runtime.run_tcp_listener(port=tcp_port)),
@@ -99,7 +99,7 @@ async def _runtime_harness() -> AsyncGenerator[
     await asyncio.sleep(0)
 
     try:
-        yield runtime, tracker, state, publisher, tcp_port, udp_port
+        yield runtime, tracker, state, publisher, telemetry_runtime, tcp_port, udp_port
     finally:
         for task in tasks:
             task.cancel()
@@ -138,7 +138,7 @@ def test_device_registers_on_connect() -> None:
 
     async def run() -> None:
         async with (
-            _runtime_harness() as (runtime, _tracker, _state, _publisher, tcp_port, udp_port),
+            _runtime_harness() as (runtime, _tracker, _state, _publisher, _telemetry_runtime, tcp_port, udp_port),
             MockSensorDevice(
                 server_ip="127.0.0.1",
                 server_port=tcp_port,
@@ -164,7 +164,7 @@ def test_control_command_acked_and_state_updated() -> None:
 
     async def run() -> None:
         async with (
-            _runtime_harness() as (runtime, tracker, _state, _publisher, tcp_port, udp_port),
+            _runtime_harness() as (runtime, tracker, _state, _publisher, _telemetry_runtime, tcp_port, udp_port),
             MockSensorDevice(
                 server_ip="127.0.0.1",
                 server_port=tcp_port,
@@ -209,7 +209,7 @@ def test_control_command_closed() -> None:
 
     async def run() -> None:
         async with (
-            _runtime_harness() as (runtime, _tracker, _state, _runtime_harnesspublisher, tcp_port, udp_port),
+            _runtime_harness() as (runtime, _tracker, _state, _publisher, _telemetry_runtime, tcp_port, udp_port),
             MockSensorDevice(
                 server_ip="127.0.0.1",
                 server_port=tcp_port,
@@ -237,7 +237,7 @@ def test_telemetry_stream_readings_match_config() -> None:
 
     async def run() -> None:
         async with (
-            _runtime_harness() as (runtime, _tracker, _state, publisher, tcp_port, udp_port),
+            _runtime_harness() as (runtime, _tracker, _state, publisher, _telemetry_runtime, tcp_port, udp_port),
             MockSensorDevice(
                 server_ip="127.0.0.1",
                 server_port=tcp_port,
@@ -282,7 +282,7 @@ def test_get_single_delivers_data_over_udp() -> None:
 
     async def run() -> None:
         async with (
-            _runtime_harness() as (runtime, tracker, _state, publisher, tcp_port, udp_port),
+            _runtime_harness() as (runtime, tracker, _state, publisher, _telemetry_runtime, tcp_port, udp_port),
             MockSensorDevice(
                 server_ip="127.0.0.1",
                 server_port=tcp_port,
@@ -315,7 +315,7 @@ def test_estop_stops_streaming_and_resets_state() -> None:
 
     async def run() -> None:
         async with (
-            _runtime_harness() as (runtime, _tracker, _state, _publisher, tcp_port, udp_port),
+            _runtime_harness() as (runtime, _tracker, _state, _publisher, _telemetry_runtime, tcp_port, udp_port),
             MockSensorDevice(
                 server_ip="127.0.0.1",
                 server_port=tcp_port,
@@ -396,7 +396,7 @@ def test_custom_config_sensor_ids_match_readings() -> None:
 
     async def run() -> None:
         async with (
-            _runtime_harness() as (runtime, _tracker, _state, publisher, tcp_port, udp_port),
+            _runtime_harness() as (runtime, _tracker, _state, publisher, _telemetry_runtime, tcp_port, udp_port),
             MockSensorDevice(
                 server_ip="127.0.0.1",
                 server_port=tcp_port,
@@ -416,6 +416,66 @@ def test_custom_config_sensor_ids_match_readings() -> None:
             reading = batch.readings[0]
             assert reading.sensor_name == "LC101"
             assert reading.unit_name == "N"
+
+    asyncio.run(run())
+
+
+def test_tare_set_mid_stream_offsets_readings_without_losing_the_raw_value() -> None:
+    """Setting a tare while streaming steps `value` down by the offset; `value + tare` stays continuous."""
+
+    def _reading_for(batch: TelemetryBatch, sensor_name: str) -> Any:
+        return next(reading for reading in batch.readings if reading.sensor_name == sensor_name)
+
+    async def run() -> None:
+        async with (
+            _runtime_harness() as (runtime, _tracker, state, publisher, telemetry_runtime, tcp_port, udp_port),
+            MockSensorDevice(
+                server_ip="127.0.0.1",
+                server_port=tcp_port,
+                server_udp_port=udp_port,
+            ) as dev,
+        ):
+            await asyncio.wait_for(dev.timesync_received.wait(), timeout=2.0)
+            session = _session_for(runtime, dev.device_name)
+
+            dev.stream_started.clear()
+            await runtime.start_streaming(session, frequency_hz=20)
+            await asyncio.wait_for(dev.stream_started.wait(), timeout=2.0)
+
+            reached = await _wait_for(lambda: len(publisher.batches) >= 3, timeout_s=2.0)
+            assert reached, f"Expected ≥3 batches, got {len(publisher.batches)}"
+
+            before = publisher.batches[-1]
+            assert _reading_for(before, "PT101").tare == 0.0
+
+            offset, sampled_device, count = telemetry_runtime.capture_tare_offset("PT101", samples=1)
+            assert sampled_device == dev.device_name
+            assert count == 1
+            state.set_tare("PT101", offset)
+
+            tared_at = len(publisher.batches)
+            reached = await _wait_for(lambda: len(publisher.batches) > tared_at, timeout_s=2.0)
+            assert reached, "No batches arrived after the tare was set"
+            after = publisher.batches[tared_at]
+
+            before_reading = _reading_for(before, "PT101")
+            after_reading = _reading_for(after, "PT101")
+
+            assert after_reading.tare == offset
+            # The mock's PT101 signal is a 0.25 Hz / 20-unit sine, so it moves at most
+            # 20*2*pi*0.25 units per second. Anything beyond that is the tare misapplied.
+            drift = 31.5 * abs(after.timestamp_s - before.timestamp_s) + 0.01
+            assert abs(after_reading.value - (before_reading.value - offset)) <= drift
+            # Other sensors are untouched: tares are per sensor name.
+            assert _reading_for(after, "TC101").tare == 0.0
+
+            state.clear_tare("PT101")
+            cleared_at = len(publisher.batches)
+            reached = await _wait_for(lambda: len(publisher.batches) > cleared_at, timeout_s=2.0)
+            assert reached, "No batches arrived after the tare was cleared"
+            assert _reading_for(publisher.batches[cleared_at], "PT101").tare == 0.0
+
+            await runtime.stop_streaming(session)
 
     asyncio.run(run())
 

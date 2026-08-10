@@ -557,3 +557,73 @@ def test_kasa_events_increment_state_version() -> None:
     state.mark_kasa_unavailable("192.168.1.1")
 
     assert state.state_version == 3
+
+
+def test_set_tare_emits_versioned_event_and_appears_in_snapshot() -> None:
+    state, _ = _make_state()
+
+    event = state.set_tare("PT101", 14.7)
+
+    assert event == {"type": "tare.updated", "state_version": 1, "sensor_name": "PT101", "offset": 14.7}
+    assert state.tare_for("PT101") == 14.7
+    assert state.snapshot()["tares"] == {"PT101": 14.7}
+
+
+def test_tare_for_defaults_to_zero() -> None:
+    state, _ = _make_state()
+
+    assert state.tare_for("PT101") == 0.0
+
+
+def test_set_tare_replaces_the_previous_offset() -> None:
+    state, _ = _make_state()
+
+    state.set_tare("PT101", 14.7)
+    state.set_tare("PT101", 3.2)
+
+    assert state.tare_for("PT101") == 3.2
+    assert state.state_version == 2
+
+
+def test_clear_tare_emits_event_and_removes_the_offset() -> None:
+    state, _ = _make_state()
+    state.set_tare("PT101", 14.7)
+
+    event = state.clear_tare("PT101")
+
+    assert event == {"type": "tare.cleared", "state_version": 2, "sensor_name": "PT101"}
+    assert state.tare_for("PT101") == 0.0
+    assert state.snapshot()["tares"] == {}
+
+
+def test_clear_tare_on_an_untared_sensor_is_a_no_op() -> None:
+    state, _ = _make_state()
+
+    assert state.clear_tare("PT101") is None
+    assert state.state_version == 0
+
+
+def test_tares_survive_device_disconnect() -> None:
+    """Flight handoff: the replacement device carries the same sensor name and must stay tared."""
+    state, _ = _make_state()
+    device = _make_device()
+    state.register_device(device)
+    state.set_tare("TC1", 5.0)
+
+    state.mark_disconnected(device)
+
+    assert state.tare_for("TC1") == 5.0
+
+
+def test_snapshot_includes_tares_key_even_when_empty() -> None:
+    state, _ = _make_state()
+
+    assert state.snapshot()["tares"] == {}
+
+
+def test_snapshot_tares_are_sorted_by_sensor_name() -> None:
+    state, _ = _make_state()
+    state.set_tare("PT201", 1.0)
+    state.set_tare("PT101", 2.0)
+
+    assert list(state.snapshot()["tares"]) == ["PT101", "PT201"]
