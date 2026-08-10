@@ -23,7 +23,7 @@ class BoundedWebSocketFanout:
     """Bounded per-client JSON fan-out for WebSocket streams.
 
     Publishers stay synchronous and non-blocking. Each connected client owns a
-    bounded queue; slow clients lose newest messages instead of blocking the
+    bounded queue; slow clients lose oldest messages instead of blocking the
     runtime loop that produced the data.
     """
 
