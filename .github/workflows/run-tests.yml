@@ -15,8 +15,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0 # Need tag history for the GUI_TAG staleness check below
           persist-credentials: false
           submodules: recursive
+
+      - name: Check GUI_TAG pin isn't stale
+        run: |
+          previous_release="$(git describe --tags --abbrev=0 --exclude='*dev*' 2>/dev/null || true)"
+          if [ -z "$previous_release" ]; then
+            echo "No previous release tag found, skipping GUI_TAG staleness check."
+          else
+            previous_gui_tag="$(git show "${previous_release}:compose.prod.yml" | grep -oP '(?<=GUI_TAG:-)[^}]+' || true)"
+            current_gui_tag="$(grep -oP '(?<=GUI_TAG:-)[^}]+' compose.prod.yml || true)"
+            if [ -n "$previous_gui_tag" ] && [ "$previous_gui_tag" == "$current_gui_tag" ]; then
+              echo "::warning file=compose.prod.yml::GUI_TAG is still pinned to '${current_gui_tag}', same as release ${previous_release}. Confirm that's intentional before cutting the next release."
+            fi
+          fi
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5

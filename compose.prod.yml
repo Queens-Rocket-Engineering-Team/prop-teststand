@@ -49,13 +49,12 @@ services:
   # View-only GUI for engineers at the pad, reachable at :8080. Serves static
   # files only — it issues no commands and the server is unaware of it.
   #
-  # GUI_TAG must be set explicitly (no default) to the published GUI version
-  # this release was tested against — e.g. GUI_TAG=v2.4.0. This is required
-  # rather than falling back to `latest` so that a server release keeps
-  # serving the same GUI build regardless of what the GUI repo publishes
-  # afterward.
+  # GUI_TAG is pinned here to the published GUI version tested against this
+  # release — bump it by hand as part of cutting each release. run-tests.yml
+  # prints a (non-blocking) warning if it hasn't changed since the previous
+  # release, as a nudge to double check it.
   gui:
-    image: ghcr.io/queens-rocket-engineering-team/prop-new-control-gui-web:${GUI_TAG:?Set GUI_TAG to a released GUI version, e.g. GUI_TAG=v2.4.0}
+    image: ghcr.io/queens-rocket-engineering-team/prop-new-control-gui-web:${GUI_TAG:-v1.0.0}
     network_mode: "host" # Matches the server service; nginx listens on 8080
 
     environment:
