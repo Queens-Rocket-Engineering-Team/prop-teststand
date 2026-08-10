@@ -46,15 +46,25 @@ class MediaMTXClient:
             "recordSegmentDuration": "2h",  # 2 hours per recording file segment to accommodate long sessions
         }, timeout=aiohttp.ClientTimeout(10))
 
-    async def set_recording(
+    async def set_record_config(
         self,
         http_client: aiohttp.ClientSession,
         path_name: str,
         *,
         record: bool,
+        record_path: str,
     ) -> aiohttp.ClientResponse:
+        """Set a path's record flag and destination in a single PATCH.
+
+        Both fields go in one request on purpose. MediaMTX applies a record-only config
+        change in place from v1.15.1 onward, closing and restarting just the recorder
+        without disturbing readers (bluenviron/mediamtx#4663). Two separate PATCHes
+        would trigger two reloads and leave a stray segment at the old location, and
+        including any non-record field would drop out of that in-place path entirely.
+        """
         return await http_client.patch(f"{self._base_url()}/v3/config/paths/patch/{path_name}", json={
             "record": record,
+            "recordPath": record_path,
         }, timeout=aiohttp.ClientTimeout(10))
 
     async def get_path_record_state(self, http_client: aiohttp.ClientSession, path_name: str) -> bool | None:

@@ -1,9 +1,7 @@
 import logging
 from typing import Annotated
-from urllib.parse import quote
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import BaseModel
 
 from prop_teststand.api.deps import get_runtime
@@ -24,19 +22,6 @@ class CameraInfo(BaseModel):
 
 class CameraList(BaseModel):
     cameras: list[CameraInfo]
-
-
-class CameraRecordingFileInfo(BaseModel):
-    filename: str
-    camera_ip: str | None
-    camera_hostname: str | None
-    size_bytes: int
-    modified_unix_ms: int
-    download_path: str
-
-
-class CameraRecordingList(BaseModel):
-    recordings: list[CameraRecordingFileInfo]
 
 
 @router.get("/v1/cameras", summary="Get the list of connected cameras")
@@ -73,79 +58,4 @@ async def control_camera(
     )
 
 
-@router.post("/v1/camera/recordings/start", summary="Start recording a camera's stream")
-async def start_camera_recording(
-    rt: Annotated[RuntimeServices, Depends(get_runtime)],
-    ip: str,
-) -> CommandResponse:
-    logger.info("User sent camera recording start command to %s", ip)
-    try:
-        await rt.camera_runtime.start_camera_recording(ip)
-    except KeyError as e:
-        raise HTTPException(404, str(e)) from e
-    except RuntimeError as e:
-        raise HTTPException(500, str(e)) from e
-    return CommandResponse(
-        status="sent",
-        message=f"User sent camera recording start command to {ip}",
-    )
-
-
-@router.post("/v1/camera/recordings/stop", summary="Stop recording a camera's stream")
-async def stop_camera_recording(
-    rt: Annotated[RuntimeServices, Depends(get_runtime)],
-    ip: str,
-) -> CommandResponse:
-    logger.info("User sent camera recording stop command to %s", ip)
-    try:
-        await rt.camera_runtime.stop_camera_recording(ip)
-    except KeyError as e:
-        raise HTTPException(404, str(e)) from e
-    except RuntimeError as e:
-        raise HTTPException(500, str(e)) from e
-    return CommandResponse(
-        status="sent",
-        message=f"User sent camera recording stop command to {ip}",
-    )
-
-
-@router.get("/v1/camera/recordings", summary="List camera recordings available for download")
-def list_camera_recordings(
-    rt: Annotated[RuntimeServices, Depends(get_runtime)],
-    ip: str | None = None,
-) -> CameraRecordingList:
-    try:
-        camera_recording_files = rt.camera_runtime.list_recording_files(ip)
-    except Exception as e:
-        logger.error("Failed to list camera recordings: %s", e)
-        raise HTTPException(500, "Failed to list camera recordings") from e
-
-    return CameraRecordingList(recordings=[
-        CameraRecordingFileInfo(
-            filename=rec["filename"],
-            camera_ip=rec["camera_ip"],
-            camera_hostname=rec["camera_hostname"],
-            size_bytes=rec["size_bytes"],
-            modified_unix_ms=rec["modified_unix_ms"],
-            download_path=f"/v1/camera/recordings/download/{quote(rec['filename'])}",
-        )
-        for rec in camera_recording_files
-    ])
-
-
-@router.get("/v1/camera/recordings/download/{filename}", summary="Download a camera recording file")
-async def download_camera_recording(
-    rt: Annotated[RuntimeServices, Depends(get_runtime)],
-    filename: str,
-) -> FileResponse:
-    try:
-        file_path = rt.camera_runtime.get_recording_file_path(filename)
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-    except FileNotFoundError as e:
-        raise HTTPException(404, str(e)) from e
-    except Exception as e:
-        logger.error("Failed to load recording file '%s': %s", filename, e)
-        raise HTTPException(500, "Failed to open recording file") from e
-    return FileResponse(path=file_path, media_type="video/mp4", filename=file_path.name)
 

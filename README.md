@@ -1,6 +1,6 @@
 # prop-teststand
 
-Server application for QRET's propulsion test stand. Discovers and communicates with ESP32 sensor/control devices over a custom binary TCP protocol, collects sensor data, controls valves, manages IP cameras, and exposes everything through a REST API and CLI.
+Server application for QRET's propulsion test stand. Discovers and communicates with ESP32 sensor/control devices over a custom binary TCP protocol, collects sensor data, controls valves, manages IP cameras, records a whole test as a single downloadable [session](#recording-sessions), and exposes everything through a REST API and CLI.
 
 ## System Architecture
 
@@ -54,6 +54,14 @@ docker compose -f compose.dev.yml up
 
 This starts all necessary services with file watching — code changes in `src/` and `config.yaml` trigger automatic restarts.
 
+The `recordings/` directory is shared between the server and MediaMTX. Both containers run as `${DOCKER_UID:-1000}:${DOCKER_GID:-1000}` so session directories stay owned by you; set those in `.env` if your uid is not 1000. If an older checkout left a root-owned `recordings/` behind, take it back once with:
+
+```bash
+sudo chown -R "$(id -u):$(id -g)" recordings
+```
+
+MediaMTX is pinned to `1.20.0`. **Do not move it below 1.15.1** — earlier versions destroyed and recreated a path when its `recordPath` was patched, which is exactly what starting a session does, and every live WebRTC viewer would be dropped. If viewers ever drop at session start, check the MediaMTX log for `path destroyed`.
+
 Follow server logs with:
 
 ```bash
@@ -104,6 +112,9 @@ accounts:
     password: ...
 
 services:
+  recordings:
+    root: ./recordings                    # the server's view of the recordings tree
+    mediamtx_container_root: /recordings  # MediaMTX's view of the same tree
   mediamtx:
     ip: localhost
     api_port: 9997
@@ -114,6 +125,8 @@ cameras:
 ```
 
 Override the path with the `PROP_CONFIG` environment variable (defaults to `./config.yaml`).
+
+`services.recordings` is a pair of views onto **one shared directory**: the server writes telemetry there, and MediaMTX writes video into it through its own bind mount. The two must agree — if `mediamtx_container_root` does not match the `media` service's volume in the compose file, MediaMTX will happily write video to a path nobody can read. The server logs the mapping at startup, and a session whose cameras all armed but produced no files records a `no_video_recorded` warning in its metadata.
 
 ESP32 devices configure themselves — each device sends a JSON CONFIG packet on connection describing its sensors and controls.
 
@@ -133,11 +146,70 @@ Sensor zeroing is applied server-side so every connected GUI sees the same numbe
 
 Readings on `/ws/telemetry/raw` carry both the tared `value` and the `tare` that was subtracted, so the untared reading is always recoverable as `value + tare`. The current offsets are also in the `/ws/state` snapshot under `tares`, with `tare.updated` / `tare.cleared` deltas as they change.
 
+## Recording sessions
+
+A test is recorded as a **session**: one directory holding the telemetry CSV, every camera's video, the Mumble audio, and a `session.json` describing the run. `POST /v1/sessions/start` with `{"name": "Hot Fire 3"}` arms everything at once; `POST /v1/sessions/stop` finishes every artifact and writes the final metadata.
+
+```
+recordings/
+  2026-08-10_143005_hot-fire-3/
+    session.json
+    telemetry.csv
+    audio/mumble_recording_1770745805.opus
+    video/Cam1_192.168.1.5_20260810_143007_512000.mp4
+```
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /v1/sessions/start` | Start recording. `409` if one is already running |
+| `POST /v1/sessions/stop` | Stop recording and finalize the session |
+| `GET /v1/sessions` | List sessions, newest first, plus free disk space |
+| `GET /v1/sessions/{id}` | A session's full metadata |
+| `GET /v1/sessions/{id}/download` | The whole session as a streamed zip |
+| `GET /v1/sessions/{id}/files/{path}` | One artifact, without downloading the archive |
+
+Starting a session **only records** — it never changes device stream rates, so the GUI keeps owning `STREAM`/`STOP`. Only telemetry is mandatory: a camera that fails to arm or an unreachable Mumble server is recorded as a failed component under `components` in `session.json` and the session continues. The active session is also in the `/ws/state` snapshot under `session`, with `session.started` / `session.updated` / `session.stopped` deltas, so every connected GUI agrees on whether a test is recording.
+
+Sessions are never pruned automatically. Watch `free_bytes` from `GET /v1/sessions`.
+
+### Aligning the recordings
+
+Video filenames come from MediaMTX's wall clock while telemetry timestamps are on the server's monotonic clock. Devices time-sync to that same monotonic clock, so `session.json`'s `clock` block converts either one:
+
+```
+wall_clock = started_unix + (device_timestamp - started_monotonic)
+```
+
+### telemetry.csv
+
+```
+device_timestamp,source,PT101 [PSI],TC101 [C],heater_HEATER1,relay_SAFE24,valve_AV101
+236711.7952,MockDevice,20.5075,44.2267,50.5000,0,1
+```
+
+Blocks run sensors, then controls, then Kasa outlets, each sorted alphabetically. Control columns are prefixed with the group the device declares in its QLCP config. Boolean controls are written as a bit: `1` when a valve is `OPEN`, and `1` when anything else is `CLOSED` — inverted, because those relays are wired normally-closed so `CLOSED` is the energized state. Non-boolean controls carry their actual value. An empty sensor cell means that sensor was absent from that batch, which is distinct from a reading of zero. `session.json` restates all of this under `telemetry.semantics`.
+
 ## Protocol
 
 Devices communicate using the QRET Launch Control Protocol (QLCP) over TCP (port 50000) and UDP (port 50001). Devices are discovered via multicast on `239.100.0.1:10000` using a QLCP discovery packet. On discovery, the device opens a TCP connection to the server and sends its CONFIG. The device then time-syncs to the server and normal operation begins (streaming, control commands, heartbeats).
 
 For more information on protocol specifications, see [ctl-qlcp-lib](https://github.com/Queens-Rocket-Engineering-Team/ctl-qlcp-lib).
+
+## Breaking changes
+
+Recording was consolidated into sessions. The per-subsystem recording endpoints are **gone**, not deprecated — recording a camera or the voice channel outside a session is no longer possible, because that fragmentation is what sessions exist to remove.
+
+| Removed | Replacement |
+|---------|-------------|
+| `POST /v1/audio/start`, `POST /v1/audio/stop` | `POST /v1/sessions/start`, `POST /v1/sessions/stop` |
+| `GET /v1/audio/files`, `GET /v1/audio/files/{filename}` | `GET /v1/sessions`, `GET /v1/sessions/{id}/download` |
+| `POST /v1/camera/recordings/start\|stop?ip=` | `POST /v1/sessions/start`, which arms every camera at once |
+| `GET /v1/camera/recordings`, `GET /v1/camera/recordings/download/{filename}` | `GET /v1/sessions/{id}/download`, or `/files/{path}` for one clip |
+| `services.mediamtx.recordings_dir`, `services.mumble.recording_dir` | `services.recordings.root` |
+
+Loose recordings under `recordings/mediamtx/` and `recordings/mumble/` are orphaned by the new layout. Nothing breaks if you leave them — directories whose names are not session ids are ignored by the listing — but move them somewhere else if you want to keep them.
+
+`telemetry.csv` also changed shape relative to what the GUI used to write. Controls are now prefixed with their real QLCP group and non-boolean controls carry their value, so `relay_HEATER1` — which was a boolean column that could only ever read `0`, because the heater is a `FLOAT32` — becomes `heater_HEATER1` carrying the setpoint in °C. Scripts that select columns **by name** need only that rename; scripts that index columns **by position** must be rechecked, because the control block is now ordered by group.
 
 ## ESP32 Setup
 

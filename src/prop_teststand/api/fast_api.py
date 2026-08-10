@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
-from prop_teststand.api.routers import audio, cameras, devices, kasa, streams, system, tares
+from prop_teststand.api.routers import cameras, devices, kasa, sessions, streams, system, tares
 from prop_teststand.runtime.services import RuntimeServices
 
 
@@ -68,7 +68,7 @@ app.include_router(streams.router)
 app.include_router(devices.router)
 app.include_router(cameras.router)
 app.include_router(kasa.router)
-app.include_router(audio.router)
+app.include_router(sessions.router)
 app.include_router(tares.router)
 
 

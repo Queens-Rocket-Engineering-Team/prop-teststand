@@ -19,14 +19,21 @@ class AudioRuntime:
         self._mumble: Mumble | None = None
         self._wav: Wave_write | None = None
         self._file_name: str | None = None
+        self._output_dir: Path | None = None
         self._stopping = False
         self._lock = Lock()
 
-    def start(self) -> dict[str, str]:
+    def start(self, output_dir: Path) -> dict[str, str]:
+        """Begin recording the Mumble channel, transcoding into *output_dir* on stop.
+
+        Blocking: connects a Mumble client and waits for the handshake. Callers on the
+        event loop must dispatch this to a thread.
+        """
         with self._lock:
             if self._mumble is not None or self._stopping:
                 raise RuntimeError("already recording")
 
+            self._output_dir = output_dir
             file_name = f"mumble_recording_{int(time.time())}"
             temp_recording_dir = Path(self._config["temp_recording_dir"]).resolve()
             temp_recording_dir.mkdir(parents=True, exist_ok=True)
@@ -64,6 +71,7 @@ class AudioRuntime:
             return {"status": "started"}
 
     def stop(self) -> dict[str, str | None]:
+        """Stop recording and transcode to Opus. Blocking: shells out to ffmpeg."""
         with self._lock:
             if self._mumble is None or self._wav is None:
                 raise RuntimeError("not recording")
@@ -71,7 +79,9 @@ class AudioRuntime:
             mumble = self._mumble
             wav = self._wav
             file_name = self._file_name
+            output_dir = self._output_dir
             assert file_name is not None
+            assert output_dir is not None
             self._stopping = True
 
         try:
@@ -79,45 +89,13 @@ class AudioRuntime:
                 mumble.stop()
             finally:
                 wav.close()
-            self._transcode_to_opus(file_name)
+            self._transcode_to_opus(file_name, output_dir)
         finally:
             with self._lock:
                 self._clear_recording_state()
                 self._stopping = False
 
-        return {"status": "stopped", "file": file_name}
-
-    def list_recordings(self) -> list[dict[str, str]]:
-        recordings_dir = self._recordings_root()
-        if not recordings_dir.exists():
-            return []
-
-        files = [
-            {
-                "filename": file_path.name,
-                "download_path": f"/v1/audio/files/{file_path.name}",
-            }
-            for file_path in recordings_dir.iterdir()
-            if file_path.suffix == ".opus"
-        ]
-
-        files.sort(key=lambda file_info: (recordings_dir / file_info["filename"]).stat().st_mtime, reverse=True)
-        return files
-
-    def get_recording_path(self, filename: str) -> Path:
-        recordings_root = self._recordings_root()
-        safe_filename = Path(filename).name
-        if safe_filename != filename:
-            raise ValueError("Invalid filename")
-
-        file_path = (recordings_root / safe_filename).resolve()
-        if file_path.parent != recordings_root:
-            raise ValueError("Invalid filename")
-
-        if not file_path.exists() or not file_path.is_file():
-            raise FileNotFoundError("File not found")
-
-        return file_path
+        return {"status": "stopped", "file": f"{file_name}.opus"}
 
     def close(self) -> None:
         with self._lock:
@@ -139,8 +117,7 @@ class AudioRuntime:
                 return
             self._wav.writeframes(soundchunk.pcm)
 
-    def _transcode_to_opus(self, file_name: str) -> None:
-        output_dir = self._recordings_root()
+    def _transcode_to_opus(self, file_name: str, output_dir: Path) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         temp_path = (self._temp_recordings_root() / file_name).with_suffix(".wav")
@@ -173,9 +150,7 @@ class AudioRuntime:
         self._mumble = None
         self._wav = None
         self._file_name = None
-
-    def _recordings_root(self) -> Path:
-        return Path(self._config["recording_dir"]).resolve()
+        self._output_dir = None
 
     def _temp_recordings_root(self) -> Path:
         return Path(self._config["temp_recording_dir"]).resolve()

@@ -3,8 +3,14 @@ services:
     # Pull latest image from GitHub
     image: ghcr.io/queens-rocket-engineering-team/prop-teststand-server:${IMAGE_TAG:-latest}
     network_mode: "host"  # Use host networking for SSDP
+    # Write session directories as the invoking user so they stay deletable, and so a
+    # local `uv run` can read what the container wrote.
+    user: "${DOCKER_UID:-1000}:${DOCKER_GID:-1000}"
     environment:
       - PROP_CONFIG=/app/config.yaml # Default config file location
+      # The image is built as root, so a non-root uid has no writable home for uv's cache.
+      - HOME=/tmp
+      - UV_CACHE_DIR=/tmp/uv-cache
 
     # Allow manual interaction with the container (cli)
     stdin_open: true
@@ -12,14 +18,18 @@ services:
 
     volumes:
       - ./config.yaml:/app/config.yaml  # Mount local config file for production
-      - ./recordings:/app/recordings # Mount local directory for audio recordings
+      - ./recordings:/app/recordings # Shared session recordings tree (see services.recordings in config.yaml)
 
     # Always restart server on dockerd start
     restart: always
 
   media:
-    image: "bluenviron/mediamtx:latest"
+    # Pinned: before v1.15.1, PATCHing recordPath destroyed and recreated the path,
+    # dropping every live WebRTC viewer. Session start does exactly that PATCH.
+    # https://github.com/bluenviron/mediamtx/issues/4663
+    image: "bluenviron/mediamtx:1.20.0"
     network_mode: "host"
+    user: "${DOCKER_UID:-1000}:${DOCKER_GID:-1000}"
     ports:
       - "8889:8889"
     depends_on:
@@ -29,11 +39,15 @@ services:
     # This port isn't being accessed externally, changing it is fine
       - MTX_RTSPADDRESS=:8558
       - MTX_API=yes
+      # Unused, and it exits at startup trying to write its auto-generated TLS cert
+      # into the (non-writable) working directory now that we run as a non-root user.
+      - MTX_MOQ=no
 
     # Always restart media on dockerd start
     restart: always
     volumes:
-      - ./recordings/mediamtx:/recordings
+      # Same tree the server mounts, at the path config.yaml calls mediamtx_container_root.
+      - ./recordings:/recordings
 
   mumble:
     image: mumblevoip/mumble-server:latest

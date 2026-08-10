@@ -15,6 +15,9 @@ from prop_teststand.runtime.esp_connection_runtime import ESPConnectionRuntime
 from prop_teststand.runtime.kasa_runtime import KasaRuntime
 from prop_teststand.runtime.log_stream import LogStream
 from prop_teststand.runtime.metrics import Metrics
+from prop_teststand.runtime.recording_paths import RecordingPaths
+from prop_teststand.runtime.session_runtime import SessionRuntime
+from prop_teststand.runtime.session_telemetry import TelemetrySessionPublisher
 from prop_teststand.runtime.state_stream import StateStream
 from prop_teststand.runtime.telemetry_display_stream import TelemetryDisplayStream
 from prop_teststand.runtime.telemetry_ingest import TelemetryRuntime
@@ -49,6 +52,7 @@ class RuntimeServices:
     audio_runtime: AudioRuntime
     camera_runtime: CameraRuntime
     kasa_runtime: KasaRuntime
+    session_runtime: SessionRuntime
     _tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict, init=False, repr=False)
 
     def start(self, loop: asyncio.AbstractEventLoop) -> None:
@@ -80,6 +84,10 @@ class RuntimeServices:
 
     async def stop(self) -> None:
         """Cancel and await all runtime daemon tasks, then close device connections."""
+        # Before anything else, so a session in progress is finished properly rather
+        # than losing its telemetry buffer and its unfinalized video segments.
+        await self.session_runtime.finalize_on_shutdown()
+
         log_task = self._tasks.get("log_stream")
         runtime_tasks = {name: task for name, task in self._tasks.items() if name != "log_stream"}
 
@@ -117,23 +125,36 @@ def build_runtime(config: ServerConfig) -> RuntimeServices:
         state_stream=state_stream,
         metrics=metrics,
     )
+    # Permanently registered rather than swapped in when recording starts, so the ingest
+    # loop's publisher tuple is never mutated; it is a no-op until a session attaches.
+    telemetry_session = TelemetrySessionPublisher()
     telemetry_runtime = TelemetryRuntime(
         esp_runtime.get_device_by_address,
         telemetry_stream,
         telemetry_display_stream,
+        telemetry_session,
         tare_for=system_state.tare_for,
         metrics=metrics,
     )
-    mediamtx_config = config["services"]["mediamtx"]
+    recording_paths = RecordingPaths.from_config(config["services"]["recordings"])
+    recording_paths.ensure_root()
     audio_runtime = AudioRuntime(config["services"]["mumble"])
-    mediamtx = MediaMTXClient(mediamtx_config)
+    mediamtx = MediaMTXClient(config["services"]["mediamtx"])
     camera_runtime = CameraRuntime(
         mediamtx=mediamtx,
         cameras=config["cameras"],
         camera_account=config["accounts"]["camera"],
-        mediamtx_config=mediamtx_config,
+        recording_paths=recording_paths,
     )
     kasa_runtime = KasaRuntime(system_state=system_state, state_stream=state_stream)
+    session_runtime = SessionRuntime(
+        paths=recording_paths,
+        telemetry_publisher=telemetry_session,
+        system_state=system_state,
+        state_stream=state_stream,
+        camera_runtime=camera_runtime,
+        audio_runtime=audio_runtime,
+    )
     return RuntimeServices(
         command_tracker=command_tracker,
         metrics=metrics,
@@ -148,4 +169,5 @@ def build_runtime(config: ServerConfig) -> RuntimeServices:
         audio_runtime=audio_runtime,
         camera_runtime=camera_runtime,
         kasa_runtime=kasa_runtime,
+        session_runtime=session_runtime,
     )
