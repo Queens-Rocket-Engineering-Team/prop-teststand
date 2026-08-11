@@ -47,10 +47,18 @@ class _FakeCamera:
 class _FakeCameraRuntime:
     """Stands in for MediaMTX. `failures` maps camera IP -> failure detail."""
 
-    def __init__(self, addresses: list[str] | None = None, failures: dict[str, str] | None = None, *, hangs_on_stop: bool = False) -> None:
+    def __init__(
+        self,
+        addresses: list[str] | None = None,
+        failures: dict[str, str] | None = None,
+        *,
+        hangs_on_stop: bool = False,
+        start_delay_s: float = 0.0,
+    ) -> None:
         self._cameras = [_FakeCamera(address) for address in (addresses or [])]
         self._failures = failures or {}
         self._hangs_on_stop = hangs_on_stop
+        self._start_delay_s = start_delay_s
         self.session_video_dir: PurePosixPath | None = None
         self.stopped = False
 
@@ -58,6 +66,8 @@ class _FakeCameraRuntime:
         return list(self._cameras)
 
     async def start_session_recording(self, container_video_dir: PurePosixPath) -> dict[str, str | None]:
+        if self._start_delay_s:
+            await asyncio.sleep(self._start_delay_s)
         self.session_video_dir = container_video_dir
         return {camera.address: self._failures.get(camera.address) for camera in self._cameras}
 
@@ -108,13 +118,14 @@ def _make_runtime(
     camera_failures: dict[str, str] | None = None,
     audio_error: Exception | None = None,
     cameras_hang_on_stop: bool = False,
+    camera_start_delay_s: float = 0.0,
     shutdown_timeout_s: float = 30.0,
 ) -> tuple[SessionRuntime, SystemState, TelemetrySessionPublisher, _FakeStateStream, _FakeCameraRuntime, _FakeAudioRuntime]:
     state = SystemState(command_tracker=CommandTracker())
     _register_device(state)
     publisher = TelemetrySessionPublisher()
     stream = _FakeStateStream()
-    camera_runtime = _FakeCameraRuntime(cameras, camera_failures, hangs_on_stop=cameras_hang_on_stop)
+    camera_runtime = _FakeCameraRuntime(cameras, camera_failures, hangs_on_stop=cameras_hang_on_stop, start_delay_s=camera_start_delay_s)
     audio_runtime = _FakeAudioRuntime(error=audio_error)
     runtime = SessionRuntime(
         paths=RecordingPaths.from_config({"root": str(tmp_path), "mediamtx_container_root": "/recordings"}),
@@ -435,6 +446,31 @@ def test_finalize_on_shutdown_is_a_no_op_when_idle(tmp_path: Path) -> None:
     asyncio.run(runtime.finalize_on_shutdown())
 
 
+def test_finalize_on_shutdown_waits_for_a_start_still_in_flight(tmp_path: Path) -> None:
+
+    async def run() -> None:
+        runtime, _state, publisher, _stream, _cameras, _audio = _make_runtime(
+            tmp_path,
+            cameras=["10.0.0.5"],
+            camera_start_delay_s=0.3,
+            shutdown_timeout_s=10.0,
+        )
+
+        starting = asyncio.ensure_future(runtime.start("hotfire"))
+        await asyncio.sleep(0.05)
+
+        # Shutdown lands while start() still holds the lock. Returning here would exit
+        # the process with the CSV open and the session left "active" forever.
+        await asyncio.wait_for(runtime.finalize_on_shutdown(), timeout=5.0)
+        status = await starting
+
+        metadata = json.loads((tmp_path / status["id"] / "session.json").read_text())
+        assert metadata["status"] == "completed"
+        assert metadata["end_reason"] == "server_shutdown"
+
+    asyncio.run(run())
+
+
 # ---------------------------------------------------------------------------
 # Reads and path guards
 # ---------------------------------------------------------------------------
@@ -502,6 +538,21 @@ def test_list_sessions_is_newest_first_and_survives_unreadable_metadata(tmp_path
         assert by_id[first]["size_bytes"] > 0
 
     asyncio.run(run())
+
+
+def test_list_sessions_skips_symlinked_directories(tmp_path: Path) -> None:
+    root = tmp_path / "recordings"
+    root.mkdir()
+    runtime, *_ = _make_runtime(root)
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "secret.txt").write_text("not session data")
+    # A link is listed as a directory by is_dir(), but get_session_dir refuses to open
+    # it, so listing it would advertise a session nobody can download.
+    (root / "2026-08-10_143005_linked").symlink_to(elsewhere, target_is_directory=True)
+
+    assert runtime.list_sessions() == []
 
 
 def test_read_metadata_returns_live_state_for_the_active_session(tmp_path: Path) -> None:

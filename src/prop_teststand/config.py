@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import TypedDict, cast
 
 import yaml  # type: ignore[import-untyped]
 
@@ -44,12 +44,18 @@ RECORDINGS_DEFAULTS: RecordingsConfig = {
 def load_config(config_path: str) -> ServerConfig:
     try:
         with open(config_path, "r") as file:
-            config: ServerConfig = yaml.safe_load(file.read())
+            loaded = yaml.safe_load(file.read())
     except FileNotFoundError as exc:
         raise FileNotFoundError(f"Configuration file not found: {config_path}") from exc
     except yaml.YAMLError as exc:
         raise ValueError(f"Failed to parse YAML configuration file '{config_path}': {exc}") from exc
 
+    if not isinstance(loaded, dict):
+        # An empty or scalar config file otherwise fails much later, as an AttributeError
+        # on None somewhere in startup.
+        raise ValueError(f"Configuration file '{config_path}' must contain a YAML mapping")
+
+    config = cast("ServerConfig", loaded)
     services = config.setdefault("services", {})  # type: ignore[typeddict-item]
     services["recordings"] = {**RECORDINGS_DEFAULTS, **services.get("recordings", {})}
     return config

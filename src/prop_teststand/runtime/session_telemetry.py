@@ -82,6 +82,12 @@ class ColumnPlan:
     # (column name, kasa host), in output order.
     kasa: tuple[tuple[str, str], ...]
     header: str
+    # Derived once here rather than per batch: every ingested batch tests its sensors
+    # against this, on the UDP loop.
+    sensor_name_set: frozenset[str] = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "sensor_name_set", frozenset(self.sensor_names))
 
     @property
     def column_names(self) -> tuple[str, ...]:
@@ -168,13 +174,13 @@ class SessionTelemetryWriter:
     def write_batch(self, batch: TelemetryBatch) -> None:
         values = {reading.sensor_name: reading.value for reading in batch.readings}
 
-        if self._accepts_late and not values.keys() <= set(self.plan.sensor_names):
+        if self._accepts_late and not values.keys() <= self.plan.sensor_name_set:
             if self.rows == 0:
                 # Nothing has been written yet, so the header is not yet committed to.
                 # Covers starting a recording before the stand is powered on, which
                 # would otherwise send every row to a "late" file.
                 self._rebuild_header()
-            if not values.keys() <= set(self.plan.sensor_names):
+            if not values.keys() <= self.plan.sensor_name_set:
                 self._late_writer_for(batch.device_name).write_batch(batch)
                 return
 

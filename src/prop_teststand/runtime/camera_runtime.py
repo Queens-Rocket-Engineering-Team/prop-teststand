@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import time
 from pathlib import Path, PurePosixPath
 
@@ -22,6 +23,19 @@ IDLE_RECORD_SUBDIR = "_unassigned"
 VIDEO_SETTLE_TIMEOUT_S = 6.0
 VIDEO_SETTLE_QUIET_S = 1.5
 VIDEO_SETTLE_TICK_S = 0.25
+
+_UNSAFE_IN_FILENAME = re.compile(r"[^A-Za-z0-9_-]")
+
+
+def _filename_token(text: str) -> str:
+    """Reduce *text* to something safe to interpolate into a recordPath template.
+
+    The hostname comes back from the camera over ONVIF, so it is whatever the device
+    was configured with: a '/' would move recordings out of the session directory, and
+    a literal '%' would corrupt MediaMTX's own placeholders. Only the filename is
+    sanitized -- the real hostname still appears in session metadata and the UI.
+    """
+    return _UNSAFE_IN_FILENAME.sub("-", text).strip("-") or "camera"
 
 
 class CameraRuntime:
@@ -190,7 +204,7 @@ class CameraRuntime:
         # MediaMTX resolves recordPath inside its own container filesystem, so the
         # session directory has to be translated across the mount point first.
         base = self._session_video_dir if self._session_video_dir is not None else self._paths.container_root / IDLE_RECORD_SUBDIR
-        return str(base / f"{camera.hostname}_%path_%Y%m%d_%H%M%S_%f")
+        return str(base / f"{_filename_token(camera.hostname)}_%path_%Y%m%d_%H%M%S_%f")
 
     async def _configure_media_server_for_camera(
         self,

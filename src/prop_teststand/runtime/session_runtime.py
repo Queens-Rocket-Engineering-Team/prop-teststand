@@ -210,13 +210,24 @@ class SessionRuntime:
 
     async def finalize_on_shutdown(self) -> None:
         """Close out an in-progress session during server shutdown, best effort."""
+        # A shutdown landing mid-transition would otherwise return immediately and let
+        # the process exit with the CSV still open. start() and stop() hold the lock for
+        # their whole duration, so taking it once waits out whichever is in flight. Half
+        # the budget goes to that wait and half to the stop, bounding the total delay.
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(self._lock.acquire(), timeout=self._shutdown_timeout_s / 2)
+            self._lock.release()
+
         if self._phase != "active":
+            if self._phase != "idle":
+                session_id = self._session.session_id if self._session else "?"
+                logger.error("Server is shutting down with session %s stuck in phase %s", session_id, self._phase)
             return
         logger.warning("Server is shutting down with session %s recording; finalizing", self._session.session_id if self._session else "?")
         # A timeout here still leaves the telemetry safe: stop() closes the CSV before it
         # touches the media server or Mumble, so only their cleanup is abandoned.
         with contextlib.suppress(Exception):
-            await asyncio.wait_for(self.stop(end_reason="server_shutdown"), timeout=self._shutdown_timeout_s)
+            await asyncio.wait_for(self.stop(end_reason="server_shutdown"), timeout=self._shutdown_timeout_s / 2)
 
     # -- reads -------------------------------------------------------------
 
@@ -281,7 +292,10 @@ class SessionRuntime:
 
         summaries: list[dict[str, Any]] = []
         for directory in self._paths.root.iterdir():
-            if not directory.is_dir() or not SESSION_ID_PATTERN.fullmatch(directory.name):
+            # is_dir() follows symlinks, so without this a link into the wider
+            # filesystem would be listed as a session that get_session_dir then
+            # refuses to open.
+            if directory.is_symlink() or not directory.is_dir() or not SESSION_ID_PATTERN.fullmatch(directory.name):
                 continue
             summaries.append(self._summarize(directory))
 
