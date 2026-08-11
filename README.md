@@ -195,22 +195,6 @@ Devices communicate using the QRET Launch Control Protocol (QLCP) over TCP (port
 
 For more information on protocol specifications, see [ctl-qlcp-lib](https://github.com/Queens-Rocket-Engineering-Team/ctl-qlcp-lib).
 
-## Breaking changes
-
-Recording was consolidated into sessions. The per-subsystem recording endpoints are **gone**, not deprecated — recording a camera or the voice channel outside a session is no longer possible, because that fragmentation is what sessions exist to remove.
-
-| Removed | Replacement |
-|---------|-------------|
-| `POST /v1/audio/start`, `POST /v1/audio/stop` | `POST /v1/sessions/start`, `POST /v1/sessions/stop` |
-| `GET /v1/audio/files`, `GET /v1/audio/files/{filename}` | `GET /v1/sessions`, `GET /v1/sessions/{id}/download` |
-| `POST /v1/camera/recordings/start\|stop?ip=` | `POST /v1/sessions/start`, which arms every camera at once |
-| `GET /v1/camera/recordings`, `GET /v1/camera/recordings/download/{filename}` | `GET /v1/sessions/{id}/download`, or `/files/{path}` for one clip |
-| `services.mediamtx.recordings_dir`, `services.mumble.recording_dir` | `services.recordings.root` |
-
-Loose recordings under `recordings/mediamtx/` and `recordings/mumble/` are orphaned by the new layout. Nothing breaks if you leave them — directories whose names are not session ids are ignored by the listing — but move them somewhere else if you want to keep them.
-
-`telemetry.csv` also changed shape relative to what the GUI used to write. Controls are now prefixed with their real QLCP group and non-boolean controls carry their value, so `relay_HEATER1` — which was a boolean column that could only ever read `0`, because the heater is a `FLOAT32` — becomes `heater_HEATER1` carrying the setpoint in °C. Scripts that select columns **by name** need only that rename; scripts that index columns **by position** must be rechecked, because the control block is now ordered by group.
-
 ## ESP32 Setup
 
 For the microcontroller side of this project, see [ctl-node-firmware](https://github.com/Queens-Rocket-Engineering-Team/ctl-node-firmware).
