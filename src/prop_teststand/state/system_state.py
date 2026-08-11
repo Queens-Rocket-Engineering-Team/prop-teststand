@@ -41,6 +41,31 @@ class _ControlStateRecord:
     status: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class RecordingSchema:
+    """Everything a recording's columns can be built from, as of one instant.
+
+    Devices are never evicted from the projection, so this covers hardware that has
+    disconnected as well as hardware currently reporting -- a device that drops and
+    reconnects mid-session keeps its columns.
+    """
+
+    sensors: tuple[SensorConfig, ...]
+    controls: tuple[ControlConfig, ...]
+    kasa: tuple[_KasaState, ...]
+
+
+@dataclass(slots=True)
+class _SessionStateRecord:
+    """The recording session currently in progress, if any."""
+
+    session_id: str
+    name: str
+    started_unix: float
+    started_monotonic: float
+    components: dict[str, str] = field(default_factory=dict)
+
+
 @dataclass(slots=True)
 class _DeviceState:
     """State projection for a single device. Control flows requested -> accepted (CONTROL ACK) -> reported (STATUS)."""
@@ -66,6 +91,7 @@ class SystemState:
         self._devices_by_name: dict[str, _DeviceState] = {}
         self._kasa_by_host: dict[str, _KasaState] = {}
         self._tares: dict[str, float] = {}
+        self._session: _SessionStateRecord | None = None
         self._command_tracker = command_tracker
         self._state_version = 0
 
@@ -241,6 +267,81 @@ class SystemState:
             return None
         return self._make_event("tare.cleared", sensor_name=sensor_name)
 
+    def recording_schema(self) -> RecordingSchema:
+        """Sensors, controls and Kasa outlets known to this process, for building recording columns.
+
+        Read once when a recording starts. Because devices announce their full sensor
+        and control set in their CONFIG packet, the columns are known up front and do
+        not have to be discovered from the telemetry itself.
+        """
+        devices = [self._devices_by_name[name] for name in sorted(self._devices_by_name)]
+        return RecordingSchema(
+            sensors=tuple(sensor for device in devices for sensor in device.config.sensors_by_id.values()),
+            controls=tuple(control for device in devices for control in device.config.controls_by_id.values()),
+            kasa=tuple(self._kasa_by_host[host] for host in sorted(self._kasa_by_host)),
+        )
+
+    def control_states(self) -> dict[str, str | None]:
+        """Every control's last device-reported state, keyed by control name.
+
+        Flat across devices, matching how controls are named in the UI. Called once per
+        telemetry batch from the ingest loop, so it stays a plain dict build.
+        """
+        states: dict[str, str | None] = {}
+        for device_name in sorted(self._devices_by_name):
+            device_state = self._devices_by_name[device_name]
+            for control_id, control in device_state.config.controls_by_id.items():
+                reported = device_state.reported_controls.get(control_id)
+                states[control.name] = reported.state if reported is not None else None
+        return states
+
+    def kasa_active(self) -> dict[str, bool]:
+        """Each Kasa outlet's power state, keyed by host."""
+        return {host: self._kasa_by_host[host].active for host in sorted(self._kasa_by_host)}
+
+    def session(self) -> dict[str, Any] | None:
+        """Return the in-progress recording session, or None when nothing is being recorded."""
+        if self._session is None:
+            return None
+        return {
+            "id": self._session.session_id,
+            "name": self._session.name,
+            "started_unix": self._session.started_unix,
+            "started_monotonic": self._session.started_monotonic,
+            "components": dict(self._session.components),
+        }
+
+    def start_session(self, *, session_id: str, name: str, started_unix: float, started_monotonic: float) -> StateEvent:
+        """Mark a recording session as in progress and return a state event."""
+        self._session = _SessionStateRecord(
+            session_id=session_id,
+            name=name,
+            started_unix=started_unix,
+            started_monotonic=started_monotonic,
+        )
+        return self._make_event("session.started", session=self.session())
+
+    def update_session_components(self, components: dict[str, str]) -> StateEvent | None:
+        """Merge per-component recording statuses into the active session."""
+        if self._session is None:
+            return None
+        self._session.components.update(components)
+        return self._make_event("session.updated", session=self.session())
+
+    def stop_session(self, *, stopped_unix: float, end_reason: str) -> StateEvent | None:
+        """Clear the active session, returning None if there was none."""
+        if self._session is None:
+            return None
+        session_id = self._session.session_id
+        self._session = None
+        return self._make_event("session.stopped", session_id=session_id, stopped_unix=stopped_unix, end_reason=end_reason)
+
+    def record_session_warning(self, warning: str, detail: str | None = None) -> StateEvent | None:
+        """Surface a non-fatal recording problem (a late device, an unsettled video file)."""
+        if self._session is None:
+            return None
+        return self._make_event("session.warning", session_id=self._session.session_id, warning=warning, detail=detail)
+
     def record_command_sent(self, command: CommandRecord) -> StateEvent | None:
         return self._command_event("command.sent", command)
 
@@ -264,6 +365,7 @@ class SystemState:
             "kasa": kasa,
             "commands": commands,
             "tares": self.tares(),
+            "session": self.session(),
         }
 
     @staticmethod

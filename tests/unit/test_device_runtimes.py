@@ -1,16 +1,17 @@
 from __future__ import annotations
 import asyncio
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from prop_teststand.config import MediaMTXConfig, MumbleConfig
+from prop_teststand.config import MumbleConfig
 from prop_teststand.runtime.audio_runtime import AudioRuntime
 from prop_teststand.runtime.camera_runtime import CameraRuntime
 from prop_teststand.runtime.command_tracker import CommandTracker
 from prop_teststand.runtime.kasa_runtime import KasaRuntime
+from prop_teststand.runtime.recording_paths import RecordingPaths
 from prop_teststand.runtime.state_stream import StateStream
 from prop_teststand.state.system_state import SystemState
 
@@ -32,7 +33,6 @@ def _make_audio_config(tmp_path: Path) -> MumbleConfig:
         "ip": "127.0.0.1",
         "port": 64738,
         "temp_recording_dir": str(tmp_path / "tmp"),
-        "recording_dir": str(tmp_path / "recordings"),
     })
 
 
@@ -44,7 +44,7 @@ def test_audio_start_raises_when_already_recording(tmp_path: Path) -> None:
     runtime._mumble = MagicMock()  # type: ignore[assignment]
 
     with pytest.raises(RuntimeError, match="already recording"):
-        runtime.start()
+        runtime.start(tmp_path / "audio")
 
 
 def test_audio_stop_raises_when_not_recording(tmp_path: Path) -> None:
@@ -55,100 +55,127 @@ def test_audio_stop_raises_when_not_recording(tmp_path: Path) -> None:
         runtime.stop()
 
 
-def test_audio_get_recording_path_raises_value_error_on_bad_filename(tmp_path: Path) -> None:
-    config = _make_audio_config(tmp_path)
-    runtime = AudioRuntime(config)
-
-    with pytest.raises(ValueError, match="Invalid filename"):
-        runtime.get_recording_path("../escape.opus")
-
-
-def test_audio_get_recording_path_raises_file_not_found(tmp_path: Path) -> None:
-    config = _make_audio_config(tmp_path)
-    runtime = AudioRuntime(config)
-
-    with pytest.raises(FileNotFoundError, match="File not found"):
-        runtime.get_recording_path("nonexistent.opus")
-
-
 # ---------------------------------------------------------------------------
 # CameraRuntime
 # ---------------------------------------------------------------------------
 
 
-def _make_camera_runtime() -> CameraRuntime:
+def _make_camera_runtime(tmp_path: Path) -> CameraRuntime:
     mediamtx = MagicMock()
     return CameraRuntime(
         mediamtx,
         cameras=[],
         camera_account={"username": "user", "password": "pass"},
-        mediamtx_config=cast(MediaMTXConfig, {"recordings_dir": "/tmp/recordings"}),
+        recording_paths=RecordingPaths.from_config({"root": str(tmp_path), "mediamtx_container_root": "/recordings"}),
     )
 
 
-def test_camera_require_camera_raises_key_error() -> None:
-    runtime = _make_camera_runtime()
+def _register_fake_camera(runtime: CameraRuntime, ip: str = "10.0.0.1") -> MagicMock:
+    fake_camera = MagicMock()
+    fake_camera.address = ip
+    fake_camera.hostname = "Cam1"
+    runtime._registry[ip] = fake_camera  # type: ignore[assignment]
+    return fake_camera
+
+
+def test_camera_require_camera_raises_key_error(tmp_path: Path) -> None:
+    runtime = _make_camera_runtime(tmp_path)
 
     with pytest.raises(KeyError, match="10.0.0.99"):
         runtime._require_camera("10.0.0.99")  # type: ignore[attr-defined]
 
 
-def test_camera_start_recording_raises_key_error_for_unknown_ip() -> None:
+def test_camera_record_path_uses_the_idle_location_outside_a_session(tmp_path: Path) -> None:
+    runtime = _make_camera_runtime(tmp_path)
+    camera = _register_fake_camera(runtime)
+
+    assert runtime._record_path_for(camera) == "/recordings/_unassigned/Cam1_%path_%Y%m%d_%H%M%S_%f"  # type: ignore[attr-defined]
+
+
+def test_camera_record_path_targets_the_session_video_dir(tmp_path: Path) -> None:
+    runtime = _make_camera_runtime(tmp_path)
+    camera = _register_fake_camera(runtime)
+    runtime._session_video_dir = PurePosixPath("/recordings/2026-08-10_143005_hotfire/video")  # type: ignore[assignment]
+
+    assert runtime._record_path_for(camera) == "/recordings/2026-08-10_143005_hotfire/video/Cam1_%path_%Y%m%d_%H%M%S_%f"  # type: ignore[attr-defined]
+
+
+def test_camera_start_session_recording_reports_per_camera_failures(tmp_path: Path) -> None:
 
     async def run() -> None:
-        runtime = _make_camera_runtime()
-        with pytest.raises(KeyError):
-            await runtime.start_camera_recording("10.0.0.1")
+        runtime = _make_camera_runtime(tmp_path)
+        _register_fake_camera(runtime, "10.0.0.1")
+        _register_fake_camera(runtime, "10.0.0.2")
 
-    asyncio.run(run())
-
-
-def test_camera_stop_recording_raises_key_error_for_unknown_ip() -> None:
-
-    async def run() -> None:
-        runtime = _make_camera_runtime()
-        with pytest.raises(KeyError):
-            await runtime.stop_camera_recording("10.0.0.1")
-
-    asyncio.run(run())
-
-
-def test_camera_start_recording_raises_runtime_error_on_media_server_failure() -> None:
-
-    async def run() -> None:
-        runtime = _make_camera_runtime()
-
-        # Register a fake camera.
-        fake_camera = MagicMock()
-        fake_camera.address = "10.0.0.1"
-        runtime._registry["10.0.0.1"] = fake_camera  # type: ignore[assignment]
-
-        # Make the media server return a non-200 status.
-        bad_response = MagicMock()
-        bad_response.status = 500
-        runtime._mediamtx.set_recording = AsyncMock(return_value=bad_response)  # type: ignore[method-assign]
+        # Fail the first camera's PATCH, succeed the second.
+        responses = {"10.0.0.1": MagicMock(status=500), "10.0.0.2": MagicMock(status=200)}
+        runtime._mediamtx.set_record_config = AsyncMock(  # type: ignore[method-assign]
+            side_effect=lambda _client, ip, **_kwargs: responses[ip],
+        )
 
         try:
-            with pytest.raises(RuntimeError, match="Media server API returned status 500"):
-                await runtime.start_camera_recording("10.0.0.1")
+            results = await runtime.start_session_recording(PurePosixPath("/recordings/session/video"))
         finally:
             # CameraRuntime._get_http_session() creates a real aiohttp.ClientSession;
             # close it so the test does not leak an unclosed session.
             await runtime.close()
 
+        assert results["10.0.0.2"] is None
+        assert "status 500" in (results["10.0.0.1"] or "")
+
     asyncio.run(run())
 
 
-def test_camera_get_recording_file_path_raises_value_error_on_bad_filename() -> None:
-    runtime = _make_camera_runtime()
-    with pytest.raises(ValueError, match="Invalid"):
-        runtime.get_recording_file_path("../escape.mp4")
+def test_camera_stop_session_recording_clears_the_session_dir(tmp_path: Path) -> None:
+
+    async def run() -> None:
+        runtime = _make_camera_runtime(tmp_path)
+        _register_fake_camera(runtime)
+        runtime._mediamtx.set_record_config = AsyncMock(return_value=MagicMock(status=200))  # type: ignore[method-assign]
+        runtime._session_video_dir = PurePosixPath("/recordings/session/video")  # type: ignore[assignment]
+
+        try:
+            results = await runtime.stop_session_recording()
+        finally:
+            await runtime.close()
+
+        assert results == {"10.0.0.1": None}
+        assert runtime._session_video_dir is None  # type: ignore[attr-defined]
+
+    asyncio.run(run())
 
 
-def test_camera_get_recording_file_path_raises_file_not_found() -> None:
-    runtime = _make_camera_runtime()
-    with pytest.raises(FileNotFoundError):
-        runtime.get_recording_file_path("nosuchfile.mp4")
+def test_settle_video_returns_true_once_sizes_stop_changing(tmp_path: Path) -> None:
+    video_dir = tmp_path / "video"
+    video_dir.mkdir()
+    (video_dir / "clip.mp4").write_bytes(b"frames")
+
+    settled = asyncio.run(CameraRuntime.settle_video(video_dir, timeout_s=2.0, quiet_s=0.1, tick_s=0.02))
+
+    assert settled is True
+
+
+def test_settle_video_times_out_while_a_file_keeps_growing(tmp_path: Path) -> None:
+    video_dir = tmp_path / "video"
+    video_dir.mkdir()
+    clip = video_dir / "clip.mp4"
+    clip.write_bytes(b"")
+
+    async def run() -> bool:
+        async def keep_writing() -> None:
+            while True:
+                with clip.open("ab") as handle:
+                    handle.write(b"more")
+                await asyncio.sleep(0.02)
+
+        writer = asyncio.create_task(keep_writing())
+        try:
+            return await CameraRuntime.settle_video(video_dir, timeout_s=0.4, quiet_s=0.2, tick_s=0.02)
+        finally:
+            writer.cancel()
+            await asyncio.gather(writer, return_exceptions=True)
+
+    assert asyncio.run(run()) is False
 
 
 # ---------------------------------------------------------------------------

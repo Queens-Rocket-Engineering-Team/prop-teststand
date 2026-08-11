@@ -43,7 +43,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project --no-dev && \
     apk del .git-deps
 
-RUN mkdir -p recordings/mediamtx recordings/mumble
+RUN mkdir -p recordings
 
 # Install opus and ffmpeg for audio recording
 RUN apk add --no-cache opus opus-dev ffmpeg

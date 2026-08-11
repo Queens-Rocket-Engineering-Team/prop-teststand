@@ -4,16 +4,19 @@ accounts:
     password: propteambestteam
 
 services:
+  recordings:
+    # The server's view of the shared recordings tree. The media service must bind
+    # the same host directory at `mediamtx_container_root` (see compose.*.yml).
+    root: ./recordings
+    mediamtx_container_root: /recordings
   mediamtx:
     ip: localhost
     api_port: 9997
-    recordings_dir: ./recordings/mediamtx
   mumble:
     ip: localhost
     port: 64738
     password: ""
     temp_recording_dir: /tmp/mumble_recordings
-    recording_dir: ./recordings/mumble
 
 cameras:
   - ip: 192.168.1.5
