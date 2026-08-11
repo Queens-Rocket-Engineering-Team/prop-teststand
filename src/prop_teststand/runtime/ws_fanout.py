@@ -10,6 +10,8 @@ from prop_teststand.runtime.metrics import Metrics
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from fastapi import WebSocket
 
 
@@ -44,13 +46,22 @@ class BoundedWebSocketFanout:
         return len(self._clients)
 
     def publish_message(self, message: JsonMessage) -> None:
-        """Queue *message* to every connected client without blocking.
+        """Queue *message* to every connected client without blocking."""
+        self.publish_message_to(message, self._clients)
 
-        When a client's queue is full the *oldest* queued message is evicted to
-        make room, so a slow client always converges to fresh data instead of
-        draining an ever-stale backlog (latest-wins semantics for live streams).
+    def publish_message_to(self, message: JsonMessage, sockets: Iterable[WebSocket]) -> None:
+        """Queue *message* to the given subset of clients without blocking.
+
+        Sockets that are not (or no longer) connected are skipped, so callers may
+        hold a stale list. When a client's queue is full the *oldest* queued message
+        is evicted to make room, so a slow client always converges to fresh data
+        instead of draining an ever-stale backlog (latest-wins semantics for live
+        streams).
         """
-        for queue in self._clients.values():
+        for socket in sockets:
+            queue = self._clients.get(socket)
+            if queue is None:
+                continue
             try:
                 queue.put_nowait(message)
             except asyncio.QueueFull:
