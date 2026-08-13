@@ -2,20 +2,24 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
+import warnings
 from typing import Any, cast
 
 import numpy as np
 import orjson
 import pytest
 from fastapi import WebSocket
-from tsdownsample import M4Downsampler
 
+from prop_teststand.api.routers.streams import parse_downsample_algorithm
 from prop_teststand.runtime.metrics import Metrics
 from prop_teststand.runtime.telemetry_display_stream import (
+    DEFAULT_DOWNSAMPLE_ALGORITHM,
     DISPLAY_POINTS_PER_BUCKET,
     DISPLAY_TARGET_HZ,
+    DownsampleAlgorithm,
     TelemetryDisplayStream,
     _SensorBuffer,
+    default_downsamplers,
 )
 from prop_teststand.runtime.telemetry_ingest import TelemetryBatch, TelemetryReading
 
@@ -25,11 +29,14 @@ from prop_teststand.runtime.telemetry_ingest import TelemetryBatch, TelemetryRea
 # ---------------------------------------------------------------------------
 
 
-class _IdentityDownsampler:
-    """Returns the first n_out indices unchanged — predictable test output."""
+def _identity_indices(x: np.ndarray, _y: np.ndarray, n_out: int) -> np.ndarray:
+    """Return the first n_out indices unchanged — predictable test output."""
+    return np.arange(min(len(x), n_out), dtype=np.uint64)
 
-    def downsample(self, x: np.ndarray, y: np.ndarray, *, n_out: int) -> np.ndarray:
-        return np.arange(min(len(x), n_out), dtype=np.uint64)
+
+def _reversed_indices(x: np.ndarray, y: np.ndarray, n_out: int) -> np.ndarray:
+    """Return _identity_indices reversed — a second stub, distinguishable in routing tests."""
+    return _identity_indices(x, y, n_out)[::-1]
 
 
 class FakeWebSocket:
@@ -112,9 +119,15 @@ def _make_stream(
     max_queue: int = 128,
     metrics: Metrics | None = None,
 ) -> TelemetryDisplayStream:
-    stream = TelemetryDisplayStream(target_hz=target_hz, max_queue=max_queue, metrics=metrics)
-    stream._downsampler = cast(Any, _IdentityDownsampler())
-    return stream
+    return TelemetryDisplayStream(
+        target_hz=target_hz,
+        max_queue=max_queue,
+        metrics=metrics,
+        downsamplers={
+            DownsampleAlgorithm.M4: _identity_indices,
+            DownsampleAlgorithm.DECIMATION: _reversed_indices,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +137,7 @@ def _make_stream(
 
 def test_sensor_buffer_empty_returns_no_points() -> None:
     buf = _SensorBuffer(0, "PT101", "PSI", "pressure_transducer")
-    assert buf.to_points(cast(M4Downsampler, _IdentityDownsampler()), 8) == []
+    assert buf.to_points(_identity_indices, 8) == []
 
 
 def test_sensor_buffer_collects_samples() -> None:
@@ -140,23 +153,41 @@ def test_sensor_buffer_to_points_uses_downsampler() -> None:
     for i in range(5):
         buf.add(float(i), float(i * 10))
 
-    points = buf.to_points(cast(M4Downsampler, _IdentityDownsampler()), 3)
+    points = buf.to_points(_identity_indices, 3)
 
     assert points == [{"t": 0.0, "v": 0.0}, {"t": 1.0, "v": 10.0}, {"t": 2.0, "v": 20.0}]
 
 
+def _buffer_of(n: int) -> _SensorBuffer:
+    buf = _SensorBuffer(0, "PT101", "PSI", "pressure_transducer")
+    for i in range(n):
+        buf.add(float(i), float(i % 5))  # samples with some variation
+    return buf
+
+
 def test_sensor_buffer_to_points_with_m4() -> None:
     # Sanity-check the real M4 integration: enough samples, correct output shape.
-    buf = _SensorBuffer(0, "PT101", "PSI", "pressure_transducer")
-    for i in range(20):
-        buf.add(float(i), float(i % 5))  # 20 samples with some variation
-
-    points = buf.to_points(M4Downsampler(), n_out=8)
+    points = _buffer_of(20).to_points(default_downsamplers()[DownsampleAlgorithm.M4], n_out=8)
 
     assert len(points) == 8
     ts = [p["t"] for p in points]
     assert ts == sorted(ts), "M4 indices must be in ascending time order"
     assert all("t" in p and "v" in p for p in points)
+
+
+def test_sensor_buffer_to_points_with_decimation() -> None:
+    # Sanity-check the real EveryNth integration. tsdownsample warns when x is passed
+    # to EveryNth, so error-on-warning locks in the values-only call.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        points = _buffer_of(20).to_points(default_downsamplers()[DownsampleAlgorithm.DECIMATION], n_out=8)
+
+    assert [p["t"] for p in points] == [0.0, 2.0, 5.0, 7.0, 10.0, 12.0, 15.0, 17.0]
+    assert [p["v"] for p in points] == [0.0, 2.0, 0.0, 2.0, 0.0, 2.0, 0.0, 2.0]
+
+
+def test_default_downsamplers_cover_every_algorithm() -> None:
+    assert set(default_downsamplers()) == set(DownsampleAlgorithm)
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +329,7 @@ def test_serialize_bucket_wire_format() -> None:
         msg = stream._clients[_as_ws(ws)].get_nowait()
 
         assert msg["type"] == "telemetry.display_batch"
+        assert msg["algorithm"] == "m4"
         assert msg["device_name"] == "MockDevice"
         assert msg["device_address"] == "10.0.0.1"
         assert msg["connection_key"] == "esp-1"
@@ -449,6 +481,116 @@ def test_handle_client_cleans_up_on_send_failure() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Per-client algorithm selection
+# ---------------------------------------------------------------------------
+
+
+def _emit_one_bucket(stream: TelemetryDisplayStream) -> None:
+    interval = stream._bucket_interval_s
+    stream.publish_batch(_make_batch(timestamp_s=1.0, readings=(_make_reading(value=42.0),)))
+    stream.publish_batch(_make_batch(timestamp_s=1.0 + interval * 1.5))
+
+
+def test_client_without_choice_gets_default_algorithm() -> None:
+    async def run() -> None:
+        stream = _make_stream(target_hz=30.0)
+        ws = await _connect(stream)
+
+        _emit_one_bucket(stream)
+
+        assert stream._clients[_as_ws(ws)].get_nowait()["algorithm"] == "m4"
+
+    asyncio.run(run())
+
+
+def test_each_client_receives_its_own_algorithm() -> None:
+    async def run() -> None:
+        stream = _make_stream(target_hz=30.0)
+        # connect_client is the seam the other lifecycle tests use; handle_client
+        # would block on its queue loop, so register the choices directly.
+        m4_ws = await _connect(stream)
+        dec_ws = await _connect(stream)
+        stream._client_algorithms[_as_ws(m4_ws)] = DownsampleAlgorithm.M4
+        stream._client_algorithms[_as_ws(dec_ws)] = DownsampleAlgorithm.DECIMATION
+
+        # Two readings so the identity and reversed stubs produce different output.
+        interval = 1.0 / 30.0
+        readings = (_make_reading(value=1.0),)
+        stream.publish_batch(_make_batch(timestamp_s=1.0, readings=readings))
+        stream.publish_batch(_make_batch(timestamp_s=1.0 + interval * 0.1, readings=readings))
+        stream.publish_batch(_make_batch(timestamp_s=1.0 + interval * 1.5))
+
+        m4_queue = stream._clients[_as_ws(m4_ws)]
+        dec_queue = stream._clients[_as_ws(dec_ws)]
+        assert m4_queue.qsize() == 1, "each client gets exactly one message per bucket"
+        assert dec_queue.qsize() == 1
+
+        m4_msg = m4_queue.get_nowait()
+        dec_msg = dec_queue.get_nowait()
+        assert m4_msg["algorithm"] == "m4"
+        assert dec_msg["algorithm"] == "decimation"
+
+        m4_points = m4_msg["readings"][0]["points"]
+        dec_points = dec_msg["readings"][0]["points"]
+        assert dec_points == m4_points[::-1] != m4_points
+
+    asyncio.run(run())
+
+
+def test_handle_client_records_and_clears_algorithm() -> None:
+    async def run() -> None:
+        stream = _make_stream(target_hz=30.0)
+        ws = FakeWebSocket()
+        task = asyncio.create_task(stream.handle_client(_as_ws(ws), DownsampleAlgorithm.DECIMATION))
+        await asyncio.sleep(0)
+
+        assert stream._client_algorithms[_as_ws(ws)] is DownsampleAlgorithm.DECIMATION
+        _emit_one_bucket(stream)
+        await asyncio.sleep(0)
+        assert ws.sent[0]["algorithm"] == "decimation"
+
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+        assert stream._client_algorithms == {}
+
+    asyncio.run(run())
+
+
+def test_handle_client_clears_algorithm_when_accept_fails() -> None:
+    class _RejectingWebSocket(FakeWebSocket):
+        async def accept(self) -> None:
+            raise RuntimeError("handshake rejected")
+
+    async def run() -> None:
+        stream = _make_stream(target_hz=30.0)
+        ws = _RejectingWebSocket()
+
+        # accept() fails outside the base handle_client's try/finally, so the
+        # error propagates and only our own finally can clean up.
+        with pytest.raises(RuntimeError):
+            await stream.handle_client(_as_ws(ws), DownsampleAlgorithm.DECIMATION)
+
+        assert stream._client_algorithms == {}
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("m4", DownsampleAlgorithm.M4),
+        ("decimation", DownsampleAlgorithm.DECIMATION),
+        ("garbage", DEFAULT_DOWNSAMPLE_ALGORITHM),
+        ("", DEFAULT_DOWNSAMPLE_ALGORITHM),
+    ],
+)
+def test_parse_downsample_algorithm(raw: str, expected: DownsampleAlgorithm) -> None:
+    assert parse_downsample_algorithm(raw) is expected
+
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
@@ -456,6 +598,7 @@ def test_handle_client_cleans_up_on_send_failure() -> None:
 def test_defaults() -> None:
     assert DISPLAY_TARGET_HZ == 30.0
     assert DISPLAY_POINTS_PER_BUCKET == 8
+    assert DEFAULT_DOWNSAMPLE_ALGORITHM is DownsampleAlgorithm.M4
     stream = TelemetryDisplayStream()
     assert stream._bucket_interval_s == pytest.approx(1.0 / 30.0)
-    assert isinstance(stream._downsampler, M4Downsampler)
+    assert set(stream._downsamplers) == set(DownsampleAlgorithm)
