@@ -27,6 +27,7 @@ def test_metrics_endpoint_returns_json_diagnostics(monkeypatch: pytest.MonkeyPat
         "websockets",
         "http",
         "device_lifecycle",
+        "gui_watchdog",
         "recent_events",
     }
     assert body["telemetry"]["ingest"]["by_device"]["PANDA"]["udp_bytes_total"] == 128

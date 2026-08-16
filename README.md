@@ -39,6 +39,28 @@ flowchart LR
 | **media** | [MediaMTX](https://github.com/bluenviron/mediamtx) RTSP/WebRTC relay for camera streams |
 | **gui** | View-only web GUI for engineers at the pad, served at `:8080` (static files only — issues no commands) |
 
+### GUI watchdog
+
+If no GUI has been connected for **10 minutes**, the server sends an ESTOP to every
+registered control node so the stand reverts to its safe state (per QLCP §10.3, ESTOP
+drives every control to its configured `default_state`).
+
+- **Liveness signal**: an open `/ws/state` WebSocket. Nothing else counts — REST polling
+  will not hold the watchdog off.
+- **Armed at boot**: a server that starts and is never opened in a GUI safes itself after
+  10 minutes.
+- **Latched**: each control node receives exactly one ESTOP per trip. A node that
+  connects (or reconnects on a fresh TCP session) while the GUI is still absent is safed
+  too, since the server cannot know what state it came up in.
+- **Re-arms** when a GUI reconnects.
+
+There is no auto-recovery: after a trip, an operator has to re-command the stand. ESTOP
+is fire-and-forget (the node answers with STATUS, not ACK), so the logs record which
+sends succeeded, not which nodes actually reached safe state. Trips are counted at
+`GET /v1/metrics` under `gui_watchdog.trips_total` and logged in `recent_events`.
+The timeout and poll interval are `GUI_WATCHDOG_TIMEOUT_S` and
+`GUI_WATCHDOG_POLL_INTERVAL_S` in `src/prop_teststand/runtime/gui_watchdog.py`.
+
 ## Setup
 
 ### Prerequisites
