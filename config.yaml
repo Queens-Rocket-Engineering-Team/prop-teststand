@@ -19,9 +19,9 @@ services:
     temp_recording_dir: /tmp/mumble_recordings
 
 cameras:
-  - ip: 192.168.1.5
+  - ip: 192.168.0.105
     onvif_port: 2020
-  - ip: 192.168.1.6
+  - ip: 192.168.0.106
     onvif_port: 2020
-  - ip: 192.168.1.7
+  - ip: 192.168.0.107
     onvif_port: 2020
