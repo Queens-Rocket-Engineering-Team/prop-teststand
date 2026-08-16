@@ -93,6 +93,7 @@ class Metrics:
         self._device_connections_total = 0
         self._device_disconnections_total: defaultdict[str, int] = defaultdict(int)
         self._heartbeat_misses_total: defaultdict[str, int] = defaultdict(int)
+        self._gui_watchdog_trips_total = 0
 
     def to_dict(self) -> dict[str, object]:
         """Return a JSON-serializable snapshot of the current metrics."""
@@ -149,6 +150,9 @@ class Metrics:
                 "connections_total": self._device_connections_total,
                 "disconnections_total": dict(sorted(self._device_disconnections_total.items())),
                 "heartbeat_misses_total": dict(sorted(self._heartbeat_misses_total.items())),
+            },
+            "gui_watchdog": {
+                "trips_total": self._gui_watchdog_trips_total,
             },
             "recent_events": list(self._recent_events),
         }
@@ -262,6 +266,18 @@ class Metrics:
         """Record that a device has missed a HEARTBEAT ACK."""
         self._heartbeat_misses_total[device] += 1
         self._add_event("heartbeat.missed", "warning", f"{device} missed a HEARTBEAT ACK", device=device)
+
+    def record_gui_watchdog_trip(self, *, elapsed_s: float, targeted: int, sent: int) -> None:
+        """Record that the GUI watchdog expired and fanned ESTOP out to the registered nodes."""
+        self._gui_watchdog_trips_total += 1
+        self._add_event(
+            "gui.watchdog_tripped",
+            "warning",
+            f"No GUI connected for {elapsed_s:.0f}s; ESTOP sent to {sent}/{targeted} control nodes",
+            elapsed_s=elapsed_s,
+            targeted=targeted,
+            sent=sent,
+        )
 
     def observe_http_request(self, method: str, path: str, status: int | str, duration_seconds: float) -> None:
         """Record an HTTP request and its duration, optionally logging errors."""

@@ -12,6 +12,7 @@ from prop_teststand.runtime.camera_runtime import CameraRuntime
 from prop_teststand.runtime.command_tracker import CommandTracker
 from prop_teststand.runtime.discovery import DiscoveryService
 from prop_teststand.runtime.esp_connection_runtime import ESPConnectionRuntime
+from prop_teststand.runtime.gui_watchdog import GUIWatchdog
 from prop_teststand.runtime.kasa_runtime import KasaRuntime
 from prop_teststand.runtime.log_stream import LogStream
 from prop_teststand.runtime.metrics import Metrics
@@ -53,6 +54,7 @@ class RuntimeServices:
     camera_runtime: CameraRuntime
     kasa_runtime: KasaRuntime
     session_runtime: SessionRuntime
+    gui_watchdog: GUIWatchdog
     _tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict, init=False, repr=False)
 
     def start(self, loop: asyncio.AbstractEventLoop) -> None:
@@ -68,6 +70,10 @@ class RuntimeServices:
         self._tasks["udp_listener"] = loop.create_task(self.telemetry_runtime.run_udp_listener())
         self._tasks["telemetry_display_flush"] = loop.create_task(self.telemetry_display_stream.run())
         self._tasks["auto_discovery"] = loop.create_task(self.discovery_service.run())
+
+        # Safety daemon: ESTOPs every node if the GUI stays away (armed from construction).
+        logger.info("Starting GUI watchdog daemon...")
+        self._tasks["gui_watchdog"] = loop.create_task(self.gui_watchdog.run())
 
         # Camera discovery daemons
         logger.info("Starting camera discovery daemon...")
@@ -146,6 +152,7 @@ def build_runtime(config: ServerConfig) -> RuntimeServices:
         camera_account=config["accounts"]["camera"],
         recording_paths=recording_paths,
     )
+    gui_watchdog = GUIWatchdog(state_stream=state_stream, esp_runtime=esp_runtime, metrics=metrics)
     kasa_runtime = KasaRuntime(system_state=system_state, state_stream=state_stream)
     session_runtime = SessionRuntime(
         paths=recording_paths,
@@ -170,4 +177,5 @@ def build_runtime(config: ServerConfig) -> RuntimeServices:
         camera_runtime=camera_runtime,
         kasa_runtime=kasa_runtime,
         session_runtime=session_runtime,
+        gui_watchdog=gui_watchdog,
     )
