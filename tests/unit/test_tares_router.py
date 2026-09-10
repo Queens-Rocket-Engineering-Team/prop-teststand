@@ -5,17 +5,17 @@ from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
-from prop_teststand.api.fast_api import app
-from prop_teststand.qlcp.config_parser import parse_config
-from prop_teststand.qlcp.packets import DataPacket, PacketHeader, SensorReading
-from prop_teststand.runtime.command_tracker import CommandTracker
-from prop_teststand.runtime.services import RuntimeServices
-from prop_teststand.runtime.telemetry_ingest import TelemetryRuntime
-from prop_teststand.state.system_state import SystemState
+from vector.api.fast_api import app
+from vector.qlcp.config_parser import parse_config
+from vector.qlcp.packets import DataPacket, PacketHeader, SensorReading
+from vector.runtime.command_tracker import CommandTracker
+from vector.runtime.services import RuntimeServices
+from vector.runtime.telemetry_ingest import TelemetryRuntime
+from vector.state.system_state import SystemState
 
 
 if TYPE_CHECKING:
-    from prop_teststand.runtime.esp_connection_runtime import ESPDeviceSession
+    from vector.runtime.esp_connection_runtime import ESPDeviceSession
 
 
 # ---------------------------------------------------------------------------

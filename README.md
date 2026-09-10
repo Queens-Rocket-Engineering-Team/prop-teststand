@@ -1,6 +1,6 @@
-# prop-teststand
+# VECTOR
 
-Server application for QRET's propulsion test stand. Discovers and communicates with ESP32 sensor/control devices over a custom binary TCP protocol, collects sensor data, controls valves, manages IP cameras, records a whole test as a single downloadable [session](#recording-sessions), and exposes everything through a REST API and CLI.
+VECTOR (Vehicle Event, Control, Telemetry, and Operations Router) is the server application for QRET's propulsion ground control system. Discovers and communicates with ESP32 sensor/control devices over a custom binary TCP protocol, collects sensor data, controls valves, manages IP cameras, records a whole test as a single downloadable [session](#recording-sessions), and exposes everything through a REST API and CLI.
 
 ## System Architecture
 
@@ -59,7 +59,7 @@ is fire-and-forget (the node answers with STATUS, not ACK), so the logs record w
 sends succeeded, not which nodes actually reached safe state. Trips are counted at
 `GET /v1/metrics` under `gui_watchdog.trips_total` and logged in `recent_events`.
 The timeout and poll interval are `GUI_WATCHDOG_TIMEOUT_S` and
-`GUI_WATCHDOG_POLL_INTERVAL_S` in `src/prop_teststand/runtime/gui_watchdog.py`.
+`GUI_WATCHDOG_POLL_INTERVAL_S` in `src/vector/runtime/gui_watchdog.py`.
 
 ## Setup
 
@@ -106,7 +106,7 @@ version this server release was tested against.
 
 ```bash
 uv sync
-uv run -m prop_teststand
+uv run -m vector
 ```
 
 `uv sync` installs the environment. The qlcp native library and CFFI protocol
@@ -160,7 +160,7 @@ ESP32 devices configure themselves — each device sends a JSON CONFIG packet on
 
 | Command | Description |
 |---------|-------------|
-| `uv run -m prop_teststand` | Start the main server |
+| `uv run -m vector` | Start the main server |
 | `uv run -m tests.mock_device` | Simulate an ESP32 device for testing |
 | `uv run -m tests.chimera_mock_device` | Simulate a GPS tracker looping a full flight (pad → 13 000 ft → drogue → main) |
 

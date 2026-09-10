@@ -4,7 +4,7 @@ import os
 import zipfile
 from pathlib import Path
 
-from prop_teststand.runtime.session_archive import iter_session_zip
+from vector.runtime.session_archive import iter_session_zip
 
 
 SESSION_ID = "2026-08-10_143005_hotfire"

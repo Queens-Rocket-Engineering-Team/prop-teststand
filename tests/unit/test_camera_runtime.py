@@ -4,14 +4,14 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from prop_teststand.runtime.camera_runtime import CameraRuntime, _filename_token
-from prop_teststand.runtime.recording_paths import RecordingPaths
+from vector.runtime.camera_runtime import CameraRuntime, _filename_token
+from vector.runtime.recording_paths import RecordingPaths
 
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from prop_teststand.drivers.camera import Camera
+    from vector.drivers.camera import Camera
 
 
 class _FakeCamera:

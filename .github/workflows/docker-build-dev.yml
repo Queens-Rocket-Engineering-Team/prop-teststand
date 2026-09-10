@@ -24,7 +24,7 @@ jobs:
               id: package-version
               run: |
                   uv sync --locked --no-dev
-                  version="$(uv run --no-sync --no-dev python -c 'from prop_teststand._version import __version__; print(__version__)')"
+                  version="$(uv run --no-sync --no-dev python -c 'from vector._version import __version__; print(__version__)')"
                   test -n "$version"
                   echo "version=${version}" >> "$GITHUB_OUTPUT"
 
@@ -57,6 +57,6 @@ jobs:
                   platforms: linux/amd64,linux/arm64
                   push: true
                   build-args: |
-                      PROP_TESTSTAND_VERSION=${{ steps.package-version.outputs.version }}
+                      vector_VERSION=${{ steps.package-version.outputs.version }}
                   tags: ${{ steps.meta-server.outputs.tags }}
                   labels: ${{ steps.meta-server.outputs.labels }}

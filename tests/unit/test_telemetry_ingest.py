@@ -4,11 +4,11 @@ from typing import Any, cast
 
 import pytest
 
-from prop_teststand.qlcp.config_parser import parse_config
-from prop_teststand.qlcp.packets import AckPacket, DataPacket, HeartbeatPacket, PacketHeader, SensorReading
-from prop_teststand.runtime.esp_connection_runtime import ESPDeviceSession
-from prop_teststand.runtime.metrics import Metrics
-from prop_teststand.runtime.telemetry_ingest import (
+from vector.qlcp.config_parser import parse_config
+from vector.qlcp.packets import AckPacket, DataPacket, HeartbeatPacket, PacketHeader, SensorReading
+from vector.runtime.esp_connection_runtime import ESPDeviceSession
+from vector.runtime.metrics import Metrics
+from vector.runtime.telemetry_ingest import (
     TARE_SAMPLE_MAX_AGE_S,
     TareCaptureError,
     TelemetryReading,
@@ -126,7 +126,7 @@ def test_unsynced_session_uses_monotonic_timestamp(monkeypatch: pytest.MonkeyPat
     session = _make_session(last_sync_time=None)
     devices: dict[str, ESPDeviceSession] = {session.address: session}
     ingest = TelemetryRuntime(devices.get)
-    monkeypatch.setattr("prop_teststand.runtime.telemetry_ingest.time.monotonic", lambda: 42.25)
+    monkeypatch.setattr("vector.runtime.telemetry_ingest.time.monotonic", lambda: 42.25)
     packet = DataPacket(
         header=PacketHeader(
             sequence=1,
@@ -145,7 +145,7 @@ def test_unsynced_session_uses_monotonic_timestamp(monkeypatch: pytest.MonkeyPat
 
 def test_unknown_device_address_is_logged_and_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
     errors: list[str] = []
-    monkeypatch.setattr("prop_teststand.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
+    monkeypatch.setattr("vector.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
     metrics = Metrics(time_fn=lambda: 100.0)
     ingest = TelemetryRuntime({}.get, metrics=metrics)  # type: ignore[arg-type]
 
@@ -162,7 +162,7 @@ def test_decode_error_records_metric(monkeypatch: pytest.MonkeyPatch) -> None:
     session = _make_session()
     devices: dict[str, ESPDeviceSession] = {session.address: session}
     metrics = Metrics(time_fn=lambda: 100.0)
-    monkeypatch.setattr("prop_teststand.runtime.telemetry_ingest.logger.error", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("vector.runtime.telemetry_ingest.logger.error", lambda *_args, **_kwargs: None)
     ingest = TelemetryRuntime(devices.get, metrics=metrics)
 
     batch = ingest.handle_datagram(b"not decoded", session.address)
@@ -194,7 +194,7 @@ def test_non_data_packet_is_logged_and_ignored(monkeypatch: pytest.MonkeyPatch) 
     session = _make_session()
     devices: dict[str, ESPDeviceSession] = {session.address: session}
     errors: list[str] = []
-    monkeypatch.setattr("prop_teststand.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
+    monkeypatch.setattr("vector.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
     ingest = TelemetryRuntime(devices.get)
     packet = AckPacket.create(HeartbeatPacket(header=PacketHeader(sequence=4, timestamp_us=0)))
 
@@ -208,7 +208,7 @@ def test_unknown_sensor_id_is_logged_and_dropped(monkeypatch: pytest.MonkeyPatch
     session = _make_session()
     devices: dict[str, ESPDeviceSession] = {session.address: session}
     errors: list[str] = []
-    monkeypatch.setattr("prop_teststand.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
+    monkeypatch.setattr("vector.runtime.telemetry_ingest.logger.error", lambda msg, *args, **kwargs: errors.append(msg % args if args else msg))
     ingest = TelemetryRuntime(devices.get)
     packet = DataPacket(
         header=PacketHeader(
@@ -289,10 +289,10 @@ def test_capture_tare_offset_ignores_stale_samples(monkeypatch: pytest.MonkeyPat
     """A disconnected device's last readings must never be used to capture a tare."""
     session = _make_session()
     ingest = TelemetryRuntime({session.address: session}.get)
-    monkeypatch.setattr("prop_teststand.runtime.telemetry_ingest.time.monotonic", lambda: 100.0)
+    monkeypatch.setattr("vector.runtime.telemetry_ingest.time.monotonic", lambda: 100.0)
     ingest.handle_packet(_data_packet((0, 4.0)), session)
 
-    monkeypatch.setattr("prop_teststand.runtime.telemetry_ingest.time.monotonic", lambda: 100.0 + TARE_SAMPLE_MAX_AGE_S + 0.1)
+    monkeypatch.setattr("vector.runtime.telemetry_ingest.time.monotonic", lambda: 100.0 + TARE_SAMPLE_MAX_AGE_S + 0.1)
     with pytest.raises(TareCaptureError):
         ingest.capture_tare_offset("TC1")
 

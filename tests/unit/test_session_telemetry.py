@@ -2,15 +2,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from prop_teststand.qlcp.config_models import ControlConfig, SensorConfig
-from prop_teststand.qlcp.enums import ControlState, ControlType
-from prop_teststand.runtime.session_telemetry import (
+from vector.qlcp.config_models import ControlConfig, SensorConfig
+from vector.qlcp.enums import ControlState, ControlType
+from vector.runtime.session_telemetry import (
     SessionTelemetryWriter,
     TelemetrySessionPublisher,
     build_columns,
     kasa_column_keys,
 )
-from prop_teststand.runtime.telemetry_ingest import TelemetryBatch, TelemetryReading
+from vector.runtime.telemetry_ingest import TelemetryBatch, TelemetryReading
 
 
 @dataclass

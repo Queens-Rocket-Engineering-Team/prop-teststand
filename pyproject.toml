@@ -1,5 +1,5 @@
 [project]
-name = "prop-teststand"
+name = "vector"
 dynamic = ["version"]
 authors = [
     {name = "Noah Warren"}
@@ -73,7 +73,7 @@ source = "vcs"
 fallback-version = "0+unknown"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "src/prop_teststand/_version.py"
+version-file = "src/vector/_version.py"
 template = """
 from __future__ import annotations
 
@@ -103,17 +103,17 @@ __commit_id__ = commit_id = {scm_version.short_node!r}
 """
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/prop_teststand"]
+packages = ["src/vector"]
 exclude = [
-    "/src/prop_teststand/_lib/qlcp_lib_expanded.h",
-    "/src/prop_teststand/_protocol/_qlcp.c",
-    "/src/prop_teststand/_protocol/*.o",
+    "/src/vector/_lib/qlcp_lib_expanded.h",
+    "/src/vector/_protocol/_qlcp.c",
+    "/src/vector/_protocol/*.o",
 ]
 artifacts = [
-    "/src/prop_teststand/_lib/libqlcp.so",
-    "/src/prop_teststand/_protocol/__init__.py",
-    "/src/prop_teststand/_protocol/_qlcp*.so",
-    "/src/prop_teststand/_protocol/_qlcp.pyi",
+    "/src/vector/_lib/libqlcp.so",
+    "/src/vector/_protocol/__init__.py",
+    "/src/vector/_protocol/_qlcp*.so",
+    "/src/vector/_protocol/_qlcp.pyi",
 ]
 
 [tool.hatch.build.targets.sdist]
@@ -125,7 +125,7 @@ include = [
     "/ctl-qlcp-lib",
 ]
 exclude = [
-    "/src/prop_teststand/_lib",
-    "/src/prop_teststand/_protocol",
+    "/src/vector/_lib",
+    "/src/vector/_protocol",
     "/ctl-qlcp-lib/build",
 ]

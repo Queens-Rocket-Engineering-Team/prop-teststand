@@ -4,8 +4,8 @@ from typing import Any
 
 import pytest
 
-from prop_teststand.runtime.gui_watchdog import GUI_WATCHDOG_TIMEOUT_S, GUIWatchdog
-from prop_teststand.runtime.metrics import Metrics
+from vector.runtime.gui_watchdog import GUI_WATCHDOG_TIMEOUT_S, GUIWatchdog
+from vector.runtime.metrics import Metrics
 
 
 class Clock:
@@ -269,7 +269,7 @@ def test_run_loop_sleeps_the_poll_interval(monkeypatch: pytest.MonkeyPatch) -> N
         sleeps.append(delay)
         raise _StopLoop
 
-    monkeypatch.setattr("prop_teststand.runtime.gui_watchdog.asyncio.sleep", _fake_sleep)
+    monkeypatch.setattr("vector.runtime.gui_watchdog.asyncio.sleep", _fake_sleep)
 
     async def run() -> None:
         with pytest.raises(_StopLoop):
@@ -293,7 +293,7 @@ def test_run_loop_survives_a_failing_check(monkeypatch: pytest.MonkeyPatch) -> N
             raise _StopLoop
 
     monkeypatch.setattr(watchdog, "check", _boom)
-    monkeypatch.setattr("prop_teststand.runtime.gui_watchdog.asyncio.sleep", _fake_sleep)
+    monkeypatch.setattr("vector.runtime.gui_watchdog.asyncio.sleep", _fake_sleep)
 
     async def run() -> None:
         with pytest.raises(_StopLoop):

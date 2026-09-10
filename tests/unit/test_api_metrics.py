@@ -3,8 +3,8 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from prop_teststand.api import fast_api
-from prop_teststand.runtime.metrics import Metrics
+from vector.api import fast_api
+from vector.runtime.metrics import Metrics
 
 
 def test_metrics_endpoint_returns_json_diagnostics(monkeypatch: pytest.MonkeyPatch) -> None:

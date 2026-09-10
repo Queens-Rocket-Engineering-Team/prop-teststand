@@ -30,17 +30,17 @@ from typing import Any
 
 import orjson
 
-from prop_teststand.qlcp.config_models import SensorConfig
-from prop_teststand.qlcp.config_parser import cast_control_state, cast_control_type, parse_config
-from prop_teststand.qlcp.decoding import TimesyncResponsePacket, decode_packet_client
-from prop_teststand.qlcp.enums import (
+from vector.qlcp.config_models import SensorConfig
+from vector.qlcp.config_parser import cast_control_state, cast_control_type, parse_config
+from vector.qlcp.decoding import TimesyncResponsePacket, decode_packet_client
+from vector.qlcp.enums import (
     ControlConfirmStatus,
     ControlState,
     ErrorCode,
     PacketType,
 )
-from prop_teststand.qlcp.native import HEADER_SIZE, MAGIC_NUM_SIZE, find_magic_num, get_packet_len, next_sequence
-from prop_teststand.qlcp.packets import (
+from vector.qlcp.native import HEADER_SIZE, MAGIC_NUM_SIZE, find_magic_num, get_packet_len, next_sequence
+from vector.qlcp.packets import (
     AckPacket,
     ConfigPacket,
     ControlPacket,

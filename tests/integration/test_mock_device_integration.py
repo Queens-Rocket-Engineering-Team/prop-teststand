@@ -15,11 +15,11 @@ import contextlib
 import socket
 from typing import TYPE_CHECKING, Any
 
-from prop_teststand.qlcp.enums import ControlState, PacketType
-from prop_teststand.runtime.command_tracker import CommandLifecycle, CommandTracker
-from prop_teststand.runtime.esp_connection_runtime import ESPConnectionRuntime, ESPDeviceSession
-from prop_teststand.runtime.telemetry_ingest import TelemetryBatch, TelemetryRuntime
-from prop_teststand.state.system_state import SystemState
+from vector.qlcp.enums import ControlState, PacketType
+from vector.runtime.command_tracker import CommandLifecycle, CommandTracker
+from vector.runtime.esp_connection_runtime import ESPConnectionRuntime, ESPDeviceSession
+from vector.runtime.telemetry_ingest import TelemetryBatch, TelemetryRuntime
+from vector.state.system_state import SystemState
 from tests.mock_device import MockSensorDevice
 
 

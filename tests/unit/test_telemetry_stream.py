@@ -6,9 +6,9 @@ from typing import Any, cast
 import orjson
 from fastapi import WebSocket
 
-from prop_teststand.runtime.metrics import Metrics
-from prop_teststand.runtime.telemetry_ingest import TelemetryBatch, TelemetryReading
-from prop_teststand.runtime.telemetry_stream import TelemetryStreamRuntime
+from vector.runtime.metrics import Metrics
+from vector.runtime.telemetry_ingest import TelemetryBatch, TelemetryReading
+from vector.runtime.telemetry_stream import TelemetryStreamRuntime
 
 
 class FakeWebSocket:

@@ -16,14 +16,14 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
-from prop_teststand.runtime.command_tracker import CommandTracker
-from prop_teststand.runtime.esp_connection_runtime import ESPConnectionRuntime
-from prop_teststand.runtime.recording_paths import RecordingPaths
-from prop_teststand.runtime.session_archive import iter_session_zip
-from prop_teststand.runtime.session_runtime import SessionRuntime
-from prop_teststand.runtime.session_telemetry import TelemetrySessionPublisher
-from prop_teststand.runtime.telemetry_ingest import TelemetryRuntime
-from prop_teststand.state.system_state import SystemState
+from vector.runtime.command_tracker import CommandTracker
+from vector.runtime.esp_connection_runtime import ESPConnectionRuntime
+from vector.runtime.recording_paths import RecordingPaths
+from vector.runtime.session_archive import iter_session_zip
+from vector.runtime.session_runtime import SessionRuntime
+from vector.runtime.session_telemetry import TelemetrySessionPublisher
+from vector.runtime.telemetry_ingest import TelemetryRuntime
+from vector.state.system_state import SystemState
 from tests.mock_device import MockSensorDevice
 
 
