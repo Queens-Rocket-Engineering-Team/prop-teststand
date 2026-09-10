@@ -22,7 +22,7 @@ from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 ROOT = Path(__file__).resolve().parent
 QLCP_DIR = ROOT / "ctl-qlcp-lib"
 QLCP_INCLUDE = QLCP_DIR / "include"
-PKG_DIR = ROOT / "src" / "prop_teststand"
+PKG_DIR = ROOT / "src" / "vector"
 LIB_DIR = PKG_DIR / "_lib"
 PROTOCOL_DIR = PKG_DIR / "_protocol"
 LIBQLCP = LIB_DIR / "libqlcp.so"
@@ -131,9 +131,9 @@ def build_cffi_extension(cffi_dir: Path) -> None:
     (PROTOCOL_DIR / "__init__.py").write_text(f"{GENERATED_BANNER}\n")
 
     sys.path.insert(0, str(ROOT / "src"))
-    sys.modules.pop("prop_teststand._protocol._qlcp", None)
+    sys.modules.pop("vector._protocol._qlcp", None)
     importlib.invalidate_caches()
-    lib = importlib.import_module("prop_teststand._protocol._qlcp").lib
+    lib = importlib.import_module("vector._protocol._qlcp").lib
     write_stub(lib)
 
     pycache = PROTOCOL_DIR / "__pycache__"

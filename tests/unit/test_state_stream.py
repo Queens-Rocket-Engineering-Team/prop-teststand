@@ -6,9 +6,9 @@ from typing import Any, cast
 import orjson
 from fastapi import WebSocket
 
-from prop_teststand.runtime.command_tracker import CommandTracker
-from prop_teststand.runtime.state_stream import STATE_STREAM_MAX_QUEUE, StateStream
-from prop_teststand.state.system_state import SystemState
+from vector.runtime.command_tracker import CommandTracker
+from vector.runtime.state_stream import STATE_STREAM_MAX_QUEUE, StateStream
+from vector.state.system_state import SystemState
 from tests.unit.test_system_state import _make_device
 
 

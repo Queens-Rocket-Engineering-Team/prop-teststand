@@ -3,10 +3,10 @@ import asyncio
 
 import pytest
 
-from prop_teststand.qlcp.decoding import decode_packet_client
-from prop_teststand.qlcp.enums import PacketType
-from prop_teststand.qlcp.packets import DiscoveryPacket
-from prop_teststand.runtime.discovery import DiscoveryService
+from vector.qlcp.decoding import decode_packet_client
+from vector.qlcp.enums import PacketType
+from vector.qlcp.packets import DiscoveryPacket
+from vector.runtime.discovery import DiscoveryService
 
 
 class FakeSocket:
@@ -76,7 +76,7 @@ def test_run_issues_discovery_when_enabled(monkeypatch: pytest.MonkeyPatch) -> N
             raise _StopLoop  # break out after the first loop iteration
 
         monkeypatch.setattr(service, "discover", _discover)
-        monkeypatch.setattr("prop_teststand.runtime.discovery.asyncio.sleep", _fake_sleep)
+        monkeypatch.setattr("vector.runtime.discovery.asyncio.sleep", _fake_sleep)
 
         with pytest.raises(_StopLoop):
             await service.run()
@@ -102,7 +102,7 @@ def test_run_recovers_when_discover_raises(monkeypatch: pytest.MonkeyPatch) -> N
             raise _StopLoop
 
         monkeypatch.setattr(service, "discover", _discover)
-        monkeypatch.setattr("prop_teststand.runtime.discovery.asyncio.sleep", _fake_sleep)
+        monkeypatch.setattr("vector.runtime.discovery.asyncio.sleep", _fake_sleep)
 
         with pytest.raises(_StopLoop):
             await service.run()
@@ -130,7 +130,7 @@ def test_run_skips_discovery_when_disabled(monkeypatch: pytest.MonkeyPatch) -> N
             raise _StopLoop
 
         monkeypatch.setattr(service, "discover", _discover)
-        monkeypatch.setattr("prop_teststand.runtime.discovery.asyncio.sleep", _fake_sleep)
+        monkeypatch.setattr("vector.runtime.discovery.asyncio.sleep", _fake_sleep)
 
         with pytest.raises(_StopLoop):
             await service.run()

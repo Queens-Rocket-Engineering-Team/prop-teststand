@@ -2,8 +2,8 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-from prop_teststand.config import RECORDINGS_DEFAULTS, RecordingsConfig
-from prop_teststand.runtime.recording_paths import RecordingPaths
+from vector.config import RECORDINGS_DEFAULTS, RecordingsConfig
+from vector.runtime.recording_paths import RecordingPaths
 
 
 def _paths(root: Path) -> RecordingPaths:

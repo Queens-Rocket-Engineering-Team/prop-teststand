@@ -5,9 +5,9 @@ from typing import Any, cast
 
 import orjson
 
-from prop_teststand.qlcp.config_parser import parse_config
-from prop_teststand.qlcp.enums import ControlConfirmStatus, ControlState, ControlType, ErrorCode, PacketType
-from prop_teststand.qlcp.packets import (
+from vector.qlcp.config_parser import parse_config
+from vector.qlcp.enums import ControlConfirmStatus, ControlState, ControlType, ErrorCode, PacketType
+from vector.qlcp.packets import (
     AckPacket,
     ConfigPacket,
     ControlPacket,
@@ -19,9 +19,9 @@ from prop_teststand.qlcp.packets import (
     StatusPacket,
     StatusRequestPacket,
 )
-from prop_teststand.runtime.command_tracker import CommandLifecycle, CommandTracker
-from prop_teststand.runtime.esp_connection_runtime import ESPConnectionRuntime, ESPDeviceSession
-from prop_teststand.state.system_state import SystemState
+from vector.runtime.command_tracker import CommandLifecycle, CommandTracker
+from vector.runtime.esp_connection_runtime import ESPConnectionRuntime, ESPDeviceSession
+from vector.state.system_state import SystemState
 
 
 class FakeStateStream:
@@ -255,7 +255,7 @@ def test_accept_connection_closes_socket_on_non_config_first_packet() -> None:
 def test_accept_connection_times_out_when_no_config_arrives(monkeypatch: Any) -> None:
     async def run() -> None:
         monkeypatch.setattr(
-            "prop_teststand.runtime.esp_connection_runtime.CONFIG_HANDSHAKE_TIMEOUT_S",
+            "vector.runtime.esp_connection_runtime.CONFIG_HANDSHAKE_TIMEOUT_S",
             0.05,
         )
         runtime, _tracker, _state, _stream = _make_runtime()
@@ -736,7 +736,7 @@ def test_close_all_cleanup_before_mark_disconnected() -> None:
 
 
 def test_disconnection_metric_recorded_on_remove_device() -> None:
-    from prop_teststand.runtime.metrics import Metrics
+    from vector.runtime.metrics import Metrics
 
     tracker = CommandTracker()
     state = SystemState(command_tracker=tracker)

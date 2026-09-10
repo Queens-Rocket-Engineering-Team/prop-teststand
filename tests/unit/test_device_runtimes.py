@@ -6,14 +6,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from prop_teststand.config import MumbleConfig
-from prop_teststand.runtime.audio_runtime import AudioRuntime
-from prop_teststand.runtime.camera_runtime import CameraRuntime
-from prop_teststand.runtime.command_tracker import CommandTracker
-from prop_teststand.runtime.kasa_runtime import KasaRuntime
-from prop_teststand.runtime.recording_paths import RecordingPaths
-from prop_teststand.runtime.state_stream import StateStream
-from prop_teststand.state.system_state import SystemState
+from vector.config import MumbleConfig
+from vector.runtime.audio_runtime import AudioRuntime
+from vector.runtime.camera_runtime import CameraRuntime
+from vector.runtime.command_tracker import CommandTracker
+from vector.runtime.kasa_runtime import KasaRuntime
+from vector.runtime.recording_paths import RecordingPaths
+from vector.runtime.state_stream import StateStream
+from vector.state.system_state import SystemState
 
 
 def _make_kasa_runtime() -> KasaRuntime:

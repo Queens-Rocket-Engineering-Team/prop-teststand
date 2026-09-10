@@ -23,7 +23,7 @@ import math
 import random
 from typing import Any
 
-from prop_teststand.qlcp.config_models import SensorConfig
+from vector.qlcp.config_models import SensorConfig
 
 
 try:

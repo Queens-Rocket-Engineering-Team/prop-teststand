@@ -7,17 +7,17 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from prop_teststand.qlcp.config_parser import parse_config
-from prop_teststand.runtime.command_tracker import CommandTracker
-from prop_teststand.runtime.recording_paths import RecordingPaths
-from prop_teststand.runtime.session_runtime import SessionConflictError, SessionRuntime, slugify
-from prop_teststand.runtime.session_telemetry import TelemetrySessionPublisher
-from prop_teststand.runtime.telemetry_ingest import TelemetryBatch, TelemetryReading
-from prop_teststand.state.system_state import SystemState
+from vector.qlcp.config_parser import parse_config
+from vector.runtime.command_tracker import CommandTracker
+from vector.runtime.recording_paths import RecordingPaths
+from vector.runtime.session_runtime import SessionConflictError, SessionRuntime, slugify
+from vector.runtime.session_telemetry import TelemetrySessionPublisher
+from vector.runtime.telemetry_ingest import TelemetryBatch, TelemetryReading
+from vector.state.system_state import SystemState
 
 
 if TYPE_CHECKING:
-    from prop_teststand.runtime.esp_connection_runtime import ESPDeviceSession
+    from vector.runtime.esp_connection_runtime import ESPDeviceSession
 
 
 def _register_device(state: SystemState, device_name: str = "MockDevice", address: str = "10.0.0.1") -> None:

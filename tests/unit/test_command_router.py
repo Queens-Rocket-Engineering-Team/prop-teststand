@@ -3,10 +3,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
 
-from prop_teststand.api.fast_api import app
-from prop_teststand.qlcp.config_models import ControlConfig
-from prop_teststand.qlcp.enums import ControlState, ControlType
-from prop_teststand.runtime.services import RuntimeServices
+from vector.api.fast_api import app
+from vector.qlcp.config_models import ControlConfig
+from vector.qlcp.enums import ControlState, ControlType
+from vector.runtime.services import RuntimeServices
 
 
 # ---------------------------------------------------------------------------

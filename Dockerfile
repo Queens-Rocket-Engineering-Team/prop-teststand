@@ -20,8 +20,8 @@ COPY ctl-qlcp-lib/ ./ctl-qlcp-lib/
 
 # Hatchling package discovery needs the package directories to exist, but the
 # protocol build should stay cached independently from normal app source edits.
-RUN mkdir -p src/prop_teststand && \
-    touch src/prop_teststand/__init__.py
+RUN mkdir -p src/vector && \
+    touch src/vector/__init__.py
 
 # Install prop-teststand in the builder stage. This is the only Docker build
 # step that intentionally runs the Hatchling protocol build hook.
@@ -57,24 +57,24 @@ RUN sed -i 's/lib_location = find_library(.opus.)/lib_location = "libopus.so.0"/
 COPY pyproject.toml uv.lock hatch_build.py ./
 COPY config.yaml ./config.yaml
 COPY src/ ./src/
-COPY --from=protocol-builder /app/src/prop_teststand/_lib/ ./src/prop_teststand/_lib/
-COPY --from=protocol-builder /app/src/prop_teststand/_protocol/ ./src/prop_teststand/_protocol/
+COPY --from=protocol-builder /app/src/vector/_lib/ ./src/vector/_lib/
+COPY --from=protocol-builder /app/src/vector/_protocol/ ./src/vector/_protocol/
 
 # Install the copied project source into the final image. Use an explicit
 # version when supplied, then any pre-generated version file, then a fallback.
 # The protocol artifacts were copied from protocol-builder above, so skip the
 # Hatchling protocol hook here to avoid rebuilding qlcp in the runtime stage.
-ARG PROP_TESTSTAND_VERSION
+ARG vector_VERSION
 RUN --mount=type=cache,target=/root/.cache/uv \
-    if [ -n "${PROP_TESTSTAND_VERSION}" ]; then \
-        version="${PROP_TESTSTAND_VERSION}"; \
-    elif [ -s src/prop_teststand/_version.py ]; then \
-        version="$(python -c 'import runpy; print(runpy.run_path("src/prop_teststand/_version.py")["__version__"])')"; \
+    if [ -n "${vector_VERSION}" ]; then \
+        version="${vector_VERSION}"; \
+    elif [ -s src/vector/_version.py ]; then \
+        version="$(python -c 'import runpy; print(runpy.run_path("src/vector/_version.py")["__version__"])')"; \
     else \
         version="0+unknown"; \
     fi && \
     SKIP_PROTOCOL_BUILD=1 SETUPTOOLS_SCM_PRETEND_VERSION="${version}" uv sync --locked --no-dev
 
-RUN uv run --no-sync --no-dev python -c "from prop_teststand.qlcp.enums import PacketType; print(PacketType.ACK)"
+RUN uv run --no-sync --no-dev python -c "from vector.qlcp.enums import PacketType; print(PacketType.ACK)"
 
-CMD ["uv", "run", "--no-sync", "--no-dev", "python", "-m", "prop_teststand"]
+CMD ["uv", "run", "--no-sync", "--no-dev", "python", "-m", "vector"]

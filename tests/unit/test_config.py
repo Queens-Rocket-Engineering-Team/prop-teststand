@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from prop_teststand.config import RECORDINGS_DEFAULTS, load_config
+from vector.config import RECORDINGS_DEFAULTS, load_config
 
 
 if TYPE_CHECKING:

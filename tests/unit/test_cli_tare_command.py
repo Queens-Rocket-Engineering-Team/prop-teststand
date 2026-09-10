@@ -3,11 +3,11 @@ import asyncio
 from typing import Any, cast
 from unittest.mock import MagicMock
 
-from prop_teststand.daemons.cli_terminal import handle_server_command
-from prop_teststand.runtime.command_tracker import CommandTracker
-from prop_teststand.runtime.services import RuntimeServices
-from prop_teststand.runtime.telemetry_ingest import TareCaptureError
-from prop_teststand.state.system_state import SystemState
+from vector.daemons.cli_terminal import handle_server_command
+from vector.runtime.command_tracker import CommandTracker
+from vector.runtime.services import RuntimeServices
+from vector.runtime.telemetry_ingest import TareCaptureError
+from vector.state.system_state import SystemState
 
 
 def _make_runtime(capture: Any = None) -> tuple[RuntimeServices, SystemState, list[dict]]:

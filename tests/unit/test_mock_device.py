@@ -2,7 +2,7 @@ from itertools import pairwise
 
 import pytest
 
-from prop_teststand.qlcp.config_models import SensorConfig
+from vector.qlcp.config_models import SensorConfig
 from tests.mock_device import (
     MOCK_SIGNAL_AMPLITUDE,
     MOCK_SIGNAL_FREQUENCY_HZ,

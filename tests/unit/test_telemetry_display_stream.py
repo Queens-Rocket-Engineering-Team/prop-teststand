@@ -10,9 +10,9 @@ import orjson
 import pytest
 from fastapi import WebSocket
 
-from prop_teststand.api.routers.streams import parse_downsample_algorithm
-from prop_teststand.runtime.metrics import Metrics
-from prop_teststand.runtime.telemetry_display_stream import (
+from vector.api.routers.streams import parse_downsample_algorithm
+from vector.runtime.metrics import Metrics
+from vector.runtime.telemetry_display_stream import (
     DEFAULT_DOWNSAMPLE_ALGORITHM,
     DISPLAY_POINTS_PER_BUCKET,
     DISPLAY_TARGET_HZ,
@@ -21,7 +21,7 @@ from prop_teststand.runtime.telemetry_display_stream import (
     _SensorBuffer,
     default_downsamplers,
 )
-from prop_teststand.runtime.telemetry_ingest import TelemetryBatch, TelemetryReading
+from vector.runtime.telemetry_ingest import TelemetryBatch, TelemetryReading
 
 
 # ---------------------------------------------------------------------------

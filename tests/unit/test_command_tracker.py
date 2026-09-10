@@ -1,8 +1,8 @@
 from typing import Any, cast
 
-from prop_teststand.qlcp.enums import ControlState, ErrorCode, PacketType
-from prop_teststand.runtime.command_tracker import CommandKey, CommandLifecycle, CommandRecord, CommandTracker
-from prop_teststand.runtime.metrics import Metrics
+from vector.qlcp.enums import ControlState, ErrorCode, PacketType
+from vector.runtime.command_tracker import CommandKey, CommandLifecycle, CommandRecord, CommandTracker
+from vector.runtime.metrics import Metrics
 
 
 def _metrics_snapshot(metrics: Metrics) -> dict[str, Any]:

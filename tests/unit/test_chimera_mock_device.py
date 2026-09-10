@@ -4,7 +4,7 @@
 
 import math
 
-from prop_teststand.qlcp.config_parser import parse_config
+from vector.qlcp.config_parser import parse_config
 from tests.chimera_mock_device import (
     APOGEE_M,
     CHIMERA_CONFIG,

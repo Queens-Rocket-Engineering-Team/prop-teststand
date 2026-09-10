@@ -8,10 +8,10 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from prop_teststand.api.fast_api import app
-from prop_teststand.runtime.recording_paths import RecordingPaths
-from prop_teststand.runtime.services import RuntimeServices
-from prop_teststand.runtime.session_runtime import SessionConflictError, SessionRuntime
+from vector.api.fast_api import app
+from vector.runtime.recording_paths import RecordingPaths
+from vector.runtime.services import RuntimeServices
+from vector.runtime.session_runtime import SessionConflictError, SessionRuntime
 
 
 SESSION_ID = "2026-08-10_143005_hotfire"

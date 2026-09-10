@@ -1,7 +1,7 @@
 from typing import Any, cast
 
-from prop_teststand.qlcp.enums import ErrorCode, PacketType
-from prop_teststand.runtime.metrics import Metrics
+from vector.qlcp.enums import ErrorCode, PacketType
+from vector.runtime.metrics import Metrics
 
 
 def _snapshot(metrics: Metrics) -> dict[str, Any]:

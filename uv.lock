@@ -1082,62 +1082,6 @@ wheels = [
 ]
 
 [[package]]
-name = "prop-teststand"
-source = { editable = "." }
-dependencies = [
-    { name = "aioconsole" },
-    { name = "aiohttp" },
-    { name = "colorama" },
-    { name = "fastapi" },
-    { name = "numpy" },
-    { name = "onvif-zeep-async" },
-    { name = "opuslib" },
-    { name = "orjson" },
-    { name = "pymumble" },
-    { name = "python-kasa" },
-    { name = "pyyaml" },
-    { name = "tsdownsample" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "hatch-vcs" },
-    { name = "mypy" },
-    { name = "pydantic" },
-    { name = "pytest" },
-    { name = "ruff" },
-    { name = "uv" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aioconsole", specifier = ">=0.8.1" },
-    { name = "aiohttp", specifier = ">=3.13.2" },
-    { name = "colorama" },
-    { name = "fastapi", specifier = ">=0.116.1" },
-    { name = "numpy" },
-    { name = "onvif-zeep-async", specifier = ">=4.0.4" },
-    { name = "opuslib", specifier = ">=3.0.1" },
-    { name = "orjson", specifier = ">=3.11.9" },
-    { name = "pymumble", git = "https://git.sr.ht/~oopsbagel/pymumble" },
-    { name = "python-kasa", specifier = ">=0.10.2" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "tsdownsample", specifier = ">=0.1.5.1" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.35.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "hatch-vcs" },
-    { name = "mypy" },
-    { name = "pydantic", specifier = ">=2.11.7" },
-    { name = "pytest", specifier = ">=9.0.2" },
-    { name = "ruff" },
-    { name = "uv" },
-]
-
-[[package]]
 name = "propcache"
 version = "0.4.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1764,6 +1708,62 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/49/42/d97a7795055677961c63a1eef8e7b19d5968ed992ed3a70ab8eb012efad8/vcs_versioning-1.1.1.tar.gz", hash = "sha256:fabd75a3cab7dd8ac02fe24a3a9ba936bf258667b5a62ed468c9a1da0f5775bc", size = 97575, upload-time = "2026-03-27T20:42:41.613Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e6/60/73603fbcdbe5e803855bcce4414f94eaeed449083bd8183e67161af78188/vcs_versioning-1.1.1-py3-none-any.whl", hash = "sha256:b541e2ba79fc6aaa3850f8a7f88af43d97c1c80649c01142ee4146eddbc599e4", size = 79851, upload-time = "2026-03-27T20:42:40.45Z" },
+]
+
+[[package]]
+name = "vector"
+source = { editable = "." }
+dependencies = [
+    { name = "aioconsole" },
+    { name = "aiohttp" },
+    { name = "colorama" },
+    { name = "fastapi" },
+    { name = "numpy" },
+    { name = "onvif-zeep-async" },
+    { name = "opuslib" },
+    { name = "orjson" },
+    { name = "pymumble" },
+    { name = "python-kasa" },
+    { name = "pyyaml" },
+    { name = "tsdownsample" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "hatch-vcs" },
+    { name = "mypy" },
+    { name = "pydantic" },
+    { name = "pytest" },
+    { name = "ruff" },
+    { name = "uv" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aioconsole", specifier = ">=0.8.1" },
+    { name = "aiohttp", specifier = ">=3.13.2" },
+    { name = "colorama" },
+    { name = "fastapi", specifier = ">=0.116.1" },
+    { name = "numpy" },
+    { name = "onvif-zeep-async", specifier = ">=4.0.4" },
+    { name = "opuslib", specifier = ">=3.0.1" },
+    { name = "orjson", specifier = ">=3.11.9" },
+    { name = "pymumble", git = "https://git.sr.ht/~oopsbagel/pymumble" },
+    { name = "python-kasa", specifier = ">=0.10.2" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "tsdownsample", specifier = ">=0.1.5.1" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.35.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "hatch-vcs" },
+    { name = "mypy" },
+    { name = "pydantic", specifier = ">=2.11.7" },
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "ruff" },
+    { name = "uv" },
 ]
 
 [[package]]

@@ -3,7 +3,7 @@ import asyncio
 import contextlib
 import socket
 
-from prop_teststand.runtime.telemetry_ingest import (
+from vector.runtime.telemetry_ingest import (
     TelemetryBatch,
     TelemetryRuntime,
 )

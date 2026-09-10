@@ -1,6 +1,6 @@
-from prop_teststand.qlcp.decoding import decode_packet_server
-from prop_teststand.qlcp.enums import ControlConfirmStatus, ControlState, ControlType, PacketType
-from prop_teststand.qlcp.packets import ControlStatus, StatusPacket, StatusRequestPacket
+from vector.qlcp.decoding import decode_packet_server
+from vector.qlcp.enums import ControlConfirmStatus, ControlState, ControlType, PacketType
+from vector.qlcp.packets import ControlStatus, StatusPacket, StatusRequestPacket
 
 
 def test_status_round_trip_carries_control_status_byte() -> None:
